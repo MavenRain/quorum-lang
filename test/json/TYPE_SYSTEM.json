@@ -1,0 +1,2 @@
+{"code":"TYPE_SYSTEM","span":{"file":"test/json/TYPE_SYSTEM.lang","line":2,"col":9,"endLine":2,"endCol":9},"expected":null,"found":null,"fix":null,"retry":true,"message":"two cells disagree where the faces meet at ~ i: 0 against 1"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

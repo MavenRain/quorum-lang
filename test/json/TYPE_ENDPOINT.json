@@ -1,0 +1,2 @@
+{"code":"TYPE_ENDPOINT","span":{"file":"test/json/TYPE_ENDPOINT.lang","line":5,"col":7,"endLine":5,"endCol":7},"expected":null,"found":null,"fix":null,"retry":true,"message":"the path at i1 is 1, but its type needs 2"}
+{"parsed":2,"typed":1,"laws":{"discharged":0,"total":0}}

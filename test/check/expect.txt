@@ -24,3 +24,15 @@ no-type.lang TYPE_INFER
 bare-fun.lang TYPE_INFER
 arity.lang TYPE_ARITY
 not-function.lang TYPE_NOT_FUNCTION
+cell-pair.lang REFUSE_CELL
+cell-list.lang REFUSE_CELL
+cell-ghost.lang REFUSE_CELL
+cell-type-index.lang REFUSE_CELL
+index-mismatch.lang TYPE_MISMATCH
+index-fold.lang DOMAIN_FAMILY
+cell-fmset-cons.lang REFUSE_CELL
+cell-record-field.lang REFUSE_CELL
+cell-cc.lang REFUSE_CELL
+cell-alias-param.lang REFUSE_CELL
+cell-alias-index.lang REFUSE_CELL
+cell-alias-record.lang REFUSE_CELL

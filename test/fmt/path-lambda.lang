@@ -1,0 +1,2 @@
+flip : (x : ℕ) → (y : ℕ) → x ≡ y → y ≡ x
+flip x y p = λ i → p (~ i)

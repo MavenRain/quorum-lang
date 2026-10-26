@@ -33,6 +33,7 @@ typedef struct {
   size_t decl_index;
   const Scope *scope; /* the innermost binder first */
   const Env *env;     /* a variable for each binder */
+  const Value *face;  /* the faces of the enclosing system cells, or NULL */
   uint32_t level;     /* the number of binders */
   unsigned depth;
   uint32_t eta_count;
@@ -64,17 +65,16 @@ typedef enum {
   RULE_TYPE0,
   RULE_TYPE1,
   RULE_TYPE2,
-  RULE_EQ,
   RULE_VALUE0,
   RULE_PAIR,
   RULE_INJ,
   RULE_EMPTY,
   RULE_SOME,
   RULE_CONS,
-  RULE_PACK,
   RULE_REFL,
-  RULE_PART,
   RULE_SIGMA_PART,
+  RULE_TIMES,
+  RULE_LEVEL,
   RULE_EITHER,
   RULE_OPTION,
   RULE_PURE,
@@ -83,13 +83,15 @@ typedef enum {
   RULE_FILTER,
   RULE_FOLD,
   RULE_UNFOLD,
-  RULE_SYMM,
-  RULE_TRANS,
-  RULE_CONG,
-  RULE_TRANSPORT,
   RULE_NAT2,
   RULE_SUC,
-  RULE_FLAG_IF
+  RULE_FLAG_IF,
+  RULE_INTERVAL,
+  RULE_IOP,
+  RULE_PATHP,
+  RULE_PATH_EQ,
+  RULE_TRANSP,
+  RULE_HCOMP
 } Rule;
 
 typedef struct {
@@ -98,44 +100,50 @@ typedef struct {
   Rule rule;
   Op op;
   Op result;     /* VALUE0, NAT2: the result type. EMPTY, INJ: the type former. */
-  uint32_t part; /* INJ, PART, SIGMA_PART: 0 or 1 */
+  uint32_t part; /* INJ, SIGMA_PART: 0 or 1 */
 } Builtin;
 
 static const Builtin BUILTINS[] = {
   {"ℕ", 0, RULE_TYPE0, OP_NAT, OP_NAT, 0},
   {"Bool", 0, RULE_TYPE0, OP_FLAG, OP_NAT, 0},
   {"Unit", 0, RULE_TYPE0, OP_UNIT, OP_NAT, 0},
-  {"_×_", 2, RULE_TYPE2, OP_PROD, OP_NAT, 0},
+  {"_×_", 2, RULE_TIMES, OP_NAT, OP_NAT, 0},
   {"Maybe", 1, RULE_TYPE1, OP_OPTION, OP_NAT, 0},
-  {"Eq", 3, RULE_EQ, OP_EQ, OP_NAT, 0},
   {"unit", 0, RULE_VALUE0, OP_UNIT_VAL, OP_UNIT, 0},
   {"true", 0, RULE_VALUE0, OP_FLAG_YES, OP_FLAG, 0},
   {"false", 0, RULE_VALUE0, OP_FLAG_NO, OP_FLAG, 0},
-  {"pair", 2, RULE_PAIR, OP_PAIR, OP_PROD, 0},
+  {"_,_", 2, RULE_PAIR, OP_PACK, OP_NAT, 0},
   {"nothing", 0, RULE_EMPTY, OP_NONE, OP_OPTION, 0},
   {"just", 1, RULE_SOME, OP_SOME, OP_OPTION, 0},
-  {"pack", 2, RULE_PACK, OP_PACK, OP_NAT, 0},
-  {"refl", 0, RULE_REFL, OP_REFL, OP_EQ, 0},
-  {"first", 1, RULE_PART, OP_FIRST, OP_PROD, 0},
-  {"second", 1, RULE_PART, OP_SECOND, OP_PROD, 1},
-  {"witness", 1, RULE_SIGMA_PART, OP_WITNESS, OP_NAT, 0},
-  {"payload", 1, RULE_SIGMA_PART, OP_PAYLOAD, OP_NAT, 1},
+  {"refl", 0, RULE_REFL, OP_PLAM, OP_PATHP, 0},
+  {"fst", 1, RULE_SIGMA_PART, OP_WITNESS, OP_NAT, 0},
+  {"snd", 1, RULE_SIGMA_PART, OP_PAYLOAD, OP_NAT, 1},
   {"option", 3, RULE_OPTION, OP_OPTION_ELIM, OP_OPTION, 0},
   {"pure", 1, RULE_PURE, OP_PURE, OP_NAT, 0},
   {"map", 2, RULE_MAP, OP_MAP, OP_NAT, 0},
   {"bind", 2, RULE_BIND, OP_BIND, OP_NAT, 0},
   {"fold", 2, RULE_FOLD, OP_FOLD_NAT, OP_NAT, 0},
-  {"symm", 1, RULE_SYMM, OP_SYMM, OP_EQ, 0},
-  {"trans", 2, RULE_TRANS, OP_TRANS, OP_EQ, 0},
-  {"cong", 2, RULE_CONG, OP_CONG, OP_EQ, 0},
-  {"transport", 3, RULE_TRANSPORT, OP_TRANSPORT, OP_EQ, 0},
   {"natAdd", 2, RULE_NAT2, OP_NAT_ADD, OP_NAT, 0},
   {"suc", 1, RULE_SUC, OP_NAT_ADD, OP_NAT, 0},
   {"natSub", 2, RULE_NAT2, OP_NAT_SUB, OP_NAT, 0},
   {"natMul", 2, RULE_NAT2, OP_NAT_MUL, OP_NAT, 0},
   {"natEq", 2, RULE_NAT2, OP_NAT_EQ, OP_FLAG, 0},
   {"natLe", 2, RULE_NAT2, OP_NAT_LE, OP_FLAG, 0},
-  {"flagIf", 3, RULE_FLAG_IF, OP_FLAG_IF, OP_FLAG, 0}
+  {"flagIf", 3, RULE_FLAG_IF, OP_FLAG_IF, OP_FLAG, 0},
+  {"I", 0, RULE_INTERVAL, OP_I, OP_NAT, 0},
+  {"i0", 0, RULE_VALUE0, OP_I0, OP_I, 0},
+  {"i1", 0, RULE_VALUE0, OP_I1, OP_I, 0},
+  {"~_", 1, RULE_IOP, OP_INEG, OP_I, 0},
+  {"_∧_", 2, RULE_IOP, OP_IMIN, OP_I, 0},
+  {"_∨_", 2, RULE_IOP, OP_IMAX, OP_I, 0},
+  {"PathP", 3, RULE_PATHP, OP_PATHP, OP_NAT, 0},
+  {"_≡_", 2, RULE_PATH_EQ, OP_PATHP, OP_NAT, 0},
+  {"primTransp", 3, RULE_TRANSP, OP_TRANSP, OP_NAT, 0},
+  {"primHComp", 2, RULE_HCOMP, OP_HCOMP, OP_NAT, 0},
+  {"Level", 0, RULE_TYPE0, OP_LEVEL, OP_NAT, 0},
+  {"lzero", 0, RULE_LEVEL, OP_NAT_ADD, OP_LEVEL, 0},
+  {"lsuc", 1, RULE_LEVEL, OP_NAT_ADD, OP_LEVEL, 0},
+  {"ℓ-max", 2, RULE_LEVEL, OP_NAT_LE, OP_LEVEL, 0}
 };
 
 #define BUILTIN_COUNT ((uint32_t)(sizeof BUILTINS / sizeof BUILTINS[0]))
@@ -296,6 +304,10 @@ static const Value *flag_type(Checker *c) {
   return tyop(c, OP_FLAG, 0, NULL, NULL, NULL);
 }
 
+static const Value *interval_type(Checker *c) {
+  return tyop(c, OP_I, 0, NULL, NULL, NULL);
+}
+
 /* The value of the core term K in the current context. */
 static const Value *here(Checker *c, const Core *k) {
   return k == NULL ? NULL : eval_core(c->m, c->env, k);
@@ -317,9 +329,12 @@ static const char *show(Checker *c, const Value *v) {
   return buf;
 }
 
-static int push(Checker *c, const char *name, const Value *type) {
+/* Binds NAME : TYPE to VALUE. A binder passes its own variable. A defined
+   local (`let x = t in u`, A1) passes the value of t, so the body checks
+   with x unfolded. */
+static int push_value(Checker *c, const char *name, const Value *type, const Value *value) {
   Scope *s = arena_alloc(c->m->arena, sizeof *s);
-  const Env *e = env_push(c->m, c->env, val_var(c->m, c->level));
+  const Env *e = value == NULL ? NULL : env_push(c->m, c->env, value);
   if (type == NULL || s == NULL || e == NULL)
     return c->m->diag->set ? 0 : FAIL(c, "OOM", "out of memory");
   s->name = name;
@@ -332,10 +347,61 @@ static int push(Checker *c, const char *name, const Value *type) {
   return 1;
 }
 
+static int push(Checker *c, const char *name, const Value *type) {
+  return push_value(c, name, type, val_var(c->m, c->level));
+}
+
 static void pop(Checker *c) {
   c->scope = c->scope->next;
   c->env = c->env->next;
   c->level--;
+}
+
+/* The checker environment at DEPTH binders, with the variable of each
+   literal set to i1 (level * 2) or i0 (level * 2 + 1). */
+static const Env *face_env_at(Checker *c, uint32_t depth, const uint32_t *lits, uint32_t n) {
+  const Env *env = NULL;
+  const Value *v;
+  uint32_t level;
+  uint32_t i;
+  for (level = 0; level < depth; level++) {
+    v = val_var(c->m, level);
+    for (i = 0; i < n; i++) {
+      if (lits[i] / 2u == level)
+        v = tyop(c, lits[i] % 2u == 0 ? OP_I1 : OP_I0, 0, NULL, NULL, NULL);
+    }
+    env = env_push(c->m, env, v);
+    if (env == NULL)
+      return NULL;
+  }
+  return env;
+}
+
+/* Conversion under the faces of the enclosing system cells (former C1): A
+   and B agree on each meet of c->face. The core of each side is evaluated
+   again with the variables of the meet set to their ends. */
+static int conv_on(Checker *c, uint32_t level, const Value *a, const Value *b) {
+  FaceMeets fm;
+  const Core *ka;
+  const Core *kb;
+  const Env *env;
+  uint32_t q;
+  if (a == NULL || b == NULL)
+    return 0;
+  if (conv_values(c->m, level, a, b))
+    return 1;
+  if (c->face == NULL || !face_meets(c->m, level, c->face, &fm))
+    return 0;
+  ka = quote_value(c->m, level, a);
+  kb = quote_value(c->m, level, b);
+  if (ka == NULL || kb == NULL)
+    return 0;
+  for (q = 0; q < fm.count; q++) {
+    env = face_env_at(c, level, fm.lit[q], fm.len[q]);
+    if ((env == NULL && level > 0) || !conv_values(c->m, level, eval_core(c->m, env, ka), eval_core(c->m, env, kb)))
+      return 0;
+  }
+  return 1;
 }
 
 /* 1 when a term of type FOUND can stand where WANT is expected.
@@ -343,7 +409,7 @@ static void pop(Checker *c) {
 static int expect(Checker *c, const Value *found, const Value *want) {
   if (found == NULL || want == NULL)
     return 0;
-  if (conv_values(c->m, c->level, found, want))
+  if (conv_on(c, c->level, found, want))
     return 1;
   return FAIL(c, "TYPE_MISMATCH", "expected a term of type %s, found a term of type %s", show(c, want), show(c, found));
 }
@@ -377,6 +443,7 @@ static const Env *env_of(Checker *c, const Value *const *vals, uint32_t n) {
 
 static const Core *elab(Checker *c, const Term *t, const Value *hint, const Value **type);
 static const Core *check_lam(Checker *c, const Term *t, const Value *hint, const Value **type);
+static int annotation_ok(Checker *c, const Term *ann, const Value *dom);
 
 static const Core *check_inside(Checker *c, const Term *t, const Value *want);
 static const Core *infer_inside(Checker *c, const Term *t, const Value **type);
@@ -418,15 +485,25 @@ static const Core *try_infer(Checker *c, const Term *t, const Value **type) {
   return k;
 }
 
-static const Core *check_type(Checker *c, const Term *t, uint64_t *level) {
+/* T as a type. INTERVAL 1 also takes the interval I, which is in no
+   universe (former C1): only a binder can have the type I. */
+static const Core *type_term(Checker *c, const Term *t, int interval, uint64_t *level) {
   const Value *type = NULL;
   const Core *k = infer(c, t, &type);
   if (k == NULL)
     return NULL;
+  if (interval && val_is(type, OP_SSET) && val_is(here(c, k), OP_I)) {
+    *level = 0;
+    return k;
+  }
   if (type == NULL || type->kind != VAL_UNIV)
     return nul(FAIL(c, "TYPE_MISMATCH", "expected a type, found a term of type %s", show(c, type)));
   *level = type->nat;
   return k;
+}
+
+static const Core *check_type(Checker *c, const Term *t, uint64_t *level) {
+  return type_term(c, t, 0, level);
 }
 
 /* Compares the inferred *TYPE with HINT. */
@@ -520,13 +597,6 @@ static const Core *not_carrier(Call *k, const Value *type) {
   return nul(FAIL(k->c, "TYPE_MISMATCH", "%s needs a value of type Maybe A or List A, found a term of type %s", k->b->name, show(k->c, type)));
 }
 
-static const Core *infer_eq(Call *k, uint32_t i, const Value **type) {
-  const Core *e = infer(k->c, k->args[i], type);
-  if (e == NULL)
-    return NULL;
-  return val_is(*type, OP_EQ) ? e : nul(FAIL(k->c, "TYPE_MISMATCH", "%s needs a proof of type Eq A a b, found a term of type %s", k->b->name, show(k->c, *type)));
-}
-
 static const Core *rule_type1(Call *k) {
   uint64_t level = 0;
   const Core *a = check_type(k->c, k->args[0], &level);
@@ -543,25 +613,42 @@ static const Core *rule_type2(Call *k) {
   return op3(k->c, k->b->op, 0, 2, a, b, NULL);
 }
 
-static const Core *rule_eq(Call *k) {
-  Checker *c = k->c;
-  uint64_t level = 0;
-  const Core *t = check_type(c, k->args[0], &level);
-  const Value *tv = here(c, t);
-  const Core *a = check(c, k->args[1], tv);
-  const Core *b = a == NULL ? NULL : check(c, k->args[2], tv);
-  k->type = val_univ(c->m, 0);
-  return op3(c, OP_EQ, 0, 3, t, a, b);
+/* The Sigma over A with the constant codomain B: A × B (D9). */
+static const Value *sigma_const(Checker *c, const Value *a, const Value *b) {
+  return here(c, core_bind(c, CORE_SIGMA, "_", quote_value(c->m, c->level, a), quote_value(c->m, c->level + 1u, b)));
 }
 
+/* A × B: Sigma with a constant codomain (D9). */
+static const Core *rule_times(Call *k) {
+  Checker *c = k->c;
+  uint64_t la = 0;
+  uint64_t lb = 0;
+  const Core *a = check_type(c, k->args[0], &la);
+  const Core *b = a == NULL ? NULL : check_type(c, k->args[1], &lb);
+  if (b == NULL)
+    return NULL;
+  k->type = val_univ(c->m, la > lb ? la : lb);
+  return core_bind(c, CORE_SIGMA, "_", a, quote_value(c->m, c->level + 1u, here(c, b)));
+}
+
+static const Core *rule_pack(Call *k);
+
+/* a , b: OP_PACK against a Sigma hint, else the constant Sigma of the
+   inferred types (D9). */
 static const Core *rule_pair(Call *k) {
   Checker *c = k->c;
-  const Value *ta = val_is(k->hint, OP_PROD) ? k->hint->args[0] : NULL;
-  const Value *tb = val_is(k->hint, OP_PROD) ? k->hint->args[1] : NULL;
-  const Core *a = ta != NULL ? check(c, k->args[0], ta) : infer(c, k->args[0], &ta);
-  const Core *b = a == NULL ? NULL : (tb != NULL ? check(c, k->args[1], tb) : infer(c, k->args[1], &tb));
-  k->type = tyop(c, OP_PROD, 2, ta, tb, NULL);
-  return op3(c, OP_PAIR, 0, 2, a, b, NULL);
+  const Value *ta = NULL;
+  const Value *tb = NULL;
+  const Core *a;
+  const Core *b;
+  if (k->hint != NULL && k->hint->kind == VAL_SIGMA)
+    return rule_pack(k);
+  a = infer(c, k->args[0], &ta);
+  b = a == NULL ? NULL : infer(c, k->args[1], &tb);
+  if (b == NULL)
+    return NULL;
+  k->type = sigma_const(c, ta, tb);
+  return op3(c, OP_PACK, 0, 2, a, b, NULL);
 }
 
 static const Core *rule_inj(Call *k) {
@@ -609,27 +696,397 @@ static const Core *rule_pack(Call *k) {
   return op3(c, OP_PACK, 0, 2, w, p, NULL);
 }
 
-static const Core *rule_refl(Call *k) {
+/* lzero, lsuc l and ℓ-max l m (D5): a closed level is a ℕ value of type
+   Level, so the ℕ ops compute it. The arity picks the builtin. */
+static const Core *rule_level(Call *k) {
   Checker *c = k->c;
-  const Value *e = k->hint;
-  if (!val_is(e, OP_EQ))
-    return need_type(k, "Eq A a b");
-  if (!conv_values(c->m, c->level, e->args[1], e->args[2]))
-    return nul(FAIL(c, "TYPE_REFL", "refl cannot prove the equality: the left side normalizes to %s, the right side normalizes to %s", show(c, e->args[1]), show(c, e->args[2])));
-  k->type = e;
-  return op3(c, OP_REFL, 0, 0, NULL, NULL, NULL);
+  const Value *level = tyop(c, OP_LEVEL, 0, NULL, NULL, NULL);
+  const Core *a = k->b->arity == 0u ? NULL : check(c, k->args[0], level);
+  const Core *b = k->b->arity < 2u || a == NULL ? NULL : check(c, k->args[1], level);
+  k->type = level;
+  switch (k->b->arity) {
+  case 0u:
+    return core_leaf(c, CORE_NAT, 0);
+  case 1u:
+    return a == NULL ? NULL : op3(c, OP_NAT_ADD, 0, 2, a, core_leaf(c, CORE_NAT, 1u), NULL);
+  default:
+    return b == NULL ? NULL : op3(c, OP_FLAG_IF, 0, 3, op3(c, OP_NAT_LE, 0, 2, a, b, NULL), b, a);
+  }
 }
 
-static const Core *rule_part(Call *k) {
-  Checker *c = k->c;
-  const Value *pt = NULL;
-  const Core *p = infer(c, k->args[0], &pt);
-  if (p == NULL)
+/* Type ℓ (D5): ℓ is a Level with a closed normal form below UNIVERSE_MAX. */
+static const Core *univ_level(Checker *c, const Term *t, const Value *hint, const Value **type) {
+  const Core *l = check(c, t->right, tyop(c, OP_LEVEL, 0, NULL, NULL, NULL));
+  const Value *v = here(c, l);
+  if (l == NULL)
     return NULL;
-  if (!val_is(pt, OP_PROD))
-    return nul(FAIL(c, "TYPE_MISMATCH", "%s needs a pair, found a term of type %s", k->b->name, show(c, pt)));
-  k->type = pt->args[k->b->part];
-  return op3(c, k->b->op, 0, 1, p, NULL, NULL);
+  if (v == NULL || v->kind != VAL_NAT)
+    return nul(FAIL(c, "TYPE_UNIVERSE", "the level %s is not closed; S2 has no level variables", show(c, v)));
+  if (v->nat >= UNIVERSE_MAX)
+    return nul(FAIL(c, "TYPE_UNIVERSE", "the universe level %llu is above the largest level %u", (unsigned long long)v->nat, UNIVERSE_MAX - 1u));
+  *type = val_univ(c->m, v->nat + 1u);
+  return finish(c, core_leaf(c, CORE_UNIV, v->nat), hint, type);
+}
+
+/* I : SSet (former C1). */
+static const Core *rule_interval(Call *k) {
+  k->type = tyop(k->c, OP_SSET, 0, NULL, NULL, NULL);
+  return op3(k->c, OP_I, 0, 0, NULL, NULL, NULL);
+}
+
+/* ~ r, r ∧ s and r ∨ s: each argument is in I. */
+static const Core *rule_iop(Call *k) {
+  const Value *i = interval_type(k->c);
+  const Core *a = check(k->c, k->args[0], i);
+  const Core *b = k->b->arity < 2u || a == NULL ? NULL : check(k->c, k->args[1], i);
+  k->type = i;
+  return op3(k->c, k->b->op, 0, k->b->arity, a, b, NULL);
+}
+
+/* The line L of PathP L a b: a function from I into a universe (former
+   C2). *LEVEL is the universe. */
+static const Core *path_line(Checker *c, const Term *t, uint64_t *level) {
+  const Value *lt = NULL;
+  const Value *cod;
+  const Core *body;
+  const Core *k;
+  if (t->kind == TERM_LAM) {
+    if (t->left != NULL && !annotation_ok(c, t->left, interval_type(c)))
+      return NULL;
+    if (!push(c, t->name, interval_type(c)))
+      return NULL;
+    body = check_type(c, t->right, level);
+    pop(c);
+    return core_bind(c, CORE_LAM, t->name, NULL, body);
+  }
+  k = infer(c, t, &lt);
+  if (k == NULL)
+    return NULL;
+  cod = lt != NULL && lt->kind == VAL_PI && val_is(lt->dom, OP_I) ? closure_apply(c->m, lt, val_var(c->m, c->level)) : NULL;
+  if (cod == NULL || cod->kind != VAL_UNIV)
+    return nul(FAIL(c, "TYPE_MISMATCH", "PathP needs a line of type I → Type, found a term of type %s", show(c, lt)));
+  *level = cod->nat;
+  return k;
+}
+
+static const Value *at_end(Checker *c, const Value *line, Op end) {
+  return apply_value(c->m, line, tyop(c, end, 0, NULL, NULL, NULL));
+}
+
+/* PathP L a b : Type n, for L : I → Type n, a : L i0 and b : L i1. */
+static const Core *rule_pathp(Call *k) {
+  Checker *c = k->c;
+  uint64_t level = 0;
+  const Core *l = path_line(c, k->args[0], &level);
+  const Value *lv = here(c, l);
+  const Core *a = lv == NULL ? NULL : check(c, k->args[1], at_end(c, lv, OP_I0));
+  const Core *b = a == NULL ? NULL : check(c, k->args[2], at_end(c, lv, OP_I1));
+  k->type = val_univ(c->m, level);
+  return op3(c, OP_PATHP, 0, 3, l, a, b);
+}
+
+#define LEVEL_UNKNOWN UINT64_MAX
+
+static uint64_t level_max(uint64_t a, uint64_t b) {
+  if (a == LEVEL_UNKNOWN || b == LEVEL_UNKNOWN)
+    return LEVEL_UNKNOWN;
+  return a > b ? a : b;
+}
+
+/* The universe of the type A at LEVEL binders, read off its value. A
+   neutral type that is not a local of the context, and a pretype (I,
+   Partial), give LEVEL_UNKNOWN. */
+static uint64_t type_level(Checker *c, uint32_t level, const Value *a) {
+  const Scope *s;
+  uint64_t n = 0;
+  uint32_t i;
+  if (a == NULL)
+    return LEVEL_UNKNOWN;
+  if (a->kind == VAL_UNIV)
+    return a->nat + 1u;
+  if (a->kind == VAL_PI || a->kind == VAL_SIGMA)
+    return level_max(type_level(c, level, a->dom), type_level(c, level + 1u, closure_apply(c->m, a, val_var(c->m, level))));
+  if (a->kind == VAL_VAR) {
+    for (s = c->scope; s != NULL; s = s->next) {
+      if (s->level == a->nat && s->type != NULL && s->type->kind == VAL_UNIV)
+        return s->type->nat;
+    }
+    return LEVEL_UNKNOWN;
+  }
+  if (a->kind != VAL_OP || val_is(a, OP_I) || val_is(a, OP_SSET) || val_is(a, OP_PARTIAL))
+    return LEVEL_UNKNOWN;
+  if (val_is(a, OP_FAMILY))
+    return c->m->families[a->inst].universe;
+  if (val_is(a, OP_PATHP))
+    return type_level(c, level + 1u, apply_value(c->m, a->args[0], val_var(c->m, level)));
+  for (i = 0; i < a->argc; i++)
+    n = level_max(n, type_level(c, level, a->args[i]));
+  return n;
+}
+
+/* a ≡ b: PathP over the constant line of the type of a, else of the type
+   of b (D7). */
+static const Core *rule_path_eq(Call *k) {
+  Checker *c = k->c;
+  const Value *ta = NULL;
+  const Core *a = try_infer(c, k->args[0], &ta);
+  const Core *b;
+  uint64_t level;
+  if (a == NULL && try_infer(c, k->args[1], &ta) == NULL)
+    return nul(FAIL(c, "TYPE_INFER", "neither side of a ≡ b infers its type; write PathP (λ _ → A) a b"));
+  a = a != NULL ? a : check(c, k->args[0], ta);
+  b = a == NULL ? NULL : check(c, k->args[1], ta);
+  if (b == NULL)
+    return NULL;
+  level = type_level(c, c->level, ta);
+  if (level == LEVEL_UNKNOWN)
+    return nul(FAIL(c, "TYPE_INFER", "the universe of %s is not known here; write PathP (λ _ → %s) a b", show(c, ta), show(c, ta)));
+  k->type = val_univ(c->m, level);
+  return op3(c, OP_PATHP, 0, 3, core_bind(c, CORE_LAM, "_", NULL, quote_value(c->m, c->level + 1u, ta)), a, b);
+}
+
+/* refl against PathP L a b (D6): λ i → a, when L is constant and a and b
+   have the same normal form. */
+static const Core *refl_path(Call *k) {
+  Checker *c = k->c;
+  const Value *e = k->hint;
+  const Value *line = apply_value(c->m, e->args[0], val_var(c->m, c->level));
+  if (!conv_on(c, c->level + 1u, line, at_end(c, e->args[0], OP_I0)))
+    return nul(FAIL(c, "TYPE_REFL", "refl needs a constant line, found a path over %s", show(c, e->args[0])));
+  if (!conv_on(c, c->level, e->args[1], e->args[2]))
+    return nul(FAIL(c, "TYPE_REFL", "refl cannot prove the equality: the left side normalizes to %s, the right side normalizes to %s", show(c, e->args[1]), show(c, e->args[2])));
+  k->type = e;
+  return op3(c, OP_PLAM, 0, 1, core_bind(c, CORE_LAM, "i", NULL, quote_value(c->m, c->level + 1u, e->args[1])), NULL, NULL);
+}
+
+static const Core *var_core(Checker *c, const char *name, const Value **type);
+
+#define CELLS_MAX FACE_MEETS_MAX
+
+/* 1 when LINE is constant: LINE at a fresh point is LINE at i0. */
+static int line_const(Checker *c, const Value *line) {
+  return conv_on(c, c->level + 1u, apply_value(c->m, line, val_var(c->m, c->level)), at_end(c, line, OP_I0));
+}
+
+/* The line LINE is constant on each meet of R, so primTransp A r u = u where
+   r holds. A neutral atom in a meet stays, so the test is stricter, and
+   sound. */
+static int line_const_on(Checker *c, const Core *line, const Value *r) {
+  FaceMeets fm;
+  const Env *env;
+  const Value *lv;
+  const Core *closed = quote_value(c->m, c->level, here(c, line));
+  uint32_t q;
+  if (closed == NULL)
+    return 0;
+  if (c->face != NULL)
+    r = tyop(c, OP_IMIN, 2, r, c->face, NULL);
+  if (r == NULL)
+    return 0;
+  if (!face_meets(c->m, c->level, r, &fm)) {
+    lv = here(c, line);
+    return lv != NULL && line_const(c, lv) ? 1 : FAIL(c, "TYPE_MISMATCH", "primTransp needs a line that is constant where r holds, found the line %s", show(c, lv));
+  }
+  for (q = 0; q < fm.count; q++) {
+    env = face_env_at(c, c->level, fm.lit[q], fm.len[q]);
+    lv = env == NULL && c->level > 0 ? NULL : eval_core(c->m, env, closed);
+    if (lv == NULL)
+      return c->m->diag->set ? 0 : FAIL(c, "OOM", "out of memory");
+    if (!line_const(c, lv))
+      return FAIL(c, "TYPE_MISMATCH", "primTransp needs a line that is constant where r holds, found the line %s", show(c, here(c, line)));
+  }
+  return 1;
+}
+
+/* primTransp A r u (former C3): A : I → Type n, r : I and u : A i0, of type
+   A i1. A is constant where r holds. */
+static const Core *rule_transp(Call *k) {
+  Checker *c = k->c;
+  uint64_t level = 0;
+  const Core *line = path_line(c, k->args[0], &level);
+  const Value *lv = here(c, line);
+  const Core *r = lv == NULL ? NULL : check(c, k->args[1], interval_type(c));
+  const Core *u;
+  if (r == NULL || !line_const_on(c, line, here(c, r)))
+    return NULL;
+  u = check(c, k->args[2], at_end(c, lv, OP_I0));
+  k->type = at_end(c, lv, OP_I1);
+  return op3(c, OP_TRANSP, 0, 3, line, r, u);
+}
+
+/* The face of CELL: the meet of its atoms. `(i = i1)` is i and `(i = i0)`
+   is ~ i. Each atom names a local of type I. */
+static const Core *face_core(Checker *c, const Cell *cell) {
+  const Core *acc = cell->atom_count == 0 ? op3(c, OP_I1, 0, 0, NULL, NULL, NULL) : NULL;
+  const Value *type = NULL;
+  const Scope *s;
+  const Core *v;
+  size_t i;
+  for (i = 0; i < cell->atom_count; i++) {
+    s = find_local(c, cell->atoms[i].name);
+    if (s == NULL || !val_is(s->type, OP_I))
+      return nul(FAIL(c, "TYPE_SYSTEM", "the face (%s = i%d) needs a variable of type I", cell->atoms[i].name, cell->atoms[i].end));
+    v = var_core(c, cell->atoms[i].name, &type);
+    if (v == NULL)
+      return NULL;
+    v = cell->atoms[i].end == 0 ? op3(c, OP_INEG, 0, 1, v, NULL, NULL) : v;
+    acc = acc == NULL ? v : op3(c, OP_IMIN, 0, 2, acc, v, NULL);
+  }
+  return acc;
+}
+
+/* T against WANT under the face FACE, in conjunction with the faces of the
+   enclosing cells. A face that never holds still gets the ordinary checks. */
+static const Core *check_on(Checker *c, const Term *t, const Value *want, const Core *face) {
+  FaceMeets fm;
+  const Value *saved = c->face;
+  const Value *fv = here(c, face);
+  const Core *out;
+  c->face = saved == NULL ? fv : tyop(c, OP_IMIN, 2, saved, fv, NULL);
+  if (c->face == NULL) {
+    c->face = saved;
+    return NULL;
+  }
+  if (face_meets(c->m, c->level, c->face, &fm) && fm.count == 0)
+    c->face = saved;
+  out = check(c, t, want);
+  c->face = saved;
+  return out;
+}
+
+/* The cells UA and UB agree on each meet of the faces FA ∧ FB. A neutral
+   atom in a meet stays, so the test is stricter, and sound. */
+static int cells_agree(Checker *c, const Core *fa, const Core *ua, const Core *fb, const Core *ub) {
+  FaceMeets fm;
+  const Value *meet = here(c, op3(c, OP_IMIN, 0, 2, fa, fb, NULL));
+  /* Unfold defined locals before substituting interval endpoints. */
+  const Core *ka = quote_value(c->m, c->level, here(c, ua));
+  const Core *kb = quote_value(c->m, c->level, here(c, ub));
+  const Env *env;
+  const Value *x;
+  const Value *y;
+  uint32_t q;
+  if (meet == NULL || ka == NULL || kb == NULL)
+    return 0;
+  if (c->face != NULL)
+    meet = tyop(c, OP_IMIN, 2, meet, c->face, NULL);
+  if (!face_meets(c->m, c->level, meet, &fm))
+    return FAIL(c, "TYPE_SYSTEM", "the overlap %s of two faces is not in the face bounds", show(c, meet));
+  for (q = 0; q < fm.count; q++) {
+    env = face_env_at(c, c->level, fm.lit[q], fm.len[q]);
+    x = env == NULL && c->level > 0 ? NULL : eval_core(c->m, env, ka);
+    y = x == NULL ? NULL : eval_core(c->m, env, kb);
+    if (x == NULL || y == NULL)
+      return c->m->diag->set ? 0 : FAIL(c, "OOM", "out of memory");
+    if (!conv_values(c->m, c->level, x, y))
+      return FAIL(c, "TYPE_SYSTEM", "two cells disagree where the faces meet at %s: %s against %s", show(c, meet), show(c, x), show(c, y));
+  }
+  return 1;
+}
+
+/* The side `λ j → λ { φ₁ → u₁ ; ... }` of primHComp (former C2), against
+   TY with j : I. Pass 1 checks each face in the outer context, so a face
+   cannot name j: the faces go to FK and their join to *PHI. Pass 2 checks
+   the cells under j (UK) and their overlaps on these same faces. */
+static const Core *side_of(Checker *c, const Term *t, const Value *ty, const Core **phi, const Core **fk, const Core **uk, uint32_t *n) {
+  const Term *s = t->kind == TERM_LAM ? t->right : NULL;
+  const Value *fv[CELLS_MAX];
+  const Core *inner[CELLS_MAX];
+  const Core *body;
+  uint32_t i;
+  uint32_t q;
+  *n = 0;
+  *phi = op3(c, OP_I0, 0, 0, NULL, NULL, NULL);
+  if (s == NULL || s->kind != TERM_SYSTEM)
+    return nul(FAIL(c, "TYPE_SYSTEM", "primHComp needs the side λ j → λ { (i = i0) → a ; ... }"));
+  if (t->left != NULL && !annotation_ok(c, t->left, interval_type(c)))
+    return NULL;
+  if (s->cell_count > CELLS_MAX)
+    return nul(FAIL(c, "TYPE_SYSTEM", "a system needs at most %u cells", (unsigned)CELLS_MAX));
+  for (; *n < s->cell_count; (*n)++) {
+    fk[*n] = face_core(c, &s->cells[*n]);
+    fv[*n] = here(c, fk[*n]);
+    if (fv[*n] == NULL)
+      return NULL;
+    *phi = *n == 0 ? fk[0] : op3(c, OP_IMAX, 0, 2, *phi, fk[*n], NULL);
+  }
+  if (!push(c, t->name, interval_type(c)))
+    return NULL;
+  for (i = 0; i < *n; i++) {
+    inner[i] = quote_value(c->m, c->level, fv[i]);
+    uk[i] = inner[i] == NULL ? NULL : check_on(c, s->cells[i].body, ty, inner[i]);
+    if (uk[i] == NULL) {
+      pop(c);
+      return NULL;
+    }
+  }
+  for (i = 0; i < *n; i++) {
+    for (q = i + 1u; q < *n; q++) {
+      if (!cells_agree(c, inner[i], uk[i], inner[q], uk[q])) {
+        pop(c);
+        return NULL;
+      }
+    }
+  }
+  body = op3(c, OP_SYSNIL, 0, 0, NULL, NULL, NULL);
+  for (i = *n; i > 0; i--)
+    body = op3(c, OP_SYSTEM, 0, 3, inner[i - 1u], uk[i - 1u], body);
+  pop(c);
+  return core_bind(c, CORE_LAM, t->name, NULL, body);
+}
+
+/* The base condition of primHComp (former C2): where its face FK holds,
+   each cell UK of the side at j = i0 is U0. */
+static int side_base(Checker *c, const Core *const *fk, const Core *const *uk, uint32_t n, const Core *u0) {
+  const Core *i0 = op3(c, OP_I0, 0, 0, NULL, NULL, NULL);
+  const Core *i1 = op3(c, OP_I1, 0, 0, NULL, NULL, NULL);
+  uint32_t q;
+  for (q = 0; q < n; q++) {
+    if (!cells_agree(c, fk[q], core_app(c, core_bind(c, CORE_LAM, "j", NULL, uk[q]), i0), i1, u0))
+      return 0;
+  }
+  return 1;
+}
+
+/* primHComp side u0 (former C3): A is the hint, else the type of u0, and A
+   is in a universe; phi is the join of the faces of side; where its face
+   holds, each cell at j = i0 is u0. The type is A. */
+static const Core *rule_hcomp(Call *k) {
+  Checker *c = k->c;
+  const Value *a = k->hint;
+  const Core *fk[CELLS_MAX];
+  const Core *uk[CELLS_MAX];
+  const Core *args[4];
+  const Core *phi = NULL;
+  const Core *side;
+  const Core *u0 = NULL;
+  uint32_t n = 0;
+  if (a == NULL) {
+    u0 = try_infer(c, k->args[1], &a);
+    if (u0 == NULL)
+      return need_type(k, "A");
+  }
+  if (val_is(a, OP_I) || val_is(a, OP_SSET) || val_is(a, OP_PARTIAL))
+    return nul(FAIL(c, "TYPE_MISMATCH", "primHComp needs a type in a universe, found the pretype %s", show(c, a)));
+  side = side_of(c, k->args[0], a, &phi, fk, uk, &n);
+  if (side == NULL)
+    return NULL;
+  u0 = u0 != NULL ? u0 : check(c, k->args[1], a);
+  if (u0 == NULL || !side_base(c, fk, uk, n, u0))
+    return NULL;
+  k->type = a;
+  args[0] = quote_value(c->m, c->level, a);
+  args[1] = phi;
+  args[2] = side;
+  args[3] = u0;
+  return core_op(c, OP_HCOMP, 0, 0, args, 4u);
+}
+
+/* refl needs a PathP hint (D6). */
+static const Core *rule_refl(Call *k) {
+  if (!val_is(k->hint, OP_PATHP))
+    return need_type(k, "a ≡ b");
+  return refl_path(k);
 }
 
 static const Core *rule_sigma_part(Call *k) {
@@ -810,11 +1267,25 @@ static int simple_scrutinee(const Value *t) {
 }
 
 /* fold takes its scrutinee last, so the scrutinee type sets the arity. */
+/* A family with a path constructor is a higher inductive family (D10). */
+static int family_has_path(const Machine *m, uint32_t fam) {
+  const FamilyInfo *f = &m->families[fam];
+  uint32_t j;
+  for (j = 0; j < f->ctor_count; j++)
+    if (m->ctors[f->first_ctor + j].depth > 0u)
+      return 1;
+  return 0;
+}
+
 static const Core *rule_fold(Call *k) {
   Checker *c = k->c;
   const Value *st = NULL;
   const Core *s = try_infer(c, k->args[k->argc - 1u], &st);
   uint32_t fam = val_is(st, OP_FAMILY) ? st->inst : NO_FAMILY;
+  if (s != NULL && fam != NO_FAMILY && c->m->families[fam].index_count > 0u)
+    return nul(FAIL(c, "DOMAIN_FAMILY", "fold over %s is not in S2: a fold over an indexed family needs a dependent eliminator (S3)", c->m->families[fam].name));
+  if (s != NULL && fam != NO_FAMILY && family_has_path(c->m, fam))
+    return nul(FAIL(c, "DOMAIN_FAMILY", "fold over %s is not in S2: a fold over a higher inductive family needs a dependent eliminator (S3)", c->m->families[fam].name));
   if (s != NULL && fam != NO_FAMILY && c->m->families[fam].ctor_count + 1u == k->argc) {
     k->hint = k->outer;
     return fold_family(k, s, st);
@@ -846,69 +1317,9 @@ static const Core *rule_unfold(Call *k) {
   a = k->hint->args[0];
   seed = infer(c, k->args[2], &st);
   limit = seed == NULL ? NULL : check(c, k->args[1], nat_type(c));
-  g = limit == NULL ? NULL : check(c, k->args[0], val_arrow(c->m, st, tyop(c, OP_OPTION, 1, tyop(c, OP_PROD, 2, a, st, NULL), NULL, NULL)));
+  g = limit == NULL ? NULL : check(c, k->args[0], val_arrow(c->m, st, tyop(c, OP_OPTION, 1, sigma_const(c, a, st), NULL, NULL)));
   k->type = k->hint;
   return op3(c, OP_UNFOLD, 0, 3, g, limit, seed);
-}
-
-static const Core *rule_symm(Call *k) {
-  const Value *et = NULL;
-  const Core *e = infer_eq(k, 0, &et);
-  if (e == NULL)
-    return NULL;
-  k->type = tyop(k->c, OP_EQ, 3, et->args[0], et->args[2], et->args[1]);
-  return op3(k->c, OP_SYMM, 0, 1, e, NULL, NULL);
-}
-
-static const Core *rule_trans(Call *k) {
-  Checker *c = k->c;
-  const Value *t1 = NULL;
-  const Value *t2 = NULL;
-  const Core *e1 = infer_eq(k, 0, &t1);
-  const Core *e2 = e1 == NULL ? NULL : infer_eq(k, 1, &t2);
-  if (e2 == NULL)
-    return NULL;
-  if (!conv_values(c->m, c->level, t1->args[0], t2->args[0]) || !conv_values(c->m, c->level, t1->args[2], t2->args[1]))
-    return nul(FAIL(c, "TYPE_MISMATCH", "trans needs the right side of the first proof, %s, to equal the left side of the second, %s", show(c, t1->args[2]), show(c, t2->args[1])));
-  k->type = tyop(c, OP_EQ, 3, t1->args[0], t1->args[1], t2->args[2]);
-  return op3(c, OP_TRANS, 0, 2, e1, e2, NULL);
-}
-
-/* cong f e */
-static const Core *rule_cong(Call *k) {
-  Checker *c = k->c;
-  const Value *et = NULL;
-  const Value *bt = NULL;
-  const Value *fv;
-  const Value *hint_type = val_is(k->hint, OP_EQ) ? k->hint->args[0] : NULL;
-  const Core *e = infer_eq(k, 1, &et);
-  const Core *f = e == NULL ? NULL : fn_into(c, k->args[0], et->args[0], hint_type, &bt);
-  if (f == NULL)
-    return NULL;
-  fv = here(c, f);
-  k->type = tyop(c, OP_EQ, 3, bt, apply_value(c->m, fv, et->args[1]), apply_value(c->m, fv, et->args[2]));
-  return op3(c, OP_CONG, 0, 2, f, e, NULL);
-}
-
-/* transport P e u */
-static const Core *rule_transport(Call *k) {
-  Checker *c = k->c;
-  const Value *et = NULL;
-  const Value *pt = NULL;
-  const Value *cod;
-  const Value *pv;
-  const Core *e = infer_eq(k, 1, &et);
-  const Core *p = e == NULL ? NULL : infer(c, k->args[0], &pt);
-  const Core *u;
-  if (p == NULL)
-    return NULL;
-  cod = pt != NULL && pt->kind == VAL_PI ? closure_apply(c->m, pt, val_var(c->m, c->level)) : NULL;
-  if (cod == NULL || cod->kind != VAL_UNIV || !conv_values(c->m, c->level, pt->dom, et->args[0]))
-    return nul(FAIL(c, "TYPE_MISMATCH", "transport needs a family of types over %s, found a term of type %s", show(c, et->args[0]), show(c, pt)));
-  pv = here(c, p);
-  u = check(c, k->args[2], apply_value(c->m, pv, et->args[1]));
-  k->type = apply_value(c->m, pv, et->args[2]);
-  return op3(c, OP_TRANSPORT, 0, 3, p, e, u);
 }
 
 static const Core *rule_nat2(Call *k) {
@@ -951,8 +1362,6 @@ static const Core *rule(Call *k) {
     return rule_type1(k);
   case RULE_TYPE2:
     return rule_type2(k);
-  case RULE_EQ:
-    return rule_eq(k);
   case RULE_PAIR:
     return rule_pair(k);
   case RULE_INJ:
@@ -963,14 +1372,14 @@ static const Core *rule(Call *k) {
     return rule_some(k);
   case RULE_CONS:
     return rule_cons(k);
-  case RULE_PACK:
-    return rule_pack(k);
   case RULE_REFL:
     return rule_refl(k);
-  case RULE_PART:
-    return rule_part(k);
   case RULE_SIGMA_PART:
     return rule_sigma_part(k);
+  case RULE_TIMES:
+    return rule_times(k);
+  case RULE_LEVEL:
+    return rule_level(k);
   case RULE_EITHER:
     return rule_either(k);
   case RULE_OPTION:
@@ -987,25 +1396,36 @@ static const Core *rule(Call *k) {
     return rule_fold(k);
   case RULE_UNFOLD:
     return rule_unfold(k);
-  case RULE_SYMM:
-    return rule_symm(k);
-  case RULE_TRANS:
-    return rule_trans(k);
-  case RULE_CONG:
-    return rule_cong(k);
-  case RULE_TRANSPORT:
-    return rule_transport(k);
   case RULE_NAT2:
     return rule_nat2(k);
   case RULE_SUC:
     return rule_suc(k);
   case RULE_FLAG_IF:
     return rule_flag_if(k);
+  case RULE_INTERVAL:
+    return rule_interval(k);
+  case RULE_IOP:
+    return rule_iop(k);
+  case RULE_PATHP:
+    return rule_pathp(k);
+  case RULE_PATH_EQ:
+    return rule_path_eq(k);
+  case RULE_TRANSP:
+    return rule_transp(k);
+  case RULE_HCOMP:
+    return rule_hcomp(k);
   }
   return NULL;
 }
 
 /* Checks the family parameters ARGS. VALS gets their values. */
+/* The fields of an indexed family are a telescope: a field type sees the
+   earlier fields, and the result indices see all of them. A cell monad
+   keeps fields in the context of its parameters only. */
+static int telescope(const FamilyInfo *f) {
+  return f->index_count > 0u && f->r1 != FAMILY_CM;
+}
+
 static int check_params(Checker *c, const FamilyInfo *f, const Term *const *args, const Core **cores, const Value **vals) {
   uint32_t i;
   for (i = 0; i < f->param_count; i++) {
@@ -1020,38 +1440,73 @@ static int check_params(Checker *c, const FamilyInfo *f, const Term *const *args
 static const Core *family_app(Call *k, uint32_t fam) {
   Checker *c = k->c;
   const FamilyInfo *f = &c->m->families[fam];
-  const Core **cores = arena_alloc(c->m->arena, ((size_t)f->param_count + 1u) * sizeof *cores);
-  const Value **vals = arena_alloc(c->m->arena, ((size_t)f->param_count + 1u) * sizeof *vals);
+  uint32_t p = f->param_count;
+  const Core **cores = arena_alloc(c->m->arena, ((size_t)p + f->index_count + 1u) * sizeof *cores);
+  const Value **vals = arena_alloc(c->m->arena, ((size_t)p + 1u) * sizeof *vals);
+  uint32_t j;
   if (cores == NULL || vals == NULL)
     return nul(FAIL(c, "OOM", "out of memory"));
   if (!check_params(c, f, k->args, cores, vals))
     return NULL;
+  for (j = 0; j < f->index_count; j++) {
+    cores[p + j] = check(c, k->args[p + j], eval_core(c->m, env_of(c, vals, p), f->index_types[j]));
+    if (cores[p + j] == NULL)
+      return NULL;
+  }
   k->type = val_univ(c->m, f->universe);
-  return core_op(c, OP_FAMILY, fam, 0, cores, f->param_count);
+  return core_op(c, OP_FAMILY, fam, 0, cores, p + f->index_count);
 }
 
-/* A constructor takes the family parameters (the indices), then its fields. */
+/* A constructor takes the family parameters, then its fields. Its type is
+   the family at the parameters and at its result indices. */
+/* A path constructor applied to its params and fields is a path
+   abstraction over OP_PCTOR: one OP_PLAM for each dimension (D10). */
+static const Core *pctor_app(Call *k, uint32_t ctor, const Value *const *vals, uint32_t n) {
+  Checker *c = k->c;
+  const CtorInfo *ci = &c->m->ctors[ctor];
+  uint32_t d = ci->depth;
+  const Core **args = arena_alloc(c->m->arena, ((size_t)n + d + 1u) * sizeof *args);
+  const Core *body;
+  uint32_t i;
+  if (args == NULL)
+    return nul(FAIL(c, "OOM", "out of memory"));
+  for (i = 0; i < n; i++)
+    args[i] = quote_value(c->m, c->level + d, vals[i]);
+  for (i = 0; i < d; i++)
+    args[n + i] = core_index(c, CORE_VAR, d - 1u - i);
+  k->type = eval_core(c->m, env_of(c, vals, n), ci->type);
+  body = core_op(c, OP_PCTOR, ctor, 0, args, n + d);
+  for (i = 0; i < d; i++)
+    body = op3(c, OP_PLAM, 0, 1, core_bind(c, CORE_LAM, i == 0u && d == 2u ? "j" : "i", NULL, body), NULL, NULL);
+  return body;
+}
+
 static const Core *ctor_app(Call *k, uint32_t ctor) {
   Checker *c = k->c;
   const CtorInfo *ci = &c->m->ctors[ctor];
   const FamilyInfo *f = &c->m->families[ci->family];
   uint32_t p = f->param_count;
   uint32_t n = p + ci->field_count;
+  int dep = telescope(f) || ci->depth > 0u;
   const Core **cores = arena_alloc(c->m->arena, ((size_t)n + 1u) * sizeof *cores);
-  const Value **vals = arena_alloc(c->m->arena, ((size_t)p + 1u) * sizeof *vals);
-  const Env *env;
+  const Value **vals = arena_alloc(c->m->arena, ((size_t)n + 1u) * sizeof *vals);
+  const Value **tvals = arena_alloc(c->m->arena, ((size_t)p + f->index_count + 1u) * sizeof *tvals);
   uint32_t j;
-  if (cores == NULL || vals == NULL)
+  if (cores == NULL || vals == NULL || tvals == NULL)
     return nul(FAIL(c, "OOM", "out of memory"));
   if (!check_params(c, f, k->args, cores, vals))
     return NULL;
-  env = env_of(c, vals, p);
   for (j = 0; j < ci->field_count; j++) {
-    cores[p + j] = check(c, k->args[p + j], eval_core(c->m, env, ci->fields[j].type));
+    cores[p + j] = check(c, k->args[p + j], eval_core(c->m, env_of(c, vals, dep ? p + j : p), ci->fields[j].type));
     if (cores[p + j] == NULL)
       return NULL;
+    vals[p + j] = dep ? here(c, cores[p + j]) : NULL;
   }
-  k->type = val_op(c->m, VAL_OP, OP_FAMILY, ci->family, 0, vals, p);
+  for (j = 0; j < p + f->index_count; j++)
+    tvals[j] = j < p ? vals[j] : eval_core(c->m, env_of(c, vals, dep ? n : p), ci->indices[j - p]);
+  if (ci->depth > 0u)
+    return pctor_app(k, ctor, vals, n);
+  k->type = val_op(c->m, VAL_OP, OP_FAMILY, ci->family, 0, tvals, p + f->index_count);
   return core_op(c, OP_CTOR, ctor, 0, cores, n);
 }
 
@@ -1059,13 +1514,22 @@ static const Core *ctor_app(Call *k, uint32_t ctor) {
 static const Core *proj_app(Call *k, uint32_t ctor, uint32_t field) {
   Checker *c = k->c;
   const CtorInfo *ci = &c->m->ctors[ctor];
+  const FamilyInfo *f = &c->m->families[ci->family];
+  uint32_t p = f->param_count;
+  uint32_t n = telescope(f) ? p + field : p;
+  const Value **vals = arena_alloc(c->m->arena, ((size_t)n + 1u) * sizeof *vals);
   const Value *xt = NULL;
   const Core *x = infer(c, k->args[0], &xt);
+  uint32_t e;
   if (x == NULL)
     return NULL;
   if (!val_is(xt, OP_FAMILY) || xt->inst != ci->family)
     return nul(FAIL(c, "TYPE_MISMATCH", "%s needs a value of the family %s, found a term of type %s", ci->fields[field].name, c->m->families[ci->family].name, show(c, xt)));
-  k->type = eval_core(c->m, env_of(c, xt->args, xt->argc), ci->fields[field].type);
+  if (vals == NULL)
+    return nul(FAIL(c, "OOM", "out of memory"));
+  for (e = 0; e < n; e++)
+    vals[e] = e < p ? xt->args[e] : here(c, core_op(c, OP_PROJ, ctor, e - p, &x, 1));
+  k->type = eval_core(c->m, env_of(c, vals, n), ci->fields[field].type);
   return core_op(c, OP_PROJ, ctor, field, &x, 1);
 }
 
@@ -1141,7 +1605,7 @@ static uint32_t known_arity(const Checker *c, const Head *h) {
   case HEAD_TERM:
     return 0u;
   case HEAD_FAMILY:
-    return c->m->families[h->index].param_count;
+    return c->m->families[h->index].param_count + c->m->families[h->index].index_count;
   case HEAD_CTOR:
     return ci == NULL ? 0u : c->m->families[ci->family].param_count + ci->field_count;
   case HEAD_PROJ:
@@ -1206,17 +1670,38 @@ static const Core *eta(Checker *c, const Term *whole, const Value *hint, const V
   return check_lam(c, lam, hint, type);
 }
 
+/* F of type *TY applied to ARG. *TY becomes the type of the result. */
+static const Core *fn_app(Checker *c, const Core *f, const Value **ty, const Term *arg) {
+  const Value *fn = *ty;
+  const Core *a;
+  if (fn == NULL || fn->kind != VAL_PI)
+    return nul(FAIL(c, "TYPE_NOT_FUNCTION", "a term of type %s is applied to an argument", show(c, fn)));
+  a = check(c, arg, fn->dom);
+  *ty = closure_apply(c->m, fn, here(c, a));
+  return core_app(c, f, a);
+}
+
+/* The path P of type *TY = PathP L a b at the point ARG of I (former C2).
+   The core keeps the ends a and b, so p i0 and p i1 reduce. */
+static const Core *path_app(Checker *c, const Core *p, const Value **ty, const Term *arg) {
+  const Value *path = *ty;
+  const Core *r = check(c, arg, interval_type(c));
+  const Core *args[4];
+  if (r == NULL)
+    return NULL;
+  args[0] = p;
+  args[1] = r;
+  args[2] = quote_value(c->m, c->level, path->args[1]);
+  args[3] = quote_value(c->m, c->level, path->args[2]);
+  *ty = apply_value(c->m, path->args[0], here(c, r));
+  return core_op(c, OP_PAPP, 0, 0, args, 4);
+}
+
 /* Applies K of type TY to ARGS, one by one. */
 static const Core *apply_rest(Checker *c, const Core *k, const Value *ty, const Term *const *args, uint32_t argc, const Value *hint, const Value **type) {
   uint32_t i;
-  for (i = 0; i < argc && k != NULL; i++) {
-    const Core *a;
-    if (ty == NULL || ty->kind != VAL_PI)
-      return nul(FAIL(c, "TYPE_NOT_FUNCTION", "a term of type %s is applied to an argument", show(c, ty)));
-    a = check(c, args[i], ty->dom);
-    ty = closure_apply(c->m, ty, here(c, a));
-    k = core_app(c, k, a);
-  }
+  for (i = 0; i < argc && k != NULL; i++)
+    k = val_is(ty, OP_PATHP) ? path_app(c, k, &ty, args[i]) : fn_app(c, k, &ty, args[i]);
   *type = ty;
   return finish(c, k, hint, type);
 }
@@ -1285,14 +1770,45 @@ static const Core *elab_spine(Checker *c, const Term *t, const Value *hint, cons
 
 static int annotation_ok(Checker *c, const Term *ann, const Value *dom) {
   uint64_t level = 0;
-  const Value *v = here(c, check_type(c, ann, &level));
+  const Value *v = here(c, type_term(c, ann, 1, &level));
   if (v == NULL)
     return 0;
   return conv_values(c->m, c->level, v, dom) ? 1 : FAIL(c, "TYPE_MISMATCH", "the binder type %s differs from the expected type %s", show(c, v), show(c, dom));
 }
 
+/* 1 when the path FN at END is WANT, the end that its type needs. */
+static int path_end(Checker *c, const Value *fn, Op end, const Value *want) {
+  const Value *got = apply_value(c->m, fn, tyop(c, end, 0, NULL, NULL, NULL));
+  if (conv_on(c, c->level, got, want))
+    return 1;
+  return FAIL(c, "TYPE_ENDPOINT", "the path at %s is %s, but its type needs %s", end == OP_I0 ? "i0" : "i1", show(c, got), show(c, want));
+}
+
+/* λ i → t against PathP L a b (former C2): t : L i, and t at i0 and at i1
+   are a and b (TYPE_ENDPOINT). */
+static const Core *check_plam(Checker *c, const Term *t, const Value *hint, const Value **type) {
+  const Value *i = interval_type(c);
+  const Core *body;
+  const Core *lam;
+  const Value *fn;
+  if (t->left != NULL && !annotation_ok(c, t->left, i))
+    return NULL;
+  if (!push(c, t->name, i))
+    return NULL;
+  body = check(c, t->right, apply_value(c->m, hint->args[0], c->env->value));
+  pop(c);
+  lam = core_bind(c, CORE_LAM, t->name, NULL, body);
+  fn = here(c, lam);
+  if (fn == NULL || !path_end(c, fn, OP_I0, hint->args[1]) || !path_end(c, fn, OP_I1, hint->args[2]))
+    return NULL;
+  *type = hint;
+  return op3(c, OP_PLAM, 0, 1, lam, NULL, NULL);
+}
+
 static const Core *check_lam(Checker *c, const Term *t, const Value *hint, const Value **type) {
   const Core *body;
+  if (val_is(hint, OP_PATHP))
+    return check_plam(c, t, hint, type);
   if (hint->kind != VAL_PI)
     return nul(FAIL(c, "TYPE_MISMATCH", "a function is not a term of type %s", show(c, hint)));
   if (t->left != NULL && !annotation_ok(c, t->left, hint->dom))
@@ -1313,7 +1829,7 @@ static const Core *infer_lam(Checker *c, const Term *t, const Value **type) {
   const Core *quoted;
   if (t->left == NULL)
     return nul(FAIL(c, "TYPE_INFER", "λ %s → ... needs a binder type here", t->name));
-  dom = here(c, check_type(c, t->left, &level));
+  dom = here(c, type_term(c, t->left, 1, &level));
   if (!push(c, t->name, dom))
     return NULL;
   body = infer(c, t->right, &bt);
@@ -1337,6 +1853,20 @@ static const Core *elab_binder(Checker *c, const Term *t, CoreKind kind, const V
   return finish(c, core_bind(c, kind, t->name, a, b), hint, type);
 }
 
+/* `let x = t in u` (A1, D4). x is a defined local. The core is the
+   β-redex `(λ x → u) t`, so eval and lower need no new case. */
+static const Core *elab_let(Checker *c, const Term *t, const Value *hint, const Value **type) {
+  const Value *a = NULL;
+  const Core *bound = infer(c, t->left, &a);
+  const Core *body;
+  if (bound == NULL || !push_value(c, t->name, a, here(c, bound)))
+    return NULL;
+  body = hint != NULL ? check(c, t->right, hint) : infer(c, t->right, type);
+  pop(c);
+  *type = hint != NULL ? hint : *type;
+  return body == NULL ? NULL : core_app(c, core_bind(c, CORE_LAM, t->name, NULL, body), bound);
+}
+
 static const Core *elab_inner(Checker *c, const Term *t, const Value *hint, const Value **type) {
   switch (t->kind) {
   case TERM_VAR:
@@ -1351,7 +1881,12 @@ static const Core *elab_inner(Checker *c, const Term *t, const Value *hint, cons
     return elab_binder(c, t, CORE_PI, hint, type);
   case TERM_SIGMA:
     return elab_binder(c, t, CORE_SIGMA, hint, type);
+  case TERM_LET:
+    return elab_let(c, t, hint, type);
+  case TERM_SYSTEM:
+    return nul(FAIL(c, "TYPE_SYSTEM", "a system `λ { ... }` is legal only in the side `λ j → λ { ... }` of primHComp"));
   case TERM_UNIV:
+    if (t->right != NULL) return univ_level(c, t, hint, type);
     if (t->nat >= UNIVERSE_MAX)
       return nul(FAIL(c, "TYPE_UNIVERSE", "the universe level %llu is above the largest level %u", (unsigned long long)t->nat, UNIVERSE_MAX - 1u));
     *type = val_univ(c->m, t->nat + 1u);
@@ -1406,12 +1941,153 @@ static int name_free(Checker *c, const char *name) {
   return why == NULL ? 1 : FAIL(c, "REFUSE_NAME", "%s is %s (rule R4)", name, why);
 }
 
-/* A recursive field must be the whole field type, in a family with no
-   parameters. */
-static int check_field(Checker *c, uint32_t fam, const Field *field, FieldInfo *out) {
+/* T ends in a universe, so a parameter of type T is a type argument. */
+static int cell_type_argument(const Core *t) {
+  while (t != NULL && t->kind == CORE_PI)
+    t = t->b;
+  return t != NULL && t->kind == CORE_UNIV;
+}
+
+static int has_type_param(const FamilyInfo *f) {
+  uint32_t k;
+  for (k = 0; k < f->param_count; k++)
+    if (cell_type_argument(f->param_types[k]))
+      return 1;
+  return 0;
+}
+
+/* The R1 class of a family. check_decl refuses closed program data, so a
+   program family here has a type parameter (a cell monad) or value
+   parameters only. */
+static FamilyClass family_class(const Decl *d, const FamilyInfo *f) {
+  if (d->origin == ORIGIN_DOMAIN)
+    return FAMILY_BASE;
+  return has_type_param(f) ? FAMILY_CM : FAMILY_INDEXED;
+}
+
+/* A field type is in the context of the family parameters only, so the
+   parameter K is the variable with the index param_count - 1 - K. */
+
+/* The type parameter K that T names, else param_count. */
+static uint32_t cell_param(const FamilyInfo *f, const Core *t) {
+  uint32_t p = f->param_count;
+  uint32_t k;
+  if (t == NULL || t->kind != CORE_VAR || t->index >= p)
+    return p;
+  k = p - 1u - t->index;
+  return f->param_types[k]->kind == CORE_UNIV ? k : p;
+}
+
+/* T is the family FAM at its own parameters, in order, under EARLIER
+   fields, then at any indices. */
+static int own_family(const Checker *c, uint32_t fam, const Core *t, uint32_t earlier) {
+  uint32_t p = c->m->families[fam].param_count;
+  uint32_t i;
+  if (t == NULL || t->kind != CORE_OP || t->op != OP_FAMILY || t->inst != fam || t->argc != p + c->m->families[fam].index_count)
+    return 0;
+  for (i = 0; i < p; i++)
+    if (t->args[i] == NULL || t->args[i]->kind != CORE_VAR || t->args[i]->index != earlier + p - 1u - i)
+      return 0;
+  return 1;
+}
+
+/* T has no free variable at DEPTH binders, so it names no parameter. */
+static int cell_closed(const Core *t, uint32_t depth) {
+  uint32_t i;
+  if (t == NULL)
+    return 1;
+  switch (t->kind) {
+  case CORE_VAR:
+    return t->index < depth;
+  case CORE_GLOBAL:
+  case CORE_NAT:
+  case CORE_TRAP:
+  case CORE_UNIV:
+    return 1;
+  case CORE_LAM:
+  case CORE_PI:
+  case CORE_SIGMA:
+    return cell_closed(t->a, depth) && cell_closed(t->b, depth + 1u);
+  case CORE_APP:
+    return cell_closed(t->a, depth) && cell_closed(t->b, depth);
+  case CORE_OP:
+    break;
+  }
+  for (i = 0; i < t->argc; i++)
+    if (!cell_closed(t->args[i], depth))
+      return 0;
+  return 1;
+}
+
+/* A family with a type argument has only universe parameters (rule R1). */
+static int cell_header(Checker *c, const Decl *d, const FamilyInfo *f) {
+  uint32_t k;
+  c->at = NULL;
+  for (k = 0; k < f->param_count; k++)
+    if (f->param_types[k]->kind != CORE_UNIV)
+      return FAIL(c, "REFUSE_CELL", "%s has a type argument and the parameter %s is not a universe; a cell signature has only type parameters (rule R1)", f->name, d->params[k].name);
+  return 1;
+}
+
+/* An index type that ends in a universe is a type index. A cell signature
+   binds its type arguments as uniform parameters (rule R1). */
+static int type_index(Checker *c, const FamilyInfo *f) {
+  uint32_t k;
+  c->at = NULL;
+  for (k = 0; k < f->index_count; k++)
+    if (cell_type_argument(f->index_types[k]))
+      return FAIL(c, "REFUSE_CELL", "%s has a type index; a cell signature binds its type arguments as uniform parameters (rule R1)", f->name);
+  return 1;
+}
+
+/* The body of the line of a path type, under one binder; NULL when T is
+   not a path type. */
+static const Core *path_body(const Core *t) {
+  return t != NULL && t->kind == CORE_OP && t->op == OP_PATHP && t->argc == 3u && t->args[0] != NULL && t->args[0]->kind == CORE_LAM ? t->args[0]->b : NULL;
+}
+
+/* A field of a cell monad: a type parameter (the one field of its
+   constructor), closed data, the family at its own parameters, or a path
+   in the family (under EARLIER fields). */
+static int cell_field(Checker *c, uint32_t fam, const FieldInfo *out, size_t field_count, uint32_t earlier) {
+  const FamilyInfo *f = &c->m->families[fam];
+  const Core *t = out->type;
+  const Core *line = path_body(t);
+  if (t != NULL && t->kind == CORE_VAR && t->index >= earlier && t->index - earlier < f->param_count)
+    return field_count == 1u ? 1 : FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the field %s has a type parameter as its type, so it must be the one field of its constructor (rule R1)", f->name, out->name);
+  if (own_family(c, fam, t, earlier) || (line != NULL && own_family(c, fam, line, earlier + 1u)) || (c->self_uses == 0u && cell_closed(t, earlier)))
+    return 1;
+  return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the field %s must be a type parameter, closed data, %s at its own parameters or a path in %s (rule R1)", f->name, out->name, f->name, f->name);
+}
+
+/* Each type parameter has one generator: one constructor with one field
+   of that type (rule R1). */
+static int cell_generators(Checker *c, const Decl *d, uint32_t fam) {
+  const Machine *m = c->m;
+  const FamilyInfo *f = &m->families[fam];
+  uint32_t k;
+  c->at = NULL;
+  for (k = 0; k < f->param_count; k++) {
+    unsigned count = 0;
+    uint32_t j;
+    for (j = 0; j < f->ctor_count; j++) {
+      const CtorInfo *ci = &m->ctors[f->first_ctor + j];
+      count += ci->depth == 0u && ci->field_count == 1u && cell_param(f, ci->fields[0].type) == k;
+    }
+    if (count == 0u)
+      return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the type parameter %s occurs in no constructor (rule R1)", f->name, d->params[k].name);
+    if (count > 1u)
+      return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the type parameter %s has %u generators (rule R1)", f->name, d->params[k].name, count);
+  }
+  return 1;
+}
+
+/* A recursive field must be the whole field type: the family at its own
+   parameters (under EARLIER fields), then at any indices. A field of a cell
+   monad must pass cell_field first. */
+static int check_field(Checker *c, uint32_t fam, const Field *field, size_t field_count, uint32_t earlier, FieldInfo *out) {
   uint64_t level = 0;
   const Core *t;
-  int whole;
   if (!name_free(c, field->name))
     return 0;
   c->self_uses = 0;
@@ -1420,24 +2096,113 @@ static int check_field(Checker *c, uint32_t fam, const Field *field, FieldInfo *
     return 0;
   if (level > c->m->families[fam].universe)
     c->m->families[fam].universe = level;
-  whole = t->kind == CORE_OP && t->op == OP_FAMILY && t->inst == fam && c->m->families[fam].param_count == 0u;
   out->name = field->name;
   out->type = t;
   out->recursive = c->self_uses > 0u;
-  if (out->recursive && !whole)
-    return FAIL(c, "DOMAIN_FAMILY", "the recursive field %s must have the type %s itself, in a family with no parameters", field->name, c->m->families[fam].name);
+  if (c->m->families[fam].r1 == FAMILY_CM && !cell_field(c, fam, out, field_count, earlier))
+    return 0;
+  if (c->m->families[fam].r1 == FAMILY_CM && own_family(c, fam, path_body(t), earlier + 1u))
+    out->recursive = 0;
+  if (out->recursive && !own_family(c, fam, t, earlier))
+    return FAIL(c, "DOMAIN_FAMILY", "the recursive field %s must have the type %s itself, at the parameters of the family", field->name, c->m->families[fam].name);
+  return 1;
+}
+
+/* K is a point term of FAM under DEPTH binders: a recursive field of the
+   constructor (N FIELDS), or a point constructor at the params whose
+   recursive arguments are point terms and whose other arguments are
+   fields (D10). */
+static int point_term(const Checker *c, uint32_t fam, const FieldInfo *fields, uint32_t n, const Core *k, uint32_t depth) {
+  const Machine *m = c->m;
+  uint32_t p = m->families[fam].param_count;
+  const CtorInfo *ci;
+  uint32_t i;
+  if (k != NULL && k->kind == CORE_VAR)
+    return k->index >= depth && k->index - depth < n && fields[n - 1u - (k->index - depth)].recursive;
+  if (k == NULL || k->kind != CORE_OP || k->op != OP_CTOR || k->inst >= m->ctor_count)
+    return 0;
+  ci = &m->ctors[k->inst];
+  if (ci->family != fam || ci->depth != 0u || k->argc != p + ci->field_count)
+    return 0;
+  for (i = 0; i < p; i++)
+    if (k->args[i] == NULL || k->args[i]->kind != CORE_VAR || k->args[i]->index != depth + n + p - 1u - i)
+      return 0;
+  for (i = 0; i < ci->field_count; i++) {
+    const Core *x = k->args[p + i];
+    int ok = ci->fields[i].recursive ? point_term(c, fam, fields, n, x, depth)
+                                     : x != NULL && x->kind == CORE_VAR && x->index >= depth && x->index - depth < n;
+    if (!ok)
+      return 0;
+  }
+  return 1;
+}
+
+/* A path constructor (D10): its type is s ≡ t over point terms (depth 1)
+   or p ≡ q over two path fields (depth 2). The fields are pushed. The
+   ends x, y of a square leave the line binder by evaluation. */
+static int check_pctor(Checker *c, uint32_t fam, const Ctor *ctor, const FieldInfo *fields, CtorInfo *ci) {
+  Machine *m = c->m;
+  const char *name = m->families[fam].name;
+  uint32_t n = (uint32_t)ctor->field_count;
+  uint64_t level = 0;
+  const Core *t = check_type(c, ctor->result, &level);
+  const Core *k = t;
+  const Core *inner = path_body(t);
+  const Core **ends = arena_alloc(m->arena, 5u * sizeof *ends);
+  uint32_t depth = 0;
+  uint32_t i;
+  if (t == NULL)
+    return 0;
+  if (ends == NULL)
+    return FAIL(c, "OOM", "out of memory");
+  while (k != NULL && !own_family(c, fam, k, n + depth)) {
+    k = path_body(k);
+    depth++;
+  }
+  if (k == NULL || depth == 0u)
+    return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the path constructor %s must have the type s ≡ t over %s or p ≡ q over a path in %s (rule R1)", name, ctor->name, name, name);
+  if (depth > 2u)
+    return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the path constructor %s has dimension %u; only 1 and 2 are available (rule R1)", name, ctor->name, (unsigned)depth);
+  ends[0] = t->args[1];
+  ends[1] = t->args[2];
+  if (depth == 1u && !(point_term(c, fam, fields, n, ends[0], 0u) && point_term(c, fam, fields, n, ends[1], 0u)))
+    return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: an end of the path constructor %s must be a point term (rule R1)", name, ctor->name);
+  for (i = 0; depth == 2u && i < 2u; i++)
+    if (ends[i] == NULL || ends[i]->kind != CORE_VAR || ends[i]->index >= n)
+      return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the ends p, q of the square %s must be fields of the constructor (rule R1)", name, ctor->name);
+  for (i = 0; depth == 2u && i < 2u; i++) {
+    const Value *v;
+    if (!point_term(c, fam, fields, n, inner->args[1u + i], 1u))
+      return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: an end of the path constructor %s must be a point term (rule R1)", name, ctor->name);
+    if (!push(c, "_", val_op(m, VAL_OP, OP_I, 0, 0, NULL, 0)))
+      return 0;
+    v = here(c, inner->args[1u + i]);
+    pop(c);
+    ends[2u + i] = quote_value(m, c->level, v);
+  }
+  ci->depth = depth;
+  ci->type = t;
+  ci->ends = ends;
   return 1;
 }
 
 static int check_ctor(Checker *c, uint32_t fam, const Ctor *ctor) {
   Machine *m = c->m;
+  const FamilyInfo *f = &m->families[fam];
+  int dep = telescope(f) || ctor->result != NULL;
   FieldInfo *fields = arena_alloc(m->arena, (ctor->field_count + 1u) * sizeof *fields);
+  const Core **indices = arena_alloc(m->arena, (f->index_count + 1u) * sizeof *indices);
+  const Value **itypes = arena_alloc(m->arena, (f->index_count + 1u) * sizeof *itypes);
   CtorInfo *ci = &m->ctors[m->ctor_count];
   size_t j;
-  if (fields == NULL)
+  if (fields == NULL || indices == NULL || itypes == NULL)
     return FAIL(c, "OOM", "out of memory");
   if (!name_free(c, ctor->name))
     return 0;
+  if (ctor->result != NULL && f->r1 != FAMILY_CM)
+    return FAIL(c, "DOMAIN_FAMILY", "the path constructor %s is in S2 only in a cell signature (rule R1)", ctor->name);
+  for (j = 0; j < f->index_count; j++)
+    itypes[j] = here(c, f->index_types[j]);
   for (j = 0; j < ctor->field_count; j++) {
     size_t earlier;
     const char *name = ctor->fields[j].name;
@@ -1446,44 +2211,76 @@ static int check_ctor(Checker *c, uint32_t fam, const Ctor *ctor) {
     for (earlier = 0; earlier < j; earlier++)
       if (strcmp(name, ctor->fields[earlier].name) == 0)
         return FAIL(c, "REFUSE_NAME", "%s is already a field of this constructor (rule R4)", name);
-    if (!check_field(c, fam, &ctor->fields[j], &fields[j]))
+    if (!check_field(c, fam, &ctor->fields[j], ctor->field_count, dep ? (uint32_t)j : 0u, &fields[j]))
+      return 0;
+    if (dep && !push(c, name, here(c, fields[j].type)))
       return 0;
   }
+  for (j = 0; j < f->index_count; j++) {
+    indices[j] = check(c, ctor->indices[j], itypes[j]);
+    if (indices[j] == NULL)
+      return 0;
+  }
+  ci->depth = 0;
+  ci->type = NULL;
+  ci->ends = NULL;
+  if (ctor->result != NULL && !check_pctor(c, fam, ctor, fields, ci))
+    return 0;
+  for (j = 0; dep && j < ctor->field_count; j++)
+    pop(c);
   ci->name = ctor->name;
   ci->family = fam;
   ci->fields = fields;
+  ci->indices = indices;
   ci->field_count = (uint32_t)ctor->field_count;
   m->ctor_count++;
   return 1;
 }
 
-/* A family is in scope in its own fields, so a field can be recursive. */
+/* A family is in scope in its own fields, so a field can be recursive. A
+   program family with a type parameter must be a cell signature. */
 static int check_family(Checker *c, const Decl *d) {
   Machine *m = c->m;
   uint32_t fam = m->family_count;
   FamilyInfo *f = &m->families[fam];
   const Core **params = arena_alloc(m->arena, (d->param_count + 1u) * sizeof *params);
+  const Core **indices = arena_alloc(m->arena, (d->index_count + 1u) * sizeof *indices);
   size_t i;
-  if (params == NULL)
+  if (params == NULL || indices == NULL)
     return FAIL(c, "OOM", "out of memory");
   for (i = 0; i < d->param_count; i++) {
     uint64_t level = 0;
     params[i] = check_type(c, d->params[i].type, &level);
-    if (!push(c, d->params[i].name, here(c, params[i])))
+    params[i] = quote_value(m, c->level, here(c, params[i]));
+    if (params[i] == NULL || !push(c, d->params[i].name, here(c, params[i])))
+      return 0;
+  }
+  for (i = 0; i < d->index_count; i++) {
+    uint64_t level = 0;
+    indices[i] = check_type(c, d->indices[i], &level);
+    indices[i] = quote_value(m, c->level, here(c, indices[i]));
+    if (indices[i] == NULL)
       return 0;
   }
   f->name = d->name;
   f->param_types = params;
   f->param_count = (uint32_t)d->param_count;
+  f->index_types = indices;
+  f->index_count = (uint32_t)d->index_count;
   f->first_ctor = m->ctor_count;
   f->ctor_count = (uint32_t)d->ctor_count;
+  f->r1 = family_class(d, f);
   m->family_count++;
+  if (!type_index(c, f))
+    return 0;
+  if (f->r1 == FAMILY_CM && !cell_header(c, d, f))
+    return 0;
   c->self = fam;
   for (i = 0; i < d->ctor_count; i++) {
     if (!check_ctor(c, fam, &d->ctors[i]))
       return 0;
   }
-  return 1;
+  return f->r1 != FAMILY_CM || cell_generators(c, d, fam);
 }
 
 static int check_def(Checker *c, const Decl *d) {
@@ -1504,34 +2301,307 @@ static int check_def(Checker *c, const Decl *d) {
   return 1;
 }
 
+/* T ends in a universe after its arrows. */
+static int term_ends_in_universe(const Term *t) {
+  while (t != NULL && t->kind == TERM_PI)
+    t = t->right;
+  return t != NULL && t->kind == TERM_UNIV;
+}
+
+/* A coinductive record is a cell comonad (Q1 (b)). */
+static int refuse_coinductive(Checker *c, const Decl *d) {
+  size_t i;
+  for (i = 0; i < d->param_count; i++)
+    if (term_ends_in_universe(d->params[i].type))
+      return FAIL(c, "REFUSE_CELL", "%s is a coinductive record with a type parameter, a cell comonad: R1 admits cell monads only (Q1 (b))", d->name);
+  return FAIL(c, "REFUSE_CELL", "%s is a coinductive record: R1 admits cell monads only (Q1 (b))", d->name);
+}
+
+/* The bound record value in a projection. The lexer cannot make this name,
+   so a parameter or a field cannot capture it. */
+static const char RECORD_SELF[] = "%r";
+
+/* A term of the definitions that the record D stands for. OK goes to 0
+   when the arena is full. */
+static Term *rec_term(Checker *c, const Decl *d, int *ok, TermKind kind, const char *name, const Term *left, const Term *right) {
+  Term *t = arena_alloc(c->m->arena, sizeof *t);
+  if (t == NULL) {
+    *ok = 0;
+    return NULL;
+  }
+  memset(t, 0, sizeof *t);
+  t->kind = kind;
+  t->line = d->line;
+  t->col = d->col;
+  t->name = name;
+  t->left = left;
+  t->right = right;
+  return t;
+}
+
+/* Field K of the record value R: fst (snd^K r); the last field is
+   snd^(N-1) r. */
+static const Term *rec_project(Checker *c, const Decl *d, int *ok, size_t k, const Term *r) {
+  size_t j;
+  for (j = 0; j < k; j++)
+    r = rec_term(c, d, ok, TERM_APP, NULL, rec_term(c, d, ok, TERM_VAR, "snd", NULL, NULL), r);
+  if (k + 1u == d->field_count)
+    return r;
+  return rec_term(c, d, ok, TERM_APP, NULL, rec_term(c, d, ok, TERM_VAR, "fst", NULL, NULL), r);
+}
+
+/* Checks NAME : TYPE = BODY, one of the definitions that the record D (or
+   the section definition D) stands for. */
+static int rec_def(Checker *c, const Decl *d, const char *name, const Term *type, const Term *body) {
+  Decl def;
+  memset(&def, 0, sizeof def);
+  def.kind = DECL_DEF;
+  def.origin = d->origin;
+  def.line = d->line;
+  def.col = d->col;
+  def.end_line = d->end_line;
+  def.source = d->source;
+  def.name = name;
+  def.type = type;
+  def.body = body;
+  return check_def(c, &def);
+}
+
+/* A type argument ends in a universe, including a family-valued argument. */
+static int value_type_argument(Checker *c, const Value *type, uint32_t level) {
+  while (type != NULL && type->kind == VAL_PI)
+    type = closure_apply(c->m, type, val_var(c->m, level++));
+  return type != NULL && type->kind == VAL_UNIV;
+}
+
+/* Inspect the checked Sigma fields so aliases cannot hide a constructor type. */
+static int record_fields_ok(Checker *c, const Decl *d) {
+  const Value *row = def_value(c->m, c->m->def_count - 1u);
+  uint32_t level = c->level;
+  size_t k;
+  for (k = 0; k < d->param_count && row != NULL; k++)
+    row = apply_value(c->m, row, val_var(c->m, level++));
+  for (k = 0; k < d->field_count && row != NULL; k++) {
+    const Value *field = k + 1u < d->field_count ? row->dom : row;
+    uint32_t inner = level;
+    int type_arg = 0;
+    while (field != NULL && field->kind == VAL_PI) {
+      type_arg |= value_type_argument(c, field->dom, inner);
+      field = closure_apply(c->m, field, val_var(c->m, inner++));
+    }
+    if (field == NULL || c->m->diag->set)
+      return 0;
+    if (type_arg && field->kind == VAL_UNIV)
+      return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the field %s is type-constructor valued (sec 2.4, rule R1)", d->name, d->fields[k].name);
+    if (k + 1u < d->field_count)
+      row = closure_apply(c->m, row, val_var(c->m, level++));
+  }
+  return row != NULL;
+}
+
+/* A record is a named Σ (D2): NAME params = Σ A₁ (λ x₁ → ...). Each field
+   is a global projection whose type binds the earlier fields with let. */
+static int check_record(Checker *c, const Decl *d) {
+  int ok = 1;
+  size_t i;
+  size_t k;
+  for (k = 0; k < d->field_count; k++) {
+    const Term *t = d->fields[k].type;
+    if (t->kind == TERM_PI && t->left->kind == TERM_UNIV && term_ends_in_universe(t->right))
+      return FAIL(c, "REFUSE_CELL", "%s is not a cell signature: the field %s is type-constructor valued (sec 2.4, rule R1)", d->name, d->fields[k].name);
+  }
+  Term *univ = rec_term(c, d, &ok, TERM_UNIV, NULL, NULL, NULL);
+  if (univ != NULL)
+    univ->nat = d->level;
+  const Term *type = univ;
+  const Term *body = d->fields[d->field_count - 1u].type;
+  for (k = d->field_count - 1u; k > 0; k--)
+    body = rec_term(c, d, &ok, TERM_SIGMA, d->fields[k - 1u].name, d->fields[k - 1u].type, body);
+  for (i = d->param_count; i > 0; i--) {
+    type = rec_term(c, d, &ok, TERM_PI, d->params[i - 1u].name, d->params[i - 1u].type, type);
+    body = rec_term(c, d, &ok, TERM_LAM, d->params[i - 1u].name, NULL, body);
+  }
+  if (!ok)
+    return FAIL(c, "OOM", "out of memory");
+  if (!rec_def(c, d, d->name, type, body))
+    return 0;
+  if (!record_fields_ok(c, d))
+    return 0;
+  const Term *app = rec_term(c, d, &ok, TERM_VAR, d->name, NULL, NULL);
+  for (i = 0; i < d->param_count; i++)
+    app = rec_term(c, d, &ok, TERM_APP, NULL, app, rec_term(c, d, &ok, TERM_VAR, d->params[i].name, NULL, NULL));
+  const Term *self = rec_term(c, d, &ok, TERM_VAR, RECORD_SELF, NULL, NULL);
+  for (k = 0; k < d->field_count; k++) {
+    const Term *ptype = d->fields[k].type;
+    const Term *pbody = rec_project(c, d, &ok, k, self);
+    size_t j;
+    for (j = k; j > 0; j--)
+      ptype = rec_term(c, d, &ok, TERM_LET, d->fields[j - 1u].name, rec_project(c, d, &ok, j - 1u, self), ptype);
+    ptype = rec_term(c, d, &ok, TERM_PI, RECORD_SELF, app, ptype);
+    pbody = rec_term(c, d, &ok, TERM_LAM, RECORD_SELF, NULL, pbody);
+    for (i = d->param_count; i > 0; i--) {
+      ptype = rec_term(c, d, &ok, TERM_PI, d->params[i - 1u].name, d->params[i - 1u].type, ptype);
+      pbody = rec_term(c, d, &ok, TERM_LAM, d->params[i - 1u].name, NULL, pbody);
+    }
+    if (!ok)
+      return FAIL(c, "OOM", "out of memory");
+    if (!name_free(c, d->fields[k].name) || !rec_def(c, d, d->fields[k].name, ptype, pbody))
+      return 0;
+  }
+  return 1;
+}
+
+/* The binder names around a term of a section definition (D3). */
+typedef struct SecHide SecHide;
+struct SecHide {
+  const char *name;
+  const SecHide *next;
+};
+
+static int sec_hidden(const SecHide *h, const char *name) {
+  for (; h != NULL; h = h->next)
+    if (strcmp(h->name, name) == 0)
+      return 1;
+  return 0;
+}
+
+/* NAME is a definition of the section of D that comes before D. */
+static int sec_earlier(const Checker *c, const Decl *d, const char *name) {
+  size_t j;
+  for (j = d->section; j < c->decl_index; j++)
+    if (strcmp(c->decls->items[j].name, name) == 0)
+      return 1;
+  return 0;
+}
+
+/* A use T of a name in the definition D of a section: an earlier definition
+   of the section takes the section parameters (D3). OK goes to 0 when the
+   arena is full, and to -1 after a refusal. */
+static const Term *sec_use(Checker *c, const Decl *d, int *ok, const SecHide *hide, const Term *t) {
+  const Decl *s = &c->decls->items[d->section - 1u];
+  const Term *app = t;
+  size_t i;
+  if (sec_hidden(hide, t->name) || !sec_earlier(c, d, t->name))
+    return t;
+  for (i = 0; i < s->param_count; i++) {
+    if (sec_hidden(hide, s->params[i].name)) {
+      FAIL(c, "REFUSE_NAME", "%s uses %s where a binder hides the section parameter %s; rename the binder (D3)", d->name, t->name, s->params[i].name);
+      *ok = -1;
+      return t;
+    }
+    app = rec_term(c, d, ok, TERM_APP, NULL, app, rec_term(c, d, ok, TERM_VAR, s->params[i].name, NULL, NULL));
+  }
+  return app;
+}
+
+/* T, a term of the definition D of a section, with sec_use at each name.
+   A binder hides its name in its body. */
+static const Term *sec_term(Checker *c, const Decl *d, int *ok, const SecHide *hide, const Term *t) {
+  SecHide inner;
+  Term *out;
+  Cell *cells;
+  size_t i;
+  if (t == NULL || *ok != 1 || t->kind == TERM_NAT)
+    return t;
+  if (t->kind == TERM_VAR)
+    return sec_use(c, d, ok, hide, t);
+  out = arena_alloc(c->m->arena, sizeof *out);
+  if (out == NULL) {
+    *ok = 0;
+    return t;
+  }
+  *out = *t;
+  switch (t->kind) {
+  case TERM_VAR:
+  case TERM_NAT:
+    break;
+  case TERM_APP:
+  case TERM_UNIV:
+    out->left = sec_term(c, d, ok, hide, t->left);
+    out->right = sec_term(c, d, ok, hide, t->right);
+    break;
+  case TERM_LAM:
+  case TERM_PI:
+  case TERM_SIGMA:
+  case TERM_LET:
+    inner.name = t->name;
+    inner.next = hide;
+    out->left = sec_term(c, d, ok, hide, t->left);
+    out->right = sec_term(c, d, ok, t->name != NULL ? &inner : hide, t->right);
+    break;
+  case TERM_SYSTEM:
+    cells = arena_alloc(c->m->arena, (t->cell_count + 1u) * sizeof *cells);
+    if (cells == NULL) {
+      *ok = 0;
+      return t;
+    }
+    for (i = 0; i < t->cell_count; i++) {
+      cells[i] = t->cells[i];
+      cells[i].body = sec_term(c, d, ok, hide, t->cells[i].body);
+    }
+    out->cells = cells;
+    break;
+  }
+  return out;
+}
+
+/* A definition of a section (D3): NAME : (params) → TYPE = λ params → BODY,
+   where each earlier definition of the section takes the parameters. */
+static int check_section(Checker *c, const Decl *d) {
+  const Decl *s = &c->decls->items[d->section - 1u];
+  int ok = 1;
+  size_t i;
+  const Term *type = sec_term(c, d, &ok, NULL, d->type);
+  const Term *body = sec_term(c, d, &ok, NULL, d->body);
+  for (i = s->param_count; i > 0; i--) {
+    type = rec_term(c, d, &ok, TERM_PI, s->params[i - 1u].name, s->params[i - 1u].type, type);
+    body = rec_term(c, d, &ok, TERM_LAM, s->params[i - 1u].name, NULL, body);
+  }
+  if (ok < 0)
+    return 0;
+  if (!ok)
+    return FAIL(c, "OOM", "out of memory");
+  return rec_def(c, d, d->name, type, body);
+}
+
 static int check_decl(Checker *c, const Decl *d) {
-  if (d->kind == DECL_FAMILY && d->origin == ORIGIN_PROGRAM)
-    return FAIL(c, "REFUSE_DATA", "a program cannot declare a data type (rule R1); only domain/domain.lang can");
+  if (d->kind == DECL_MODULE)
+    return 1;
+  if (d->kind == DECL_FAMILY && d->origin == ORIGIN_PROGRAM && d->param_count == 0u && d->index_count == 0u)
+    return FAIL(c, "REFUSE_DATA", "a program cannot declare closed data; a base type comes only from domain/domain.lang (rule R2)");
   if (d->kind == DECL_AXIOM)
     return FAIL(c, "REFUSE_AXIOM", "a postulate has no proof (rule R2)");
+  if (d->kind == DECL_RECORD && d->coinductive)
+    return refuse_coinductive(c, d);
   if (d->is_rec)
     return FAIL(c, "REFUSE_REC", "%s names itself, and a definition cannot recur (rule R3); use fold", d->name);
   if (!name_free(c, d->name))
     return 0;
-  return d->kind == DECL_FAMILY ? check_family(c, d) : check_def(c, d);
+  return d->kind == DECL_FAMILY ? check_family(c, d)
+       : d->kind == DECL_RECORD ? check_record(c, d)
+       : d->section != 0u ? check_section(c, d)
+       : check_def(c, d);
 }
 
 int check_program(Arena *arena, const DeclList *decls, Machine *m, Diag *diag) {
   Checker c;
   size_t ctors = 0;
+  size_t fields = 0;
   size_t i;
   memset(m, 0, sizeof *m);
   m->arena = arena;
   m->diag = diag;
   m->fuel = EVAL_FUEL_STEPS;
-  for (i = 0; i < decls->count; i++)
+  for (i = 0; i < decls->count; i++) {
     ctors += decls->items[i].ctor_count;
-  m->defs = arena_alloc(arena, (decls->count + 1u) * sizeof *m->defs);
+    fields += decls->items[i].field_count;
+  }
+  m->defs = arena_alloc(arena, (decls->count + fields + 1u) * sizeof *m->defs);
   m->families = arena_alloc(arena, (decls->count + 1u) * sizeof *m->families);
   m->ctors = arena_alloc(arena, (ctors + 1u) * sizeof *m->ctors);
   if (m->defs == NULL || m->families == NULL || m->ctors == NULL)
     return diag_fail(diag, "OOM", NULL, "out of memory");
-  m->def_cap = (uint32_t)decls->count;
+  m->def_cap = (uint32_t)(decls->count + fields);
   m->family_cap = (uint32_t)decls->count;
   m->ctor_cap = (uint32_t)ctors;
   memset(&c, 0, sizeof c);

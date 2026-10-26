@@ -1,0 +1,4 @@
+record Stream (A : Type) : Type where
+  coinductive
+  head : A
+  tail : Stream A

@@ -1,0 +1,4 @@
+data FMSet₀ (A : Type) : Type where
+  nil₁ : FMSet₀ A
+  cons₁ : (x₇ : A) → (xs₇ : FMSet₀ A) → FMSet₀ A
+  comm₁ : (x₈ : A) → (y₈ : A) → (xs₈ : FMSet₀ A) → cons₁ A x₈ (cons₁ A y₈ xs₈) ≡ cons₁ A y₈ (cons₁ A x₈ xs₈)

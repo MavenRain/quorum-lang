@@ -629,19 +629,37 @@ static int lower_canon(Low *l, Buf *b, const Value *v, Operand *out) {
   case OP_NAT:
   case OP_FLAG:
   case OP_UNIT:
-  case OP_PROD:
   case OP_SUM:
   case OP_OPTION:
   case OP_LIST:
-  case OP_EQ:
   case OP_FAMILY:
   case OP_UNIT_VAL:
   case OP_FLAG_NO:
-  case OP_REFL:
+  case OP_LEVEL:
+  case OP_SSET:
+  case OP_I:
+  case OP_I0:
+  case OP_I1:
+  case OP_INEG:
+  case OP_IMIN:
+  case OP_IMAX:
+  case OP_PATHP:
+  case OP_PLAM:
+  case OP_PCTOR:
+  case OP_PARTIAL:
+  case OP_SYSTEM:
+  case OP_SYSNIL:
     return give(l, out, 0, 0);
+  case OP_PAPP:
+  case OP_FROMPARTIAL:
+  case OP_TRANSP:
+  case OP_TPART:
+  case OP_TCOD:
+  case OP_HCOMP:
+  case OP_SYSMAP:
+    return internal(l, "a stuck cubical operation");
   case OP_FLAG_YES:
     return give(l, out, 1, 0);
-  case OP_PAIR:
   case OP_PACK:
     return ctor_full(l, b, v, 0, 2, 0, out);
   case OP_INL:
@@ -656,8 +674,6 @@ static int lower_canon(Low *l, Buf *b, const Value *v, Operand *out) {
     return ctor_full(l, b, v, 0, 2, 1, out);
   case OP_CTOR:
     return lower_ctor(l, b, v, out);
-  case OP_FIRST:
-  case OP_SECOND:
   case OP_EITHER:
   case OP_OPTION_ELIM:
   case OP_PURE:
@@ -670,10 +686,6 @@ static int lower_canon(Low *l, Buf *b, const Value *v, Operand *out) {
   case OP_FILTER:
   case OP_WITNESS:
   case OP_PAYLOAD:
-  case OP_SYMM:
-  case OP_TRANS:
-  case OP_TRANSPORT:
-  case OP_CONG:
   case OP_NAT_ADD:
   case OP_NAT_SUB:
   case OP_NAT_MUL:
@@ -1146,44 +1158,19 @@ static int fold_nat(Low *l, Buf *b, const Value *v, Operand *out) {
          st_repeat(l, &in, n.w, &body) && guard(l, b, n.f, acc, &in);
 }
 
-/* Proof contents erase, but forcing a proof must preserve its trap flag. */
-static int proof_op(Low *l, Buf *b, const Value *v, uint32_t first, uint32_t count, Operand *out) {
-  Operand p;
-  const IrExpr *flag = ex_const(l, 0);
-  uint32_t i;
-  for (i = first; i < first + count; i++) {
-    if (!lower(l, b, v->args[i], &p))
-      return 0;
-    flag = ex_or(l, flag, p.f);
-  }
-  return atoms(l, b, ex_const(l, 0), flag, out);
-}
-
-static int transport(Low *l, Buf *b, const Value *v, Operand *out) {
-  Operand proof;
-  Slot res = slot_new(l);
-  Buf in = buf_under(b);
-  *out = slot_get(l, res);
-  return lower(l, b, v->args[1], &proof) && lower_into(l, &in, v->args[2], res) &&
-         guard(l, b, proof.f, res, &in);
-}
-
 /* An eliminator on a variable. */
 static int lower_stuck(Low *l, Buf *b, const Value *v, Operand *out) {
   switch (v->op) {
   case OP_NAT:
   case OP_FLAG:
   case OP_UNIT:
-  case OP_PROD:
   case OP_SUM:
   case OP_OPTION:
   case OP_LIST:
-  case OP_EQ:
   case OP_FAMILY:
   case OP_UNIT_VAL:
   case OP_FLAG_YES:
   case OP_FLAG_NO:
-  case OP_PAIR:
   case OP_INL:
   case OP_INR:
   case OP_NONE:
@@ -1191,14 +1178,33 @@ static int lower_stuck(Low *l, Buf *b, const Value *v, Operand *out) {
   case OP_NIL:
   case OP_CONS:
   case OP_PACK:
-  case OP_REFL:
   case OP_CTOR:
   case OP_PURE:
+  case OP_LEVEL:
+  case OP_SSET:
+  case OP_I:
+  case OP_I0:
+  case OP_I1:
+  case OP_INEG:
+  case OP_IMIN:
+  case OP_IMAX:
+  case OP_PATHP:
+  case OP_PLAM:
+  case OP_PCTOR:
+  case OP_PARTIAL:
+  case OP_SYSTEM:
+  case OP_SYSNIL:
     return internal(l, "a stuck canonical value");
-  case OP_FIRST:
+  case OP_PAPP:
+  case OP_FROMPARTIAL:
+  case OP_TRANSP:
+  case OP_TPART:
+  case OP_TCOD:
+  case OP_HCOMP:
+  case OP_SYSMAP:
+    return internal(l, "a stuck cubical operation");
   case OP_WITNESS:
     return field_of(l, b, v->args[0], 0, out);
-  case OP_SECOND:
   case OP_PAYLOAD:
     return field_of(l, b, v->args[0], 1, out);
   case OP_PROJ:
@@ -1221,14 +1227,6 @@ static int lower_stuck(Low *l, Buf *b, const Value *v, Operand *out) {
     return unfold(l, b, v, out);
   case OP_FOLD_FAMILY:
     return family_fold(l, b, v, out);
-  case OP_SYMM:
-    return proof_op(l, b, v, 0, 1, out);
-  case OP_TRANS:
-    return proof_op(l, b, v, 0, 2, out);
-  case OP_CONG:
-    return proof_op(l, b, v, 1, 1, out);
-  case OP_TRANSPORT:
-    return transport(l, b, v, out);
   case OP_NAT_ADD:
     return nat_bin(l, b, v, IR_OP_ADD, 1, out);
   case OP_NAT_SUB:

@@ -2,11 +2,11 @@
 price : ℕ
 price = 1200
 both : ℕ × Bool
-both = pair price true
+both = price , true
 left : ℕ
-left = first both
+left = fst both
 right : Bool
-right = second both
+right = snd both
 absent : Maybe ℕ
 absent = nothing
 present : Maybe ℕ

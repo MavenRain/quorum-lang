@@ -1,0 +1,2 @@
+data Fin₁ : (ℕ) → Type where
+  fz₁ : Fin₁ 0

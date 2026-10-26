@@ -1,0 +1,5 @@
+start : ℕ
+start = 1
+
+wrong : start ≡ 2
+wrong i = start

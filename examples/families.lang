@@ -1,0 +1,51 @@
+data Fin₀ : ℕ → Type where
+  fzero₀ : (m : ℕ) → Fin₀ (suc m)
+  fsuc₀ : (n : ℕ) → (k : Fin₀ n) → Fin₀ (suc n)
+
+one₀ : Fin₀ 1
+one₀ = fzero₀ 0
+
+two₀ : Fin₀ 2
+two₀ = fsuc₀ 1 (fzero₀ 0)
+
+-- Named steps (A1): `let x = t in u` binds x to the value of t in u.
+three₀ : ℕ
+three₀ = let x = 1 in let y = suc x in suc y
+
+two₁ : Fin₀ 2
+two₁ = let n = 1 in fsuc₀ n (fzero₀ 0)
+
+-- Records (D2): a record is a named Σ, and each field is a projection.
+record Pair₀ (A : Type) : Type where
+  first₀ : A
+  second₀ : A
+
+pair₀ : Pair₀ ℕ
+pair₀ = 1 , 2
+
+second₁ : ℕ
+second₁ = second₀ ℕ pair₀
+
+record Bounded₀ : Type where
+  bound₀ : ℕ
+  below₀ : Fin₀ bound₀
+
+bounded₀ : Bounded₀
+bounded₀ = 2 , fsuc₀ 1 (fzero₀ 0)
+
+bound₁ : ℕ
+bound₁ = bound₀ bounded₀
+
+below₁ : Fin₀ 2
+below₁ = below₀ bounded₀
+
+-- D3: a parameter section. Inside, twice₀ uses once₀ without the section
+-- parameters; outside, five₁ gives them.
+module Twice₀ (A : Type) (f : A → A) where
+  once₀ : A → A
+  once₀ x = f x
+  twice₀ : A → A
+  twice₀ x = once₀ (once₀ x)
+
+five₁ : ℕ
+five₁ = twice₀ ℕ (λ n → suc n) 3

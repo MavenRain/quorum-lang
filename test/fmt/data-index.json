@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/fmt/data-index.lang","line":1,"col":13,"endLine":3,"endCol":1},"expected":"data Fin₁ : ℕ → Type where","found":"data Fin₁ : (ℕ) → Type where","fix":"data Fin₁ : ℕ → Type where\n  fz₁ : Fin₁ 0\n","retry":true,"message":"test/fmt/data-index.lang:1:13: the text is not in the canonical form; langc fmt test/fmt/data-index.lang prints it"}
+{"parsed":1,"typed":1,"laws":{"discharged":0,"total":0}}

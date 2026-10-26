@@ -1,2 +1,2 @@
 wrong : ℕ
-wrong = first (pair nothing 1)
+wrong = fst (nothing , 1)

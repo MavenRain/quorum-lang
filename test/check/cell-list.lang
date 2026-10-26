@@ -1,0 +1,3 @@
+data List₀ (A : Type) : Type where
+  nil₀ : List₀ A
+  cons₀ : (x : A) → (xs : List₀ A) → List₀ A

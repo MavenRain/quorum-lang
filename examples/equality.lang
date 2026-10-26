@@ -1,15 +1,24 @@
--- Formers F12 and F13: equality, transport and congruence.
+-- Formers F12 and F13: paths, transport and congruence. transport, sym, trans
+-- and cong are guest definitions over ℕ.
 price : ℕ
 price = 1200
 cost : ℕ
 cost = 1200
-same : Eq ℕ price cost
+transport : (P : ℕ → Type) → (x : ℕ) → (y : ℕ) → x ≡ y → P x → P y
+transport P x y p u = primTransp (λ i → P (p i)) i0 u
+sym : (x : ℕ) → (y : ℕ) → x ≡ y → y ≡ x
+sym x y p i = p (~ i)
+trans : (x : ℕ) → (y : ℕ) → (z : ℕ) → x ≡ y → y ≡ z → x ≡ z
+trans x y z p q i = primHComp (λ j → λ { (i = i0) → x ; (i = i1) → q j }) (p i)
+cong : (f : ℕ → ℕ) → (x : ℕ) → (y : ℕ) → x ≡ y → f x ≡ f y
+cong f x y p i = f (p i)
+same : price ≡ cost
 same = refl
-back : Eq ℕ cost price
-back = symm same
-round : Eq ℕ price price
-round = trans same back
+back : cost ≡ price
+back = sym price cost same
+round : price ≡ price
+round = trans price cost price same back
 moved : (P : ℕ → Type) → P price → P cost
-moved P u = transport P same u
-bumped : Eq ℕ (natAdd price 1) (natAdd cost 1)
-bumped = cong (λ (n : ℕ) → natAdd n 1) same
+moved P u = transport P price cost same u
+bumped : natAdd price 1 ≡ natAdd cost 1
+bumped = cong (λ (n : ℕ) → natAdd n 1) price cost same

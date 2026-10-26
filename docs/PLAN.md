@@ -102,6 +102,21 @@ constructor. The checker admits it as a family, as intent-lang does.
 Examples: `Quorum c`, `_∈_`, `Reach σ`, `_⊑_`, `Step σ σ'`, `Shares c`,
 IVC `Proof σ`.
 
+S2 status (Claude reading, NOT ruled; O14 to O36). S2 implements this
+ambient structure: Pi; `Σ` with `_,_`, `fst` and `snd`, and `A × B` as
+the non-dependent `Σ`; `PathP L a b` and `a ≡ b` (`Path` is a kernel
+name only); `I`, `i0`, `i1`, `~ r`, `r ∧ s` and `r ∨ s`; `primTransp`
+and `primHComp` (a system `λ { ... }` is legal only as the side of
+`primHComp`); `Type`, `Type₁`, `Level`, `lzero`, `lsuc`, `ℓ-max` and
+`Type ℓ` for a closed level of at most 1. S2 has no level variables
+(O18). `record NAME group* : Type where` is a transparent named `Σ`
+(O15). `module NAME group* where` is a parameter section (O16).
+`let x = t in u` is a named step (O17). An indexed family has the head
+`data NAME group* : A₁ → ... → Type where`, with value parameters and
+index types that are not dependent (O24). S2 has no eliminator for an
+indexed family or a higher inductive family: `fold` over one gives
+`DOMAIN_FAMILY` (O31). S3 adds the eliminator.
+
 ### 2.3 Each type former of the design
 
 | Former | Design site | R1 class | Reason |
@@ -135,6 +150,23 @@ IVC `Proof σ`.
 - Admit fixtures: `Maybe`, `Trunc`, `Bag` in generator form.
 - A record field cannot range over `U -> U`. So `Private` fixes `Hidden`
   to the sealed identity CM, and `Circuit` is the codes family (Q3, Q4).
+
+S2 status (Claude reading, NOT ruled; O14). The checker sorts a program
+`data` declaration in this order. (1) A declaration with a type
+parameter gets the CM check (the port of `cell_header`, `cell_field` and
+`cell_generators`); a failure gives `REFUSE_CELL`. (2) A declaration
+with an index type that ends in a universe gives `REFUSE_CELL`. (3) A
+declaration with value parameters or indices is an indexed family. (4)
+A closed declaration gives `REFUSE_DATA`: a base type comes only from
+`domain/domain.lang` (R2). A record field of a type-constructor type and
+a coinductive record give `REFUSE_CELL` (O15). The fixtures use the S1
+surface. Refuse fixtures (test/check, each `REFUSE_CELL`):
+`cell-pair.lang`, `cell-list.lang` (`List₀`, because `List` is a refused
+name), `cell-fmset-cons.lang`, `cell-record-field.lang`, `cell-cc.lang`,
+and `cell-type-index.lang` for case (2). Admit fixtures
+(examples/cells.lang): `Maybe₀`, `Trunc₀` and `Bag₀` in generator form.
+examples/paths.lang defines `sym`, `cong`, `trans` and `transport` as
+guest terms (O19).
 
 ## 3. R2: base types and operations
 
@@ -496,7 +528,7 @@ commit message file and the next prompt file. The USER commits.
 |---|---|---|---|---|
 | S0 | kit seed, design/DESIGN.md, this plan, README.md, AGENTS.md | GREEN: make -j 2 check EXIT 0, gate: 0 failures, 16-line log | none | this file |
 | S1 | surface: Agda-like Unicode grammar (Q13 (b)); `langc fmt`; `W_NONCANON`; `check --json`; progress counts (parsed, typed); kit formers under R1 and R2 (O7) | GREEN (A1, A2, A6, A15): make check EXIT 0, gate: 0 failures, 19-line log; fmt: 56 files canonical; json: 19 fixtures; diagnostics: 30 codes, 0 without a fixture or a row; refusals: 26 check, 9 parse; differential: 745 cases, 0 mismatches; wasm: 13 modules valid | 3: `fmt` not idempotent, a JSON key dropped, a count off by one; 3 of 3 KILLED | docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
-| S2 | kernel: Path, PathP, I, transp, hcomp, Sigma, Pi, U and levels (port zkpolicy-lang); `REFUSE_CELL` for CMs only (Q1 (b); port the CM branch of intent-lang, resolve-lang); indexed families; records as named Sigma (Q2); parameter sections (O8) | each sec 2.4 refuse fixture gives `REFUSE_CELL`; each admit fixture checks; `sym`, `cong`, `trans` type check | 3: generator test skipped, CC refusal skipped, family index check skipped | sec 2 notes |
+| S2 | kernel: Path, PathP, I, transp, hcomp, Sigma, Pi, U and levels (port zkpolicy-lang); `REFUSE_CELL` for CMs only (Q1 (b); port the CM branch of intent-lang, resolve-lang); indexed families; records as named Sigma (Q2); parameter sections (O8) | GREEN: each sec 2.4 refuse fixture gives `REFUSE_CELL` (6 files in test/check, sec 2.4 note); `Maybe₀`, `Trunc₀`, `Bag₀` check (examples/cells.lang); `sym`, `cong`, `trans` type check (examples/paths.lang); make check EXIT 0, gate: 0 failures (serial log); fmt: 74 files canonical; json: 22 fixtures; diagnostics: 33 codes, 0 without a fixture or a row; refusals: 38 check, 9 parse; evals: 41; differential: 767 cases, 0 mismatches; wasm: 16 modules valid | 3: generator test skipped (`cell-ghost.lang` fails), CC refusal skipped (`cell-cc.lang` fails), family index check skipped (`cell-type-index.lang` fails); 3 of 3 KILLED | sec 2 notes; sec 10 O14 to O36; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S3 | HITs: `∥_∥₁`, `FMSet` in generator form with its eliminator (O1), union, the truncation recursor, `∃`: the sec 3.1 Prelude in the guest | the guest Prelude checks; the `_++_` equation and the union unit, associativity and commutativity laws check; Wasm differential for bag operations, 0 mismatches | 3: comm path dropped, swap obligation not checked, set truncation dropped | sec 3.1 status |
 | S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | 7 of 7 sec 1 to 6 laws discharged; the toy instance proves each obligation; O3 result recorded | 3: `keeps` not checked, quorum index ignored, `single` dropped | sec 3.2, 3.3 status |
 | S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | 12 of 12 design laws discharged; `run` agrees with direct evaluation on each fixture (Wasm differential) | 3: fragment admits a higher-order value, `⟦_⟧` escapes the seal, `factors` not checked | sec 3.4, sec 6 |
@@ -557,6 +589,129 @@ commit message file and the next prompt file. The USER commits.
   system outside the ruling 3 set (ElGamal and FROST). So the USER rules
   the scheme (Q15) before S11. Its verifier laws stay guest terms
   (ruling 2).
+- O14. `REFUSE_DATA` and `REFUSE_CELL` (Claude reading, NOT ruled; S2).
+  The checker sorts a program `data` declaration in the sec 2.4 order:
+  a type parameter (the CM check), a type index (`REFUSE_CELL`), value
+  parameters or indices (an indexed family), closed (`REFUSE_DATA`). The
+  declarations in `domain/` keep the S1 path.
+- O15. Records (Claude reading, NOT ruled; S2, Q2 (a)). A record is a
+  transparent named `Σ`: `R p` unfolds to a `Σ` chain, a value is a `_,_`
+  tuple, and each field name is a global projection. A record with a
+  type parameter is admitted. A field of a type-constructor type (for
+  example `Type → Type`) and a coinductive record give `REFUSE_CELL`. A
+  field that names its own record gives `REFUSE_REC`.
+- O16. Parameter sections (Claude reading, NOT ruled; S2, O8).
+  `module NAME group* where` holds definitions indented by 2. In the
+  section, a name of the section gets the section parameters. Outside
+  the section, the name takes the parameters explicitly. S2 has no
+  qualified names and no data or records in a section.
+- O17. Named steps (Claude reading, NOT ruled; S2, A1). `let x = t in u`
+  infers the type of `x` from `t` and binds `x` as a defined local. S2
+  has no type annotation on `let`. A value that does not infer gives the
+  `TYPE_INFER` texts.
+- O18. Levels (Claude reading, NOT ruled; S2). S2 has closed levels
+  only. `Level` is a distinct type (not convertible with `ℕ`). `Type ℓ`
+  takes a `Level` term with a closed normal form of at most 1. A level
+  that is not closed gives `TYPE_UNIVERSE`. S2 has no level variables,
+  so the S3 guest Prelude uses fixed levels. The examples and test/eval
+  have no `Level` definition, so the lowering of a `Level` value has no
+  gate line.
+- O19. `Eq` becomes `Path` (Claude reading, NOT ruled; S2, O7). S2
+  removes the kit names `Eq`, `symm`, `trans`, `cong`, `transport` and
+  the `Eq` proof irrelevance. `refl` stays a builtin: against
+  `PathP L a b` it becomes `λ i → a` when `a` and `b` are convertible.
+  examples/paths.lang defines `sym`, `cong`, `trans` and `transport` as
+  guest terms.
+- O20. Path surface (Claude reading, NOT ruled; S2). The surface has
+  `PathP L a b` and the infix `a ≡ b`. `Path` is a kernel name only.
+  `a ≡ b` takes the type from `a`, else from `b`. A path application is
+  a plain application `p r`. A path abstraction is `λ i → t` against a
+  `PathP` type. `×` binds tighter than `≡`, and `≡` binds tighter than
+  `→`.
+- O21. Interval and Kan operations (Claude reading, NOT ruled; S2). The
+  surface has `I`, `i0`, `i1`, `~ r`, `r ∧ s`, `r ∨ s`,
+  `primTransp (λ i → A) r u` and `primHComp (λ j → λ { ... }) u0`. A
+  system is legal only as the side of `primHComp`. S2 has no surface
+  `Partial` or `fromPartial`, and no ASCII spelling for these forms.
+- O22. `Σ` and pairs (Claude reading, NOT ruled; S2). `A × B` is a `Σ`
+  with a constant codomain. `a , b` makes a pair, and `fst` and `snd`
+  project. S2 removes the kit names `pair`, `first`, `second`, `pack`,
+  `witness` and `payload` (`NAME_UNKNOWN`). The value printer prints a
+  constant `Σ` as `A × B`.
+- O23. Higher inductive constructors (Claude reading, NOT ruled; S2). A
+  constructor result is a point, a 1-cell `s ≡ t` over point terms, or a
+  2-cell `p ≡ q` over path fields. A path constructor is a global
+  constant of its path type, and its ends reduce at `i0` and `i1`. S2
+  has no eliminator (S3).
+- O24. Indexed families (Claude reading, NOT ruled; S2). The head is
+  `data NAME group* : A₁ → ... → Type where`. A constructor result is
+  the family name, each parameter name and one atom for each index. The
+  checker checks each atom against its index type (`TYPE_MISMATCH`). A
+  recursive field is the family applied, with no arrow. The fields of
+  an indexed family are a telescope. In a CM with value indices, a field
+  can use only the parameters. The index types of the head are not
+  dependent. S2 has no mixfix use of guest operators: write `_∈_ b bs`.
+- O25. `explain --json` (Claude reading, NOT ruled; S2, A8). S2 adds no
+  verb. The R1 class of each family (CM, indexed family, record, base
+  type) is the input of the S9 verb `explain --json`.
+- O26. New codes (Claude reading, NOT ruled; S2). `TYPE_ENDPOINT`: an
+  end of a path abstraction is not the end in its type. `TYPE_SYSTEM`:
+  two cells of a system do not agree where they overlap. Each code has a
+  row in docs/DIAGNOSTICS.md and a test/json fixture.
+- O27. Lowering (Claude reading, NOT ruled; S2). `PathP`, path
+  abstractions, `I`, `i0`, `i1` and proofs erase as the S1 `Eq` and
+  `refl` values did. A Kan operation that is stuck at run time is an
+  internal error. `primTransp` reduces to its base when its face holds,
+  or when its line is a universe, `ℕ`, `Bool` or `Unit`. `primHComp`
+  reduces to its side at `i1` when its face holds. S2 has no structural
+  Kan computation for Pi, `Σ`, `PathP` or domain data. At other types
+  the operations stay stuck: conversion is structural and incomplete.
+- O28. Pi over the interval (Claude reading, NOT ruled). A Pi with the
+  domain `I` (`(i : I) → A`) gives `TYPE_MISMATCH` ("found a term of
+  type SSet"). The checker builds lines as hints, so S2 does not need
+  this form.
+- O29. Kan checks that S2 does not port from zkpolicy-lang (Claude
+  reading, NOT ruled). A `primTransp` line that is not constant gives
+  `TYPE_MISMATCH` (no `TYPE_LINE` code). A pretype (`I`, SSet, Partial)
+  as the `primHComp` type gives `TYPE_MISMATCH` (no `TYPE_PRETYPE`
+  code). The Pi case of the hcomp type is not ported. A system failure
+  gives the zkpolicy-lang text "two cells disagree".
+- O30. The type of `a ≡ b` comes from the left side (Claude reading, NOT
+  ruled). A pair with no type hint infers the non-dependent `×`. Thus,
+  with `p : Σ ℕ (λ n → n ≡ n)`, `(fst p , snd p) ≡ p` gives
+  `TYPE_MISMATCH` and `p ≡ (fst p , snd p)` checks (test/fronttool.c).
+- O31. No `fold` over an indexed family or a higher inductive family
+  (Claude reading, NOT ruled). Each needs a dependent eliminator (S3),
+  so S2 gives `DOMAIN_FAMILY`. A `fold` over a CM, or over a family with
+  value parameters only, works as in S1.
+- O32. Path constructors (Claude reading, NOT ruled). A path constructor
+  is legal only in a CM. In another program family it gives
+  `DOMAIN_FAMILY`. The fields of a path constructor are a telescope. S2
+  has no `DOMAIN_HIT` code: the path constructor check gives
+  `REFUSE_CELL`, with its texts in the docs/DIAGNOSTICS.md row. The
+  reduction of a path constructor end has no gate line.
+- O33. New keywords (Claude reading, NOT ruled). `let`, `in`, `record`,
+  `coinductive` and `module` are keywords, so a program cannot use them
+  as names.
+- O34. Record limits (Claude reading, NOT ruled). A record head with
+  indices gives `PARSE_EXPECT` ("'Type'"). The type-constructor field
+  test inspects the checked field types, including definition aliases.
+  Field names and parameter names share the `Σ` and `let` binders, so a field
+  with the name of a parameter hides it. A type error text can show the
+  projection binder `%r`.
+- O35. Section limits (Claude reading, NOT ruled). A section holds
+  definitions only: a postulate, data, a record or a nested module in a
+  section gives `PARSE_EXPECT`. A module name is not a global name, so
+  two modules can have the same name. The inner definitions start at
+  column 3. `fmt` prints a comment in a module at column 1. The section
+  rewrite recurses on application spines, so the C stack limits its
+  depth.
+- O36. DOMAIN codes and the codes check (Claude reading, NOT ruled).
+  Before S2, `DOMAIN_FAMILY` had no row in docs/DIAGNOSTICS.md. The
+  test/gate.sh pattern that finds the codes in src (:167) has no DOMAIN
+  prefix, so that check does not see a DOMAIN code. S2 adds the
+  `DOMAIN_FAMILY` row and test/json/DOMAIN_FAMILY.{lang,json}. A later
+  slice can add DOMAIN to the pattern.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 

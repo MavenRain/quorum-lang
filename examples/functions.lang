@@ -8,7 +8,7 @@ twice f n = f (f n)
 four : ℕ
 four = twice next 2
 pairOf : ℕ → ℕ → ℕ × ℕ
-pairOf x y = pair x y
+pairOf x y = x , y
 poly : (A : Type) → A → A
 poly A x = x
 three : ℕ

@@ -1,4 +1,4 @@
 -- A lazy trap. The second field of the pair overflows after two steps, but
 -- the entry reads only the first field. `langc eval lazy 3` gives 3.
 lazy : ℕ → ℕ
-lazy n = first (fold (λ (p : ℕ × ℕ) → pair (natAdd (first p) 1) (natMul (second p) 18446744073709551615)) (pair 0 2) n)
+lazy n = fst (fold (λ (p : ℕ × ℕ) → natAdd (fst p) 1 , natMul (snd p) 18446744073709551615) (0 , 2) n)

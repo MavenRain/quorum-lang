@@ -144,7 +144,7 @@ int main(void) {
   ok &= domain("data Lot (n : ℕ) : Type where\n  makeLot : (amount : ℕ) → Lot n\n\n"
                "s : Maybe ℕ\ns = just 0\n\n"
                "f : (n : ℕ) → ℕ → Lot n\nf n x = makeLot n x\n\n"
-               "bad : (n : ℕ) → Lot n\nbad = first (pair (option f (λ (k : ℕ) → f) s) 0)", "TYPE_MISMATCH");
+               "bad : (n : ℕ) → Lot n\nbad = fst (option f (λ (k : ℕ) → f) s , 0)", "TYPE_MISMATCH");
   ok &= domain("bad : Type₁\nbad = ℕ", "TYPE_MISMATCH");
   ok &= domain("bad : Type₂\nbad = Type₁", "TYPE_UNIVERSE");
   ok &= domain("data U : Type₁ where\n  makeU : (decode : Type) → U\n\nbad : Type\nbad = U", "TYPE_MISMATCH");
@@ -152,8 +152,8 @@ int main(void) {
                "data W : Type₁ where\n  makeW : (wrapped : U) → W\n\nbad : Type\nbad = W", "TYPE_MISMATCH");
   ok &= domain("data Box (A : Type₁) : Type₁ where\n  box : (unbox : A) → Box A\n\nbad : Type\nbad = Box Type", "TYPE_MISMATCH");
   ok &= domain("data U : Type₁ where\n  makeU : (decode : Type) → U\n\ngood : Type₁\ngood = U", NULL);
-  ok &= domain("eta : (p : ℕ × ℕ) → Eq (ℕ × ℕ) (pair (first p) (second p)) p\neta p = refl", NULL);
-  ok &= domain("eta : (p : Σ ℕ (λ n → Eq ℕ n n)) → Eq (Σ ℕ (λ n → Eq ℕ n n)) (pack (witness p) (payload p)) p\n"
+  ok &= domain("eta : (p : ℕ × ℕ) → (fst p , snd p) ≡ p\neta p = refl", NULL);
+  ok &= domain("eta : (p : Σ ℕ (λ n → n ≡ n)) → p ≡ (fst p , snd p)\n"
                "eta p = refl", NULL);
   if (ok) puts("domain regressions: passed");
   return ok ? 0 : 1;

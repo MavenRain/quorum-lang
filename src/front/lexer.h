@@ -16,9 +16,22 @@ typedef enum {
   TOK_LAMBDA,      /* λ (U+03BB), or \ (not canonical) */
   TOK_TIMES,       /* × (U+00D7) */
   TOK_SIGMA,       /* Σ (U+03A3) */
+  TOK_EQUIV,       /* ≡ (U+2261) */
+  TOK_TILDE,       /* ~ */
+  TOK_AND,         /* ∧ (U+2227) */
+  TOK_OR,          /* ∨ (U+2228) */
+  TOK_COMMA,       /* , */
+  TOK_LBRACE,      /* { */
+  TOK_RBRACE,      /* } */
+  TOK_SEMI,        /* ; */
   TOK_KW_DATA,
   TOK_KW_WHERE,
   TOK_KW_POSTULATE,
+  TOK_KW_LET,
+  TOK_KW_IN,
+  TOK_KW_RECORD,
+  TOK_KW_COINDUCTIVE,
+  TOK_KW_MODULE,
   TOK_KW_TYPE      /* Type, Type₁, ...: the level is in nat */
 } TokKind;
 

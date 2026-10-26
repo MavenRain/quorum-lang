@@ -66,6 +66,10 @@ chain. `Sigma (x : A) B` and `(x : A) * B` are dependent pairs.
 S1 note: quorum-lang reads the surface and the names of `docs/GRAMMAR.md`,
 not the kit surface above, and refuses `List`, `Sum` and `unfold`.
 
+S2 note: quorum-lang removes the kit names `Eq`, `pair`, `first`,
+`second`, `pack`, `witness`, `payload`, `symm`, `trans`, `cong` and
+`transport` (`docs/GRAMMAR.md`).
+
 The compiler enforces these rules:
 
 | Rule | Code | The compiler refuses |
@@ -136,7 +140,7 @@ block use the same result, but the two arms of a branch do not share
 results.
 
 Strict traps are not correct here. Normalization at compile time drops
-terms that are not read, for example `first (pair a b)` gives `a`. The
+terms that are not read, for example `fst (a , b)` gives `a`. The
 evaluator also computes both arms of `flagIf`. A strict trap would fire
 in a term that the program does not use.
 

@@ -3,4 +3,6 @@ backslash.lang ok
 type-n.lang ok
 group.lang ok
 lambda-def.lang ok
+path-lambda.lang ok
+data-index.lang ok
 next.lang TYPE_MISMATCH

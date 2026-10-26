@@ -6,10 +6,17 @@
      ctor    := NAME ':' (group '→')* NAME NAME*
      group   := '(' NAME+ ':' term ')'
      term    := 'λ' (NAME | group)+ '→' term
+              | 'λ' '{' cell (';' cell)* '}'
               | group '→' term
-              | times ('→' term)?
-     times   := app ('×' times)?
-     app     := atom atom*
+              | equiv '→' term
+              | equiv (',' term)?
+     cell    := ('(' NAME '=' ('i0' | 'i1') ')')+ '→' term
+     equiv   := times ('≡' times)?
+     times   := max ('×' times)?
+     max     := min ('∨' max)?
+     min     := neg ('∧' min)?
+     neg     := '~' neg | app
+     app     := atom atom* | 'Type' atom atom*
      atom    := NAME | NAT | TYPE | '(' term ')' | 'Σ' atom atom
      TYPE    := 'Type' | 'Type₁' | ... | 'Type' NAT
    Layout: a token in column 1 starts a declaration and ends the one before
@@ -33,6 +40,7 @@ typedef struct {
   Origin origin;
   int depth;
   int layout; /* a token at or left of this column ends the current item */
+  int base;   /* the indent of the current section: 0, or 2 inside a module (D3) */
 } Parser;
 
 /* One binder group: `(x y : A)` gives two names that share one type. */
@@ -170,9 +178,22 @@ static int starts_atom(const Parser *p) {
     case TOK_ARROW:
     case TOK_LAMBDA:
     case TOK_TIMES:
+    case TOK_EQUIV:
+    case TOK_TILDE:
+    case TOK_AND:
+    case TOK_OR:
+    case TOK_COMMA:
+    case TOK_LBRACE:
+    case TOK_RBRACE:
+    case TOK_SEMI:
     case TOK_KW_DATA:
     case TOK_KW_WHERE:
     case TOK_KW_POSTULATE:
+    case TOK_KW_LET:
+    case TOK_KW_IN:
+    case TOK_KW_RECORD:
+    case TOK_KW_COINDUCTIVE:
+    case TOK_KW_MODULE:
       return 0;
   }
   return 0;
@@ -335,17 +356,43 @@ static const Term *parse_atom(Parser *p) {
     case TOK_ARROW:
     case TOK_LAMBDA:
     case TOK_TIMES:
+    case TOK_EQUIV:
+    case TOK_TILDE:
+    case TOK_AND:
+    case TOK_OR:
+    case TOK_COMMA:
+    case TOK_LBRACE:
+    case TOK_RBRACE:
+    case TOK_SEMI:
     case TOK_KW_DATA:
     case TOK_KW_WHERE:
     case TOK_KW_POSTULATE:
+    case TOK_KW_LET:
+    case TOK_KW_IN:
+    case TOK_KW_RECORD:
+    case TOK_KW_COINDUCTIVE:
+    case TOK_KW_MODULE:
       break;
   }
   fail_at(p, tok, "a term");
   return NULL;
 }
 
+/* `Type ℓ`: a bare `Type` at the head of an application takes one level
+   atom. `f Type x` and `Σ Type F` do not. */
+static const Term *parse_level_univ(Parser *p, const Token *tok) {
+  Term *univ = make_term(p, TERM_UNIV, tok->line, tok->col);
+  if (univ == NULL) return NULL;
+  univ->nat = 0;
+  univ->right = parse_atom(p);
+  return univ->right == NULL ? NULL : univ;
+}
+
 static const Term *parse_app(Parser *p) {
+  const Token *first = cur(p);
   const Term *head = parse_atom(p);
+  int bare_type = head != NULL && first->kind == TOK_KW_TYPE && first->len == 4 && cur(p) == first + 1;
+  if (bare_type && starts_atom(p)) head = parse_level_univ(p, first);
   while (head != NULL && starts_atom(p)) {
     const Term *arg = parse_atom(p);
     Term *app = arg == NULL ? NULL : make_term(p, TERM_APP, head->line, head->col);
@@ -357,19 +404,13 @@ static const Term *parse_app(Parser *p) {
   return head;
 }
 
-static const Term *parse_times(Parser *p);
-
-/* `A × B` is `_×_ A B`. `A × B × C` is `A × (B × C)`. */
-static const Term *parse_times_tail(Parser *p, const Term *left) {
-  const Token *op = cur(p);
-  bump(p);
-  const Term *right = enter(p) ? parse_times(p) : NULL;
-  p->depth--;
+/* The named application `NAME left right` of the infix operator at OP. */
+static const Term *binary(Parser *p, const Token *op, const char *name, const Term *left, const Term *right) {
   Term *former = right == NULL ? NULL : make_term(p, TERM_VAR, op->line, op->col);
   Term *partial = former == NULL ? NULL : make_term(p, TERM_APP, left->line, left->col);
   Term *whole = partial == NULL ? NULL : make_term(p, TERM_APP, left->line, left->col);
   if (whole == NULL) return NULL;
-  former->name = AST_TIMES_NAME;
+  former->name = name;
   partial->left = former;
   partial->right = left;
   whole->left = partial;
@@ -377,15 +418,139 @@ static const Term *parse_times_tail(Parser *p, const Term *left) {
   return whole;
 }
 
+/* A right-associative operator: `a × b × c` is `a × (b × c)`. NEXT parses
+   each operand. The right side nests without parentheses, so it counts
+   toward the depth limit. */
+static const Term *infix_right(Parser *p, TokKind kind, const char *name, const Term *(*next)(Parser *)) {
+  const Term *left = next(p);
+  if (left == NULL || !at(p, kind)) return left;
+  const Token *op = cur(p);
+  bump(p);
+  const Term *right = enter(p) ? infix_right(p, kind, name, next) : NULL;
+  p->depth--;
+  return binary(p, op, name, left, right);
+}
+
+/* `~ r` is `~_ r`, and `~ p i` is `~ (p i)`. */
+static const Term *parse_neg(Parser *p) {
+  if (!at(p, TOK_TILDE)) return parse_app(p);
+  const Token *op = cur(p);
+  bump(p);
+  const Term *arg = enter(p) ? parse_neg(p) : NULL;
+  p->depth--;
+  Term *former = arg == NULL ? NULL : make_term(p, TERM_VAR, op->line, op->col);
+  Term *app = former == NULL ? NULL : make_term(p, TERM_APP, op->line, op->col);
+  if (app == NULL) return NULL;
+  former->name = AST_NEG_NAME;
+  app->left = former;
+  app->right = arg;
+  return app;
+}
+
+static const Term *parse_min(Parser *p) {
+  return infix_right(p, TOK_AND, AST_MIN_NAME, parse_neg);
+}
+
+static const Term *parse_max(Parser *p) {
+  return infix_right(p, TOK_OR, AST_MAX_NAME, parse_min);
+}
+
 static const Term *parse_times(Parser *p) {
-  const Term *left = parse_app(p);
-  return left == NULL || !at(p, TOK_TIMES) ? left : parse_times_tail(p, left);
+  return infix_right(p, TOK_TIMES, AST_TIMES_NAME, parse_max);
+}
+
+/* `a ≡ b` is `_≡_ a b`. It does not chain. */
+static const Term *parse_equiv(Parser *p) {
+  const Term *left = parse_times(p);
+  if (left == NULL || !at(p, TOK_EQUIV)) return left;
+  const Token *op = cur(p);
+  bump(p);
+  return binary(p, op, AST_PATH_NAME, left, parse_times(p));
+}
+
+/* `(i = i0)`: one atom of a face. */
+static int parse_face_atom(Parser *p, FaceAtom *atom) {
+  atom->line = cur(p)->line;
+  atom->col = cur(p)->col;
+  if (!expect(p, TOK_LPAREN, "'(' of a face")) return 0;
+  atom->name = take_name(p, "an interval variable");
+  if (atom->name == NULL || !expect(p, TOK_EQUALS, "'='")) return 0;
+  const Token *end = cur(p);
+  int ident = at(p, TOK_IDENT) && end->len == 2;
+  int zero = ident && memcmp(end->text, "i0", 2) == 0;
+  int one = ident && memcmp(end->text, "i1", 2) == 0;
+  if (!zero && !one) return fail_at(p, end, "'i0' or 'i1'");
+  bump(p);
+  atom->end = one;
+  return expect(p, TOK_RPAREN, "')'");
+}
+
+/* One cell: one or more face atoms, '→', then the body. */
+static int parse_cell(Parser *p, Cell *cell) {
+  FaceAtom *atoms = NULL;
+  size_t count = 0;
+  size_t cap = 0;
+  cell->line = cur(p)->line;
+  cell->col = cur(p)->col;
+  do {
+    atoms = grow(p, atoms, count, &cap, sizeof *atoms);
+    if (atoms == NULL || !parse_face_atom(p, &atoms[count])) return 0;
+    count++;
+  } while (at(p, TOK_LPAREN));
+  cell->atoms = atoms;
+  cell->atom_count = count;
+  if (!expect(p, TOK_ARROW, "'→' after a face")) return 0;
+  cell->body = parse_term(p);
+  return cell->body != NULL;
+}
+
+/* `λ { (i = i0) → a ; (i = i1) → b }`: a system. */
+static const Term *parse_system(Parser *p) {
+  const Token *tok = cur(p);
+  bump(p);
+  if (!expect(p, TOK_LBRACE, "'{'")) return NULL;
+  Cell *cells = NULL;
+  size_t count = 0;
+  size_t cap = 0;
+  do {
+    cells = grow(p, cells, count, &cap, sizeof *cells);
+    if (cells == NULL || !parse_cell(p, &cells[count])) return NULL;
+    count++;
+  } while (eat(p, TOK_SEMI));
+  Term *system = expect(p, TOK_RBRACE, "';' or '}'") ? make_term(p, TERM_SYSTEM, tok->line, tok->col) : NULL;
+  if (system == NULL) return NULL;
+  system->cells = cells;
+  system->cell_count = count;
+  return system;
+}
+
+/* `let x = t in u` (A1). The body extends as far right as it can. */
+static const Term *parse_let(Parser *p) {
+  const Token *tok = cur(p);
+  bump(p);
+  const char *name = take_name(p, "a name after 'let'");
+  if (name == NULL || !expect(p, TOK_EQUALS, "'=' after the name of a let")) return NULL;
+  const Term *bound = parse_term(p);
+  if (bound == NULL || !expect(p, TOK_KW_IN, "'in' after the value of a let")) return NULL;
+  const Term *body = parse_term(p);
+  Term *let = body == NULL ? NULL : make_term(p, TERM_LET, tok->line, tok->col);
+  if (let == NULL) return NULL;
+  let->name = name;
+  let->left = bound;
+  let->right = body;
+  return let;
 }
 
 static const Term *parse_term_body(Parser *p) {
-  if (at(p, TOK_LAMBDA)) return parse_lambda(p);
+  if (at(p, TOK_KW_LET)) return parse_let(p);
+  if (at(p, TOK_LAMBDA)) return peek_at(p, 1)->kind == TOK_LBRACE ? parse_system(p) : parse_lambda(p);
   if (at_binder_group(p)) return parse_binder_type(p);
-  const Term *head = parse_times(p);
+  const Term *head = parse_equiv(p);
+  if (head != NULL && at(p, TOK_COMMA)) {
+    const Token *comma = cur(p);
+    bump(p);
+    return binary(p, comma, AST_PAIR_NAME, head, parse_term(p));
+  }
   if (head == NULL || !at(p, TOK_ARROW)) return head;
   const Token *arrow = cur(p);
   bump(p);
@@ -404,15 +569,31 @@ static const Term *parse_term(Parser *p) {
   return term;
 }
 
+static int occurs_free(const Term *t, const char *name);
+
+/* A face atom names a variable too. */
+static int occurs_in_system(const Term *t, const char *name) {
+  for (size_t i = 0; i < t->cell_count; i++) {
+    const Cell *cell = &t->cells[i];
+    for (size_t j = 0; j < cell->atom_count; j++) {
+      if (strcmp(cell->atoms[j].name, name) == 0) return 1;
+    }
+    if (occurs_free(cell->body, name)) return 1;
+  }
+  return 0;
+}
+
 /* Returns 1 when NAME occurs free in T. A binder with the same name hides
    it. Spines and binder bodies are walked without recursion. */
 static int occurs_free(const Term *t, const char *name) {
   while (t != NULL) {
     switch (t->kind) {
       case TERM_VAR: return strcmp(t->name, name) == 0;
-      case TERM_NAT:
+      case TERM_NAT: return 0;
+      case TERM_SYSTEM: return occurs_in_system(t, name);
       case TERM_UNIV:
-        return 0;
+        t = t->right;
+        break;
       case TERM_APP:
         if (occurs_free(t->right, name)) return 1;
         t = t->left;
@@ -420,6 +601,7 @@ static int occurs_free(const Term *t, const char *name) {
       case TERM_LAM:
       case TERM_PI:
       case TERM_SIGMA:
+      case TERM_LET:
         if (occurs_free(t->left, name)) return 1;
         if (t->name != NULL && strcmp(t->name, name) == 0) return 0;
         t = t->right;
@@ -464,9 +646,9 @@ static int parse_def(Parser *p, Decl *d, const Token *name_tok) {
   if (!expect(p, TOK_COLON, "':'")) return 0;
   d->type = parse_term(p);
   if (d->type == NULL) return 0;
-  p->layout = 0;
+  p->layout = p->base;
   if (!expect_name(p, d->name, "the clause of")) return 0;
-  p->layout = 1;
+  p->layout = p->base + 1;
   size_t first = p->pos;
   while (at(p, TOK_IDENT)) bump(p);
   size_t last = p->pos;
@@ -497,15 +679,54 @@ static int parse_postulate(Parser *p, Decl *d) {
   return d->type != NULL;
 }
 
-/* `c : (f : A) → ... → D p1 ... pn`: the result is the data type applied to
-   its parameters, in order. */
+/* `c : (f : A) → ... → D p1 ... pn i1 ... im`: the result is the data type
+   applied to its parameters, in order, then one atom for each index. */
 static int parse_ctor_type(Parser *p, const Decl *d, Ctor *ctor) {
   if (!expect(p, TOK_COLON, "':'") || !parse_fields(p, 1, &ctor->fields, &ctor->field_count)) return 0;
+  const Token *head = cur(p);
+  ctor->result = NULL;
+  ctor->indices = NULL;
+  if (!at(p, TOK_IDENT) || head->len != strlen(d->name) || memcmp(head->text, d->name, head->len) != 0) {
+    ctor->result = parse_term(p);
+    if (ctor->result == NULL) return 0;
+    return at_boundary(p) ? 1 : fail_at(p, cur(p), "the end of the constructor");
+  }
   if (!expect_name(p, d->name, "the result type")) return 0;
   for (size_t i = 0; i < d->param_count; i++) {
     if (!expect_name(p, d->params[i].name, "the parameter")) return 0;
   }
+  const Term **items = NULL;
+  size_t cap = 0;
+  for (size_t i = 0; i < d->index_count; i++) {
+    items = grow(p, items, i, &cap, sizeof *items);
+    if (items == NULL) return 0;
+    items[i] = parse_atom(p);
+    if (items[i] == NULL) return 0;
+  }
+  ctor->indices = items;
   return at_boundary(p) ? 1 : fail_at(p, cur(p), "the end of the constructor");
+}
+
+/* `A1 → ... → Am → Type`: each Ai is an index type. */
+static int parse_head(Parser *p, Decl *d) {
+  const Token *tok = cur(p);
+  const Term *t = parse_term(p);
+  const Term **items = NULL;
+  size_t count = 0;
+  size_t cap = 0;
+  while (t != NULL && t->kind == TERM_PI && t->name == NULL) {
+    items = grow(p, items, count, &cap, sizeof *items);
+    if (items == NULL) return 0;
+    items[count] = t->left;
+    count++;
+    t = t->right;
+  }
+  if (t == NULL) return 0;
+  if (t->kind != TERM_UNIV || t->right != NULL) return fail_at(p, tok, "'Type'");
+  d->indices = items;
+  d->index_count = count;
+  d->level = t->nat;
+  return 1;
 }
 
 static int parse_data(Parser *p, Decl *d) {
@@ -514,10 +735,7 @@ static int parse_data(Parser *p, Decl *d) {
   if (d->name == NULL) return 0;
   p->def = d->name;
   if (!parse_fields(p, 0, &d->params, &d->param_count) || !expect(p, TOK_COLON, "':'")) return 0;
-  if (!at(p, TOK_KW_TYPE)) return fail_at(p, cur(p), "'Type'");
-  const Term *level = parse_universe(p);
-  if (level == NULL || !expect(p, TOK_KW_WHERE, "'where'")) return 0;
-  d->level = level->nat;
+  if (!parse_head(p, d) || !expect(p, TOK_KW_WHERE, "'where'")) return 0;
   Ctor *ctors = NULL;
   size_t count = 0;
   size_t cap = 0;
@@ -541,10 +759,58 @@ static int parse_data(Parser *p, Decl *d) {
   return 1;
 }
 
+/* `record NAME params : Type where`, an optional `coinductive` line, then
+   one `NAME : type` line for each field (D2). */
+static int parse_record(Parser *p, Decl *d) {
+  d->kind = DECL_RECORD;
+  d->name = take_name(p, "a record name");
+  if (d->name == NULL) return 0;
+  p->def = d->name;
+  if (!parse_fields(p, 0, &d->params, &d->param_count) || !expect(p, TOK_COLON, "':'")) return 0;
+  const Token *head = cur(p);
+  if (!parse_head(p, d)) return 0;
+  if (d->index_count > 0) return fail_at(p, head, "'Type'");
+  if (!expect(p, TOK_KW_WHERE, "'where'")) return 0;
+  d->coinductive = eat(p, TOK_KW_COINDUCTIVE);
+  d->is_rec = 0;
+  Field *fields = NULL;
+  size_t count = 0;
+  size_t cap = 0;
+  do {
+    if (!at(p, TOK_IDENT)) return fail_at(p, cur(p), "a field on an indented line");
+    fields = grow(p, fields, count, &cap, sizeof *fields);
+    if (fields == NULL) return 0;
+    Field *field = &fields[count];
+    count++;
+    field->line = cur(p)->line;
+    field->col = cur(p)->col;
+    field->name = take_name(p, "a field name");
+    if (field->name == NULL) return 0;
+    p->layout = field->col;
+    field->type = expect(p, TOK_COLON, "':'") ? parse_term(p) : NULL;
+    int ok = field->type != NULL && (at_boundary(p) || fail_at(p, cur(p), "the end of the field"));
+    p->layout = 1;
+    if (!ok) return 0;
+    d->is_rec = d->is_rec || occurs_free(field->type, d->name);
+  } while (at(p, TOK_IDENT));
+  d->fields = fields;
+  d->field_count = count;
+  return 1;
+}
+
+/* `module NAME params where`; parse_section reads the definitions (D3). */
+static int parse_module(Parser *p, Decl *d) {
+  d->kind = DECL_MODULE;
+  d->name = take_name(p, "a module name");
+  if (d->name == NULL) return 0;
+  p->def = d->name;
+  return parse_fields(p, 0, &d->params, &d->param_count) && expect(p, TOK_KW_WHERE, "'where'");
+}
+
 static int parse_decl(Parser *p, Decl *d) {
   const Token *tok = cur(p);
   p->def = NULL;
-  p->layout = 0;
+  p->layout = p->base;
   d->origin = p->origin;
   d->source = p->source;
   d->line = tok->line;
@@ -553,6 +819,8 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_IDENT:
     case TOK_KW_POSTULATE:
     case TOK_KW_DATA:
+    case TOK_KW_RECORD:
+    case TOK_KW_MODULE:
       break;
     case TOK_EOF:
     case TOK_NAT:
@@ -564,17 +832,50 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_LAMBDA:
     case TOK_TIMES:
     case TOK_SIGMA:
+    case TOK_EQUIV:
+    case TOK_TILDE:
+    case TOK_AND:
+    case TOK_OR:
+    case TOK_COMMA:
+    case TOK_LBRACE:
+    case TOK_RBRACE:
+    case TOK_SEMI:
     case TOK_KW_WHERE:
     case TOK_KW_TYPE:
-      return fail_at(p, tok, "a name, 'postulate' or 'data'");
+    case TOK_KW_LET:
+    case TOK_KW_IN:
+    case TOK_KW_COINDUCTIVE:
+      return fail_at(p, tok, "a name, 'postulate', 'data', 'record' or 'module'");
   }
+  if (p->base > 0 && (tok->kind != TOK_IDENT || tok->col != p->base + 1))
+    return fail_at(p, tok, "a definition indented by 2 spaces (a module holds definitions only)");
   bump(p);
-  p->layout = 1;
+  p->layout = p->base + 1;
   int ok = tok->kind == TOK_KW_DATA ? parse_data(p, d)
+         : tok->kind == TOK_KW_RECORD ? parse_record(p, d)
          : tok->kind == TOK_KW_POSTULATE ? parse_postulate(p, d)
+         : tok->kind == TOK_KW_MODULE ? parse_module(p, d)
          : parse_def(p, d, tok);
   d->end_line = p->toks[p->pos - 1].line;
-  return ok && (at_boundary(p) || fail_at(p, cur(p), "the end of the declaration"));
+  return ok && (d->kind == DECL_MODULE || at_boundary(p) || fail_at(p, cur(p), "the end of the declaration"));
+}
+
+/* The definitions of the module at INDEX, each indented by 2 spaces, until
+   a line at column 1 (D3). */
+static int parse_section(Parser *p, DeclList *list, size_t index) {
+  if (cur(p)->kind == TOK_EOF || cur(p)->col == 1)
+    return fail_at(p, cur(p), "a definition indented by 2 spaces");
+  p->base = 2;
+  while (cur(p)->kind != TOK_EOF && cur(p)->col > 1) {
+    Decl *items = grow(p, list->items, list->count, &list->cap, sizeof *list->items);
+    if (items == NULL) return 0;
+    list->items = items;
+    items[list->count].section = index + 1;
+    if (!parse_decl(p, &items[list->count])) return 0;
+    list->count++;
+  }
+  p->base = 0;
+  return 1;
 }
 
 /* LIST keeps the declarations parsed before a failure, so a caller can
@@ -582,7 +883,7 @@ static int parse_decl(Parser *p, Decl *d) {
 int parse_source(Arena *arena, const char *source, Origin origin, const TokenList *toks, DeclList *list, Diag *diag) {
   Parser p = {
     .toks = toks->items, .count = toks->count, .pos = 0, .arena = arena, .diag = diag,
-    .source = source, .def = NULL, .origin = origin, .depth = 0, .layout = 0,
+    .source = source, .def = NULL, .origin = origin, .depth = 0, .layout = 0, .base = 0,
   };
   while (!at(&p, TOK_EOF)) {
     Decl *items = grow(&p, list->items, list->count, &list->cap, sizeof *list->items);
@@ -590,6 +891,7 @@ int parse_source(Arena *arena, const char *source, Origin origin, const TokenLis
     list->items = items;
     if (!parse_decl(&p, &items[list->count])) return 0;
     list->count++;
+    if (items[list->count - 1].kind == DECL_MODULE && !parse_section(&p, list, list->count - 1)) return 0;
   }
   return 1;
 }

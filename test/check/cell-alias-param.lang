@@ -1,0 +1,5 @@
+Kind : Type₁
+Kind = Type
+
+data Ghost₁ (A : Kind) : Type where
+  ghost₁ : Ghost₁ A

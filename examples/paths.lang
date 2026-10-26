@@ -1,0 +1,40 @@
+-- Formers F12 and F13 for each type in Type: sym, cong, trans (primHComp)
+-- and transport (primTransp) are guest definitions. S2 has no kit names for
+-- them. equality.lang has the same definitions over ℕ.
+sym : (A : Type) → (x : A) → (y : A) → x ≡ y → y ≡ x
+sym A x y p i = p (~ i)
+cong : (A : Type) → (B : Type) → (f : A → B) → (x : A) → (y : A) → x ≡ y → f x ≡ f y
+cong A B f x y p i = f (p i)
+trans : (A : Type) → (x : A) → (y : A) → (z : A) → x ≡ y → y ≡ z → x ≡ z
+trans A x y z p q i = primHComp (λ j → λ { (i = i0) → x ; (i = i1) → q j }) (p i)
+transport : (A : Type) → (P : A → Type) → (x : A) → (y : A) → x ≡ y → P x → P y
+transport A P x y p u = primTransp (λ i → P (p i)) i0 u
+price : ℕ
+price = 1200
+cost : ℕ
+cost = 1200
+same : price ≡ cost
+same = refl
+back : cost ≡ price
+back = sym ℕ price cost same
+round : price ≡ price
+round = trans ℕ price cost price same back
+bumped : natAdd price 1 ≡ natAdd cost 1
+bumped = cong ℕ ℕ (λ (n : ℕ) → natAdd n 1) price cost same
+flag : Bool
+flag = true
+flagged : flagIf flag price 0 ≡ flagIf true cost 0
+flagged = cong Bool ℕ (λ (b : Bool) → flagIf b price 0) flag true refl
+carried : ℕ
+carried = transport ℕ (λ (n : ℕ) → ℕ) price cost same 5
+ends : ℕ
+ends = round i1
+start : ℕ
+start = bumped i0
+
+letSide : 0 ≡ 0
+letSide i = let x = 0 in primHComp (λ j → λ { (i = i0) → x ; (i = i1) → x }) 0
+letSideStart : ℕ
+letSideStart = letSide i0
+letLine : ℕ
+letLine = let line = λ (j : I) → ℕ in primTransp line i1 0

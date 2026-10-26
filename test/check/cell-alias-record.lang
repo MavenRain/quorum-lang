@@ -1,0 +1,5 @@
+TypeMap : Type₁
+TypeMap = Type → Type
+
+record Forbidden₁ : Type₁ where
+  constructor₁ : TypeMap

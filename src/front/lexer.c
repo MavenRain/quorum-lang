@@ -23,6 +23,11 @@ static const struct {
   {"data", TOK_KW_DATA},
   {"where", TOK_KW_WHERE},
   {"postulate", TOK_KW_POSTULATE},
+  {"let", TOK_KW_LET},
+  {"in", TOK_KW_IN},
+  {"record", TOK_KW_RECORD},
+  {"coinductive", TOK_KW_COINDUCTIVE},
+  {"module", TOK_KW_MODULE},
 };
 
 /* The reserved code points. Each one is a symbol, never part of a name. */
@@ -34,6 +39,9 @@ static const struct {
   {"λ", TOK_LAMBDA},
   {"×", TOK_TIMES},
   {"Σ", TOK_SIGMA},
+  {"≡", TOK_EQUIV},
+  {"∧", TOK_AND},
+  {"∨", TOK_OR},
 };
 
 const char *tok_kind_name(TokKind kind) {
@@ -49,9 +57,22 @@ const char *tok_kind_name(TokKind kind) {
     case TOK_LAMBDA: return "'λ'";
     case TOK_TIMES: return "'×'";
     case TOK_SIGMA: return "'Σ'";
+    case TOK_EQUIV: return "'≡'";
+    case TOK_TILDE: return "'~'";
+    case TOK_AND: return "'∧'";
+    case TOK_OR: return "'∨'";
+    case TOK_COMMA: return "','";
+    case TOK_LBRACE: return "'{'";
+    case TOK_RBRACE: return "'}'";
+    case TOK_SEMI: return "';'";
     case TOK_KW_DATA: return "'data'";
     case TOK_KW_WHERE: return "'where'";
     case TOK_KW_POSTULATE: return "'postulate'";
+    case TOK_KW_LET: return "'let'";
+    case TOK_KW_IN: return "'in'";
+    case TOK_KW_RECORD: return "'record'";
+    case TOK_KW_COINDUCTIVE: return "'coinductive'";
+    case TOK_KW_MODULE: return "'module'";
     case TOK_KW_TYPE: return "'Type'";
   }
   return "a token";
@@ -86,9 +107,17 @@ static int at_name_start(const Lexer *lx) {
   return letter || (c >= 0x80 && symbol_at(lx, &kind) == 0);
 }
 
+/* A '-' continues a name when a name start follows it, so ℓ-max is one
+   name. `->` and `--` keep their meaning. */
+static int at_name_dash(const Lexer *lx) {
+  Lexer next = *lx;
+  next.pos++;
+  return peek(lx, 0) == '-' && lx->pos + 1 < lx->len && at_name_start(&next);
+}
+
 static int at_name_char(const Lexer *lx) {
   char c = peek(lx, 0);
-  return at_name_start(lx) || is_digit(c) || c == '\'';
+  return at_name_start(lx) || is_digit(c) || c == '\'' || at_name_dash(lx);
 }
 
 /* A UTF-8 continuation byte does not move the column. */
@@ -223,6 +252,11 @@ static int lex_symbol(Lexer *lx) {
       case ':': kind = TOK_COLON; break;
       case '=': kind = TOK_EQUALS; break;
       case '\\': kind = TOK_LAMBDA; break;
+      case ',': kind = TOK_COMMA; break;
+      case '~': kind = TOK_TILDE; break;
+      case '{': kind = TOK_LBRACE; break;
+      case '}': kind = TOK_RBRACE; break;
+      case ';': kind = TOK_SEMI; break;
       case '-':
         kind = peek(lx, 1) == '>' ? TOK_ARROW : TOK_EOF;
         width = 2;

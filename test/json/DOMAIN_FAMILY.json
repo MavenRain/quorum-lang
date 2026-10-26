@@ -1,0 +1,2 @@
+{"code":"DOMAIN_FAMILY","span":{"file":"test/json/DOMAIN_FAMILY.lang","line":5,"col":7,"endLine":5,"endCol":7},"expected":null,"found":null,"fix":null,"retry":false,"message":"fold over Fin₀ is not in S2: a fold over an indexed family needs a dependent eliminator (S3)"}
+{"parsed":2,"typed":1,"laws":{"discharged":0,"total":0}}

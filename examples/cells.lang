@@ -1,0 +1,25 @@
+Kind : Type₁
+Kind = Type
+
+data Maybe₀ (A : Kind) : Type where
+  just₀ : (a : A) → Maybe₀ A
+  nothing₀ : Maybe₀ A
+
+orZero : ℕ → ℕ
+orZero n = fold (λ (k : ℕ) → k) 0 (just₀ ℕ n)
+
+data Trunc₀ (A : Type) : Type where
+  ∣_∣ : (a₁ : A) → Trunc₀ A
+  squash : (u₁ : Trunc₀ A) → (v₁ : Trunc₀ A) → u₁ ≡ v₁
+
+squashed : (A : Type) → (u : Trunc₀ A) → (v : Trunc₀ A) → u ≡ v
+squashed A u v = squash A u v
+
+data Bag₀ (A : Type) : Type where
+  η₀ : (a₂ : A) → Bag₀ A
+  e₀ : Bag₀ A
+  m₀ : (x₂ : Bag₀ A) → (y₂ : Bag₀ A) → Bag₀ A
+  unit₀ : (x₃ : Bag₀ A) → m₀ A (e₀ A) x₃ ≡ x₃
+  assoc₀ : (x₄ : Bag₀ A) → (y₄ : Bag₀ A) → (z₄ : Bag₀ A) → m₀ A (m₀ A x₄ y₄) z₄ ≡ m₀ A x₄ (m₀ A y₄ z₄)
+  comm₀ : (x₅ : Bag₀ A) → (y₅ : Bag₀ A) → m₀ A x₅ y₅ ≡ m₀ A y₅ x₅
+  trunc₀ : (x₆ : Bag₀ A) → (y₆ : Bag₀ A) → (p₆ : PathP (λ _ → Bag₀ A) x₆ y₆) → (q₆ : x₆ ≡ y₆) → p₆ ≡ q₆

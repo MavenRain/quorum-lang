@@ -1,0 +1,5 @@
+data Fin₀ : ℕ → Type where
+  fz : (m : ℕ) → Fin₀ m
+
+f : Fin₀ 1 → ℕ
+f x = fold (λ (n : ℕ) → n) x

@@ -1,0 +1,2 @@
+record Sig : Type₁ where
+  F : Type → Type

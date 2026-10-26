@@ -1,0 +1,2 @@
+bad : 0 ≡ 0
+bad i = primHComp (λ j → λ { (i = i0) → 0 ; (i = i0) → 1 }) 0

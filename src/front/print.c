@@ -6,9 +6,14 @@
 #include "front/print.h"
 
 typedef enum {
-  PREC_TERM,  /* λ and → */
+  PREC_PAIR,  /* a , b */
+  PREC_TERM,  /* λ, a system and → */
+  PREC_EQUIV, /* a ≡ b */
   PREC_TIMES, /* A × B */
-  PREC_APP,   /* f a, and Σ A (λ x → B) */
+  PREC_MAX,   /* r ∨ s */
+  PREC_MIN,   /* r ∧ s */
+  PREC_NEG,   /* ~ r */
+  PREC_APP,   /* f a, Σ A (λ x → B) and Type ℓ */
   PREC_ATOM
 } Prec;
 
@@ -61,22 +66,60 @@ static void put_universe(Buf *b, uint64_t level) {
   }
 }
 
-/* `_×_ A B` prints infix as `A × B`. */
-static int is_times(const Term *t) {
+/* The infix operators: the AST name, the printed symbol, the precedence of
+   the whole and the context of each operand (parser.c parse_term_body,
+   parse_equiv and infix_right). */
+static const struct {
+  const char *name;
+  const char *symbol;
+  Prec prec;
+  Prec left;
+  Prec right;
+} INFIX[] = {
+  {AST_PAIR_NAME, " , ", PREC_PAIR, PREC_EQUIV, PREC_PAIR},
+  {AST_PATH_NAME, " ≡ ", PREC_EQUIV, PREC_TIMES, PREC_TIMES},
+  {AST_TIMES_NAME, " × ", PREC_TIMES, PREC_MAX, PREC_TIMES},
+  {AST_MAX_NAME, " ∨ ", PREC_MAX, PREC_MIN, PREC_MAX},
+  {AST_MIN_NAME, " ∧ ", PREC_MIN, PREC_NEG, PREC_MIN},
+};
+
+#define INFIX_COUNT (sizeof INFIX / sizeof INFIX[0])
+
+/* `NAME a b` prints infix, for example `_×_ A B` as `A × B`. */
+static int is_binary(const Term *t, const char *name) {
   return t->kind == TERM_APP && t->left->kind == TERM_APP && t->left->left->kind == TERM_VAR
-      && strcmp(t->left->left->name, AST_TIMES_NAME) == 0;
+      && strcmp(t->left->left->name, name) == 0;
+}
+
+/* `~_ r` prints as `~ r`. */
+static int is_neg(const Term *t) {
+  return t->kind == TERM_APP && t->left->kind == TERM_VAR && strcmp(t->left->name, AST_NEG_NAME) == 0;
+}
+
+/* Returns the INFIX row of T, or INFIX_COUNT. */
+static size_t infix_row(const Term *t) {
+  size_t k = 0;
+  while (k < INFIX_COUNT && !is_binary(t, INFIX[k].name)) k++;
+  return k;
+}
+
+static Prec app_prec(const Term *t) {
+  size_t k = infix_row(t);
+  return k < INFIX_COUNT ? INFIX[k].prec : is_neg(t) ? PREC_NEG : PREC_APP;
 }
 
 static Prec term_prec(const Term *t) {
   switch (t->kind) {
     case TERM_VAR:
     case TERM_NAT:
-    case TERM_UNIV:
       return PREC_ATOM;
-    case TERM_APP: return is_times(t) ? PREC_TIMES : PREC_APP;
+    case TERM_UNIV: return t->right == NULL ? PREC_ATOM : PREC_APP;
+    case TERM_APP: return app_prec(t);
     case TERM_SIGMA: return PREC_APP;
     case TERM_LAM:
     case TERM_PI:
+    case TERM_SYSTEM:
+    case TERM_LET:
       return PREC_TERM;
   }
   return PREC_TERM;
@@ -85,16 +128,22 @@ static Prec term_prec(const Term *t) {
 static void print_term(Buf *b, const Term *t, Prec ctx);
 
 static void print_app(Buf *b, const Term *t) {
-  if (is_times(t)) {
-    print_term(b, t->left->right, PREC_APP);
-    put(b, " × ");
-    print_term(b, t->right, PREC_TIMES);
+  size_t k = infix_row(t);
+  if (k < INFIX_COUNT) {
+    print_term(b, t->left->right, INFIX[k].left);
+    put(b, INFIX[k].symbol);
+    print_term(b, t->right, INFIX[k].right);
     return;
   }
-  /* The spine `h a1 ... an` nests to the left. A product ends it. */
+  if (is_neg(t)) {
+    put(b, "~ ");
+    print_term(b, t->right, PREC_NEG);
+    return;
+  }
+  /* The spine `h a1 ... an` nests to the left. An operator ends it. */
   size_t n = 0;
   const Term *head = t;
-  while (head->kind == TERM_APP && !is_times(head)) {
+  while (head->kind == TERM_APP && app_prec(head) == PREC_APP) {
     n++;
     head = head->left;
   }
@@ -108,8 +157,9 @@ static void print_app(Buf *b, const Term *t) {
     i--;
     args[i] = s->right;
   }
-  /* `(Type) 2` keeps its parentheses: `Type 2` is the universe at level 2. */
-  int bare_type = head->kind == TERM_UNIV && head->nat == 0;
+  /* `(Type) 2` keeps its parentheses: `Type 2` is the universe at level 2,
+     and `Type x` is the universe at the level x. */
+  int bare_type = head->kind == TERM_UNIV && head->nat == 0 && head->right == NULL;
   if (bare_type) put(b, "(");
   print_term(b, head, PREC_ATOM);
   if (bare_type) put(b, ")");
@@ -137,7 +187,7 @@ static void print_lambda(Buf *b, const Term *t) {
     body = body->right;
   }
   put(b, " → ");
-  print_term(b, body, PREC_TERM);
+  print_term(b, body, PREC_PAIR);
 }
 
 /* One binder group for each arrow: `(x : A) → (y : B) → C`. */
@@ -149,7 +199,7 @@ static void print_pi(Buf *b, const Term *t) {
     print_term(b, t->left, PREC_TERM);
     put(b, ")");
   } else {
-    print_term(b, t->left, PREC_TIMES);
+    print_term(b, t->left, PREC_EQUIV);
   }
   put(b, " → ");
   print_term(b, t->right, PREC_TERM);
@@ -165,15 +215,54 @@ static void print_sigma(Buf *b, const Term *t) {
   put(b, ")");
 }
 
+/* `λ { (i = i0) → a ; (i = i1) (j = i0) → b }` on one line. */
+static void print_system(Buf *b, const Term *t) {
+  put(b, "λ {");
+  for (size_t i = 0; i < t->cell_count; i++) {
+    const Cell *cell = &t->cells[i];
+    put(b, i == 0 ? " " : " ; ");
+    for (size_t j = 0; j < cell->atom_count; j++) {
+      put(b, "(");
+      put(b, cell->atoms[j].name);
+      put(b, cell->atoms[j].end ? " = i1) " : " = i0) ");
+    }
+    put(b, "→ ");
+    print_term(b, cell->body, PREC_PAIR);
+  }
+  put(b, " }");
+}
+
+/* `Type ℓ`: the level is an atom. */
+static void print_univ(Buf *b, const Term *t) {
+  if (t->right == NULL) {
+    put_universe(b, t->nat);
+    return;
+  }
+  put(b, "Type ");
+  print_term(b, t->right, PREC_ATOM);
+}
+
+/* `let x = t in u` (A1). A let in the body prints as a nested let. */
+static void print_let(Buf *b, const Term *t) {
+  put(b, "let ");
+  put(b, t->name);
+  put(b, " = ");
+  print_term(b, t->left, PREC_PAIR);
+  put(b, " in ");
+  print_term(b, t->right, PREC_PAIR);
+}
+
 static void print_body(Buf *b, const Term *t) {
   switch (t->kind) {
     case TERM_VAR: put(b, t->name); return;
     case TERM_NAT: put_nat(b, t->nat); return;
-    case TERM_UNIV: put_universe(b, t->nat); return;
+    case TERM_UNIV: print_univ(b, t); return;
     case TERM_APP: print_app(b, t); return;
     case TERM_LAM: print_lambda(b, t); return;
     case TERM_PI: print_pi(b, t); return;
     case TERM_SIGMA: print_sigma(b, t); return;
+    case TERM_SYSTEM: print_system(b, t); return;
+    case TERM_LET: print_let(b, t); return;
   }
 }
 
@@ -184,13 +273,17 @@ static void print_term(Buf *b, const Term *t, Prec ctx) {
   if (paren) put(b, ")");
 }
 
-/* The bare lambdas at the front of the body print as clause patterns. */
+/* The bare lambdas at the front of the body print as clause patterns. A
+   definition of a section is indented by 2 spaces (D3). */
 static void print_def(Buf *b, const Decl *d) {
   const Term *body = d->body;
+  const char *indent = d->section != 0u ? "  " : "";
+  put(b, indent);
   put(b, d->name);
   put(b, " : ");
   print_term(b, d->type, PREC_TERM);
   put(b, "\n");
+  put(b, indent);
   put(b, d->name);
   while (body->kind == TERM_LAM && body->left == NULL) {
     put(b, " ");
@@ -198,7 +291,7 @@ static void print_def(Buf *b, const Decl *d) {
     body = body->right;
   }
   put(b, " = ");
-  print_term(b, body, PREC_TERM);
+  print_term(b, body, PREC_PAIR);
   put(b, "\n");
 }
 
@@ -226,6 +319,10 @@ static void print_data(Buf *b, const Decl *d) {
     print_field(b, &d->params[i]);
   }
   put(b, " : ");
+  for (size_t i = 0; i < d->index_count; i++) {
+    print_term(b, d->indices[i], PREC_ATOM);
+    put(b, " → ");
+  }
   put_universe(b, d->level);
   put(b, " where\n");
   for (size_t i = 0; i < d->ctor_count; i++) {
@@ -237,13 +334,52 @@ static void print_data(Buf *b, const Decl *d) {
       print_field(b, &ctor->fields[j]);
       put(b, " → ");
     }
+    if (ctor->result != NULL) {
+      print_term(b, ctor->result, PREC_TERM);
+      put(b, "\n");
+      continue;
+    }
     put(b, d->name);
     for (size_t j = 0; j < d->param_count; j++) {
       put(b, " ");
       put(b, d->params[j].name);
     }
+    for (size_t j = 0; j < d->index_count; j++) {
+      put(b, " ");
+      print_term(b, ctor->indices[j], PREC_ATOM);
+    }
     put(b, "\n");
   }
+}
+
+static void print_record(Buf *b, const Decl *d) {
+  put(b, "record ");
+  put(b, d->name);
+  for (size_t i = 0; i < d->param_count; i++) {
+    put(b, " ");
+    print_field(b, &d->params[i]);
+  }
+  put(b, " : ");
+  put_universe(b, d->level);
+  put(b, " where\n");
+  if (d->coinductive) put(b, "  coinductive\n");
+  for (size_t i = 0; i < d->field_count; i++) {
+    put(b, "  ");
+    put(b, d->fields[i].name);
+    put(b, " : ");
+    print_term(b, d->fields[i].type, PREC_TERM);
+    put(b, "\n");
+  }
+}
+
+static void print_module(Buf *b, const Decl *d) {
+  put(b, "module ");
+  put(b, d->name);
+  for (size_t i = 0; i < d->param_count; i++) {
+    put(b, " ");
+    print_field(b, &d->params[i]);
+  }
+  put(b, " where\n");
 }
 
 static void print_decl(Buf *b, const Decl *d) {
@@ -251,6 +387,8 @@ static void print_decl(Buf *b, const Decl *d) {
     case DECL_DEF: print_def(b, d); return;
     case DECL_AXIOM: print_postulate(b, d); return;
     case DECL_FAMILY: print_data(b, d); return;
+    case DECL_RECORD: print_record(b, d); return;
+    case DECL_MODULE: print_module(b, d); return;
   }
 }
 

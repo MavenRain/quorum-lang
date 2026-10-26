@@ -1,0 +1,5 @@
+Kind : Type₁
+Kind = Type
+
+data Indexed₁ : Kind → Type where
+  indexed₁ : Indexed₁ ℕ

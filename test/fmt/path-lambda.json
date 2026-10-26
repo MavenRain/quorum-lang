@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/fmt/path-lambda.lang","line":2,"col":12,"endLine":3,"endCol":1},"expected":"flip x y p i = p (~ i)","found":"flip x y p = λ i → p (~ i)","fix":"flip : (x : ℕ) → (y : ℕ) → x ≡ y → y ≡ x\nflip x y p i = p (~ i)\n","retry":true,"message":"test/fmt/path-lambda.lang:2:12: the text is not in the canonical form; langc fmt test/fmt/path-lambda.lang prints it"}
+{"parsed":1,"typed":1,"laws":{"discharged":0,"total":0}}
