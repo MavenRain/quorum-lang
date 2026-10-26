@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/fmt/cons-prefix.lang","line":4,"col":8,"endLine":5,"endCol":1},"expected":"pair = 1 ∷ 2","found":"pair = _∷_ 1 2","fix":"_∷_ : ℕ → ℕ → ℕ\n_∷_ x xs = natAdd x xs\npair : ℕ\npair = 1 ∷ 2\n","retry":true,"message":"test/fmt/cons-prefix.lang:4:8: the text is not in the canonical form; langc fmt test/fmt/cons-prefix.lang prints it"}
+{"parsed":2,"typed":2,"laws":{"discharged":0,"total":0}}

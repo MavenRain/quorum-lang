@@ -82,6 +82,8 @@ typedef enum {
   RULE_BIND,
   RULE_FILTER,
   RULE_FOLD,
+  RULE_ELIM,
+  RULE_FOLDB,
   RULE_UNFOLD,
   RULE_NAT2,
   RULE_SUC,
@@ -123,6 +125,8 @@ static const Builtin BUILTINS[] = {
   {"map", 2, RULE_MAP, OP_MAP, OP_NAT, 0},
   {"bind", 2, RULE_BIND, OP_BIND, OP_NAT, 0},
   {"fold", 2, RULE_FOLD, OP_FOLD_NAT, OP_NAT, 0},
+  {"elim", 4, RULE_ELIM, OP_ELIM_NAT, OP_NAT, 0},
+  {"foldᴮ", 5, RULE_FOLDB, OP_FOLD_BAG, OP_NAT, 0},
   {"natAdd", 2, RULE_NAT2, OP_NAT_ADD, OP_NAT, 0},
   {"suc", 1, RULE_SUC, OP_NAT_ADD, OP_NAT, 0},
   {"natSub", 2, RULE_NAT2, OP_NAT_SUB, OP_NAT, 0},
@@ -1236,6 +1240,76 @@ static const Value *case_type(Checker *c, const CtorInfo *ctor, const Env *env, 
   return t;
 }
 
+/* The Core of PathP (λ _ → LINE) X Y at level LVL (LINE is at LVL + 1). */
+static const Core *path_core(Checker *c, uint32_t lvl, const Core *line, const Value *x, const Value *y) {
+  const Core *cx = x == NULL ? NULL : quote_value(c->m, lvl, x);
+  const Core *cy = y == NULL ? NULL : quote_value(c->m, lvl, y);
+  return line == NULL || cx == NULL || cy == NULL ? NULL : op3(c, OP_PATHP, 0, 3, core_bind(c, CORE_LAM, "_", NULL, line), cx, cy);
+}
+
+/* T is the family FAM (at any arguments). */
+static int is_family_core(const Core *t, uint32_t fam) {
+  return t != NULL && t->kind == CORE_OP && t->op == OP_FAMILY && t->inst == fam;
+}
+
+/* The point term K through the fold cases (S3 D2, the zkpolicy-lang star):
+   a field variable is itself (from ENV), and a point constructor of FAM
+   applies its case in CASES to its fields (the parameters drop). */
+static const Value *star(Checker *c, uint32_t fam, const Value *const *cases, const Env *env, const Core *k) {
+  Machine *m = c->m;
+  const FamilyInfo *f = &m->families[fam];
+  const Value *acc;
+  const Value *arg;
+  uint32_t j;
+  if (k->kind != CORE_OP || k->op != OP_CTOR || k->inst < f->first_ctor || k->inst >= f->first_ctor + f->ctor_count || m->ctors[k->inst].depth != 0u)
+    return eval_core(m, env, k);
+  acc = cases[k->inst - f->first_ctor];
+  for (j = 0; j < m->ctors[k->inst].field_count && acc != NULL; j++) {
+    arg = star(c, fam, cases, env, k->args[f->param_count + j]);
+    acc = arg == NULL ? NULL : apply_value(m, acc, arg);
+  }
+  return acc;
+}
+
+static int family_has_path(const Machine *m, uint32_t fam);
+static const Core *path_body(const Core *t);
+
+/* The type of the fold case of CTOR over FAM, a family with a path
+   constructor (S3 D2): a Pi over the fields into RES at depth 0, else
+   Path RES a* b* (depth 1) or Path (Path RES x* y*) p* q* (depth 2), with
+   the ends through the earlier CASES. A recursive field has the type RES;
+   a path field u ≡ v in FAM has the type Path RES u* v*. A field type sees
+   the earlier fields, so each field is a fresh variable in ENV. */
+static const Value *hit_case_type(Checker *c, uint32_t fam, const CtorInfo *ctor, const Value *const *cases, const Env *env, const Value *res) {
+  Machine *m = c->m;
+  const Core **doms = arena_alloc(m->arena, ((size_t)ctor->field_count + 1u) * sizeof *doms);
+  uint32_t n = ctor->field_count;
+  uint32_t lvl = c->level + n;
+  const Value *dom;
+  const Core *line;
+  const Core *k;
+  uint32_t i;
+  if (doms == NULL) {
+    FAIL(c, "OOM", "out of memory");
+    return NULL;
+  }
+  for (i = 0; i < n; i++) {
+    const Core *t = ctor->fields[i].type;
+    int path = !ctor->fields[i].recursive && is_family_core(path_body(t), fam);
+    dom = ctor->fields[i].recursive ? res : path ? NULL : eval_core(m, env, t);
+    doms[i] = path ? path_core(c, c->level + i, quote_value(m, c->level + i + 1u, res), star(c, fam, cases, env, t->args[1]), star(c, fam, cases, env, t->args[2]))
+              : dom == NULL ? NULL : quote_value(m, c->level + i, dom);
+    env = env_push(m, env, val_var(m, c->level + i));
+    if (doms[i] == NULL || env == NULL)
+      return NULL;
+  }
+  line = ctor->depth == 2u ? path_core(c, lvl + 1u, quote_value(m, lvl + 2u, res), star(c, fam, cases, env, ctor->ends[2]), star(c, fam, cases, env, ctor->ends[3])) : quote_value(m, lvl + 1u, res);
+  k = ctor->depth == 0u ? quote_value(m, lvl, res) : path_core(c, lvl, line, star(c, fam, cases, env, ctor->ends[0]), star(c, fam, cases, env, ctor->ends[1]));
+  for (i = n; i > 0u && k != NULL; i--)
+    k = core_bind(c, CORE_PI, ctor->fields[i - 1u].name, doms[i - 1u], k);
+  return here(c, k);
+}
+
 /* fold case... x over a domain family: one case for each constructor. */
 static const Core *fold_family(Call *k, const Core *s, const Value *st) {
   Checker *c = k->c;
@@ -1244,16 +1318,23 @@ static const Core *fold_family(Call *k, const Core *s, const Value *st) {
   const Env *env = env_of(c, st->args, st->argc);
   const Value *res = k->hint;
   const Core **cores = arena_alloc(m->arena, ((size_t)f->ctor_count + 2u) * sizeof *cores);
+  const Value **vals = arena_alloc(m->arena, ((size_t)f->ctor_count + 1u) * sizeof *vals);
+  const Value *want;
+  int hit = family_has_path(m, st->inst);
   uint32_t j;
-  if (cores == NULL)
+  if (cores == NULL || vals == NULL)
     return nul(FAIL(c, "OOM", "out of memory"));
   if (res == NULL && m->ctors[f->first_ctor].field_count == 0u)
     cores[0] = infer(c, k->args[0], &res);
   if (res == NULL)
     return nul(FAIL(c, "TYPE_INFER", "fold over %s needs a declared result type here", f->name));
+  /* S3 D2: a family with a path constructor gets the case types of
+     hit_case_type, whose ends go through the earlier cases (VALS) */
   for (j = 0; j < f->ctor_count; j++) {
-    cores[j] = cores[j] != NULL ? cores[j] : check(c, k->args[j], case_type(c, &m->ctors[f->first_ctor + j], env, res));
-    if (cores[j] == NULL)
+    want = hit ? hit_case_type(c, st->inst, &m->ctors[f->first_ctor + j], vals, env, res) : case_type(c, &m->ctors[f->first_ctor + j], env, res);
+    cores[j] = cores[j] != NULL ? cores[j] : want == NULL ? NULL : check(c, k->args[j], want);
+    vals[j] = cores[j] == NULL || !hit ? NULL : here(c, cores[j]);
+    if (cores[j] == NULL || (hit && vals[j] == NULL))
       return NULL;
   }
   cores[f->ctor_count] = s;
@@ -1284,8 +1365,6 @@ static const Core *rule_fold(Call *k) {
   uint32_t fam = val_is(st, OP_FAMILY) ? st->inst : NO_FAMILY;
   if (s != NULL && fam != NO_FAMILY && c->m->families[fam].index_count > 0u)
     return nul(FAIL(c, "DOMAIN_FAMILY", "fold over %s is not in S2: a fold over an indexed family needs a dependent eliminator (S3)", c->m->families[fam].name));
-  if (s != NULL && fam != NO_FAMILY && family_has_path(c->m, fam))
-    return nul(FAIL(c, "DOMAIN_FAMILY", "fold over %s is not in S2: a fold over a higher inductive family needs a dependent eliminator (S3)", c->m->families[fam].name));
   if (s != NULL && fam != NO_FAMILY && c->m->families[fam].ctor_count + 1u == k->argc) {
     k->hint = k->outer;
     return fold_family(k, s, st);
@@ -1301,6 +1380,207 @@ static const Core *rule_fold(Call *k) {
   }
   s = infer(c, k->args[k->argc - 1u], &st);
   return s == NULL ? NULL : nul(FAIL(c, "TYPE_MISMATCH", "fold needs a last argument of type ℕ, List A or a domain family, and one case for each constructor; found %u arguments and a last argument of type %s", k->argc, show(c, st)));
+}
+
+/* The motive of elim over D: P : D → Type₁ (large elimination), else
+   P : D → Type. A failed first try leaves no diagnostic. */
+static const Core *elim_motive(Checker *c, const Term *t, const Value *d) {
+  Diag saved = *c->m->diag;
+  const Term *at = c->at;
+  const Env *env = c->env;
+  const Core *p = check(c, t, val_arrow(c->m, d, val_univ(c->m, 1u)));
+  if (p != NULL)
+    return p;
+  *c->m->diag = saved;
+  c->at = at;
+  c->env = env;
+  return check(c, t, val_arrow(c->m, d, val_univ(c->m, 0u)));
+}
+
+/* (n : ℕ) → P n → P (suc n), with PV the value of the motive P. */
+static const Value *elim_step(Checker *c, const Value *pv) {
+  const Core *succ = op3(c, OP_NAT_ADD, 0, 2, core_index(c, CORE_VAR, 1u), core_leaf(c, CORE_NAT, 1u), NULL);
+  const Core *ih = core_app(c, core_index(c, CORE_VAR, 1u), core_index(c, CORE_VAR, 0u));
+  const Core *res = succ == NULL ? NULL : core_app(c, core_index(c, CORE_VAR, 2u), succ);
+  const Core *body = ih == NULL || res == NULL ? NULL : core_bind(c, CORE_PI, "ih", ih, res);
+  const Env *env = body == NULL ? NULL : env_push(c->m, NULL, pv);
+  return env == NULL ? NULL : val_closure(c->m, VAL_PI, "n", nat_type(c), env, body);
+}
+
+/* elim P z s n (ℕ) or elim P yes no b (Bool): the dependent eliminator
+   of closed data (S3 D1). The core drops P: an elim over ℕ is
+   OP_ELIM_NAT z s n, an elim over Bool is flagIf b yes no. More
+   arguments apply to the result. */
+static const Core *rule_elim(Call *k) {
+  Checker *c = k->c;
+  Machine *m = c->m;
+  const Value *d = NULL;
+  const Core *x = infer(c, k->args[3], &d);
+  const Core *p;
+  const Value *pv;
+  const Core *yes;
+  const Core *no;
+  int nat;
+  if (x == NULL)
+    return NULL;
+  if (val_is(d, OP_FAMILY))
+    return nul(FAIL(c, "DOMAIN_FAMILY", "elim over %s is not in S3: elim takes a ℕ or a Bool, and fold takes a domain family", m->families[d->inst].name));
+  if (!val_is(d, OP_NAT) && !val_is(d, OP_FLAG))
+    return nul(FAIL(c, "TYPE_MISMATCH", "elim needs a last argument of type ℕ or Bool, found a term of type %s", show(c, d)));
+  nat = val_is(d, OP_NAT);
+  p = elim_motive(c, k->args[0], d);
+  pv = p == NULL ? NULL : eval_core(m, c->env, p);
+  yes = pv == NULL ? NULL : check(c, k->args[1], apply_value(m, pv, nat ? val_nat(m, 0u) : tyop(c, OP_FLAG_YES, 0, NULL, NULL, NULL)));
+  no = yes == NULL ? NULL : check(c, k->args[2], nat ? elim_step(c, pv) : apply_value(m, pv, tyop(c, OP_FLAG_NO, 0, NULL, NULL, NULL)));
+  if (no == NULL)
+    return NULL;
+  k->used = 4u;
+  k->type = apply_value(m, pv, eval_core(m, c->env, x));
+  return nat ? op3(c, OP_ELIM_NAT, 0, 3, yes, no, x) : op3(c, OP_FLAG_IF, 0, 3, x, yes, no);
+}
+
+/* A Pi over DOM into BODY; NULL when one of them is NULL. */
+static const Core *bag_pi(Checker *c, const char *name, const Core *dom, const Core *body) {
+  return dom == NULL || body == NULL ? NULL : core_bind(c, CORE_PI, name, dom, body);
+}
+
+/* F X Y, or NULL. */
+static const Value *bag_apply2(Machine *m, const Value *f, const Value *x, const Value *y) {
+  const Value *fx = f == NULL || x == NULL || y == NULL ? NULL : apply_value(m, f, x);
+  return fx == NULL ? NULL : apply_value(m, fx, y);
+}
+
+/* The swap obligation of foldᴮ, with FV the value of f:
+   (x : A) → (y : A) → (b : B) → f x (f y b) ≡ f y (f x b). */
+static const Value *bag_swap_type(Checker *c, const Value *a, const Value *res, const Value *fv) {
+  Machine *m = c->m;
+  uint32_t l = c->level;
+  const Value *x = val_var(m, l);
+  const Value *y = val_var(m, l + 1u);
+  const Value *b = val_var(m, l + 2u);
+  const Core *k = path_core(c, l + 3u, quote_value(m, l + 4u, res), bag_apply2(m, fv, x, bag_apply2(m, fv, y, b)), bag_apply2(m, fv, y, bag_apply2(m, fv, x, b)));
+  k = bag_pi(c, "b", quote_value(m, l + 2u, res), k);
+  k = bag_pi(c, "y", quote_value(m, l + 1u, a), k);
+  return here(c, bag_pi(c, "x", quote_value(m, l, a), k));
+}
+
+/* isSet B, unfolded: (x : B) → (y : B) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q. */
+static const Value *bag_set_type(Checker *c, const Value *res) {
+  Machine *m = c->m;
+  uint32_t l = c->level;
+  const Value *x = val_var(m, l);
+  const Value *y = val_var(m, l + 1u);
+  const Core *line = path_core(c, l + 5u, quote_value(m, l + 6u, res), x, y);
+  const Core *k = path_core(c, l + 4u, line, val_var(m, l + 2u), val_var(m, l + 3u));
+  k = bag_pi(c, "q", path_core(c, l + 3u, quote_value(m, l + 4u, res), x, y), k);
+  k = bag_pi(c, "p", path_core(c, l + 2u, quote_value(m, l + 3u, res), x, y), k);
+  k = bag_pi(c, "y", quote_value(m, l + 1u, res), k);
+  return here(c, bag_pi(c, "x", quote_value(m, l, res), k));
+}
+
+/* The constructors of a bag (S3 D4), in order: the depth, the number of
+   fields, and the ends as prefix patterns. In a pattern, a digit is a
+   field, e is the empty bag and m is the union of the next two patterns. */
+typedef struct {
+  uint32_t depth;
+  uint32_t fields;
+  const char *ends[4];
+} BagCtor;
+
+static const BagCtor BAG_CTORS[] = {
+  {0u, 1u, {NULL, NULL, NULL, NULL}},
+  {0u, 0u, {NULL, NULL, NULL, NULL}},
+  {0u, 2u, {NULL, NULL, NULL, NULL}},
+  {1u, 1u, {"me0", "0", NULL, NULL}},
+  {1u, 3u, {"mm012", "m0m12", NULL, NULL}},
+  {1u, 2u, {"m01", "m10", NULL, NULL}},
+  {2u, 4u, {"2", "3", "0", "1"}}
+};
+
+#define BAG_CTOR_COUNT ((uint32_t)(sizeof BAG_CTORS / sizeof BAG_CTORS[0]))
+
+/* K matches the pattern at *S over the bag constructors from FIRST, with
+   P params and then N fields in the context. *S moves past the pattern. */
+static int bag_end(const Core *k, const char **s, uint32_t first, uint32_t p, uint32_t n) {
+  char t = **s;
+  uint32_t fields = t == 'm' ? 2u : 0u;
+  (*s)++;
+  if (t >= '0' && t <= '9')
+    return k != NULL && k->kind == CORE_VAR && (uint32_t)(t - '0') < n && k->index == n - 1u - (uint32_t)(t - '0');
+  if (k == NULL || k->kind != CORE_OP || k->op != OP_CTOR || k->inst != first + (t == 'm' ? 2u : 1u) || k->argc != p + fields)
+    return 0;
+  return t == 'e' || (bag_end(k->args[p], s, first, p, n) && bag_end(k->args[p + 1u], s, first, p, n));
+}
+
+/* K matches all of the pattern PAT. */
+static int bag_match(const Core *k, const char *pat, uint32_t first, uint32_t p, uint32_t n) {
+  const char *s = pat;
+  return pat != NULL && bag_end(k, &s, first, p, n) && *s == '\0';
+}
+
+/* FAM is a bag (S3 D4): a cell monad with one type parameter A and the
+   FMSet generator constructors in this order: η (one field of type A),
+   e, m (two recursive fields), the 1-cells unit, assoc and comm over
+   recursive fields, and the 2-cell set truncation. The ends are the
+   ends of BAG_CTORS. */
+static int bag_shaped(const Machine *m, uint32_t fam) {
+  const FamilyInfo *f = &m->families[fam];
+  const CtorInfo *ci;
+  const Core *t;
+  uint32_t j;
+  uint32_t i;
+  int ok = f->r1 == FAMILY_CM && f->param_count == 1u && f->index_count == 0u && f->ctor_count == BAG_CTOR_COUNT;
+  for (j = 0; j < BAG_CTOR_COUNT && ok; j++) {
+    ci = &m->ctors[f->first_ctor + j];
+    ok = ci->depth == BAG_CTORS[j].depth && ci->field_count == BAG_CTORS[j].fields;
+    for (i = 0; i < 2u * ci->depth && ok; i++)
+      ok = ci->ends != NULL && bag_match(ci->ends[i], BAG_CTORS[j].ends[i], f->first_ctor, 1u, ci->field_count);
+    for (i = 0; i < ci->field_count && ok; i++) {
+      t = ci->fields[i].type;
+      ok = j == 0u ? !ci->fields[i].recursive && t != NULL && t->kind == CORE_VAR && t->index == 0u
+         : j == 6u && i >= 2u ? !ci->fields[i].recursive && t != NULL && t->kind == CORE_OP && t->op == OP_PATHP && t->argc == 3u && is_family_core(path_body(t), fam) && bag_match(t->args[1], "0", f->first_ctor, 1u, i) && bag_match(t->args[2], "1", f->first_ctor, 1u, i)
+         : ci->fields[i].recursive;
+    }
+  }
+  return ok;
+}
+
+/* foldᴮ f swap st b xs over a bag F A (S3 D4, O40), into B from the
+   expected type, else from b: f : A → B → B, swap the swap obligation,
+   st : isSet B, b : B. The core drops swap and st: OP_FOLD_BAG f b xs.
+   More arguments apply to the result. */
+static const Core *rule_foldb(Call *k) {
+  Checker *c = k->c;
+  Machine *m = c->m;
+  const Value *st = NULL;
+  const Core *xs = infer(c, k->args[4], &st);
+  const Value *res = k->argc == 5u ? k->outer : NULL;
+  const Core *b = NULL;
+  const Core *f;
+  const Core *sw;
+  const Core *set;
+  const Value *want;
+  const Value *a;
+  if (xs == NULL)
+    return NULL;
+  if (!val_is(st, OP_FAMILY) || !bag_shaped(m, st->inst))
+    return nul(FAIL(c, "TYPE_BAG", "foldᴮ needs a bag: a cell monad with one type parameter and the constructors η, e, m, unit, assoc, comm and trunc in this order; found a last argument of type %s", show(c, st)));
+  a = st->args[0];
+  if (res == NULL)
+    b = infer(c, k->args[3], &res);
+  if (res == NULL)
+    return NULL;
+  f = check(c, k->args[0], val_arrow(m, a, val_arrow(m, res, res)));
+  want = f == NULL ? NULL : bag_swap_type(c, a, res, here(c, f));
+  sw = want == NULL ? NULL : check(c, k->args[1], want);
+  want = sw == NULL ? NULL : bag_set_type(c, res);
+  set = want == NULL ? NULL : check(c, k->args[2], want);
+  b = set == NULL ? NULL : b != NULL ? b : check(c, k->args[3], res);
+  if (b == NULL)
+    return NULL;
+  k->used = 5u;
+  k->type = res;
+  return op3(c, OP_FOLD_BAG, 0, 3, f, b, xs);
 }
 
 /* unfold g limit seed, with g : S → Maybe (A × S). S1 refuses unfold
@@ -1394,6 +1674,10 @@ static const Core *rule(Call *k) {
     return rule_filter(k);
   case RULE_FOLD:
     return rule_fold(k);
+  case RULE_ELIM:
+    return rule_elim(k);
+  case RULE_FOLDB:
+    return rule_foldb(k);
   case RULE_UNFOLD:
     return rule_unfold(k);
   case RULE_NAT2:

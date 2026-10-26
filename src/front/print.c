@@ -9,6 +9,7 @@ typedef enum {
   PREC_PAIR,  /* a , b */
   PREC_TERM,  /* λ, a system and → */
   PREC_EQUIV, /* a ≡ b */
+  PREC_OPER,  /* a ∷ b, a ++ b, f ∘ g and p ∙ q (D5) */
   PREC_TIMES, /* A × B */
   PREC_MAX,   /* r ∨ s */
   PREC_MIN,   /* r ∧ s */
@@ -68,7 +69,7 @@ static void put_universe(Buf *b, uint64_t level) {
 
 /* The infix operators: the AST name, the printed symbol, the precedence of
    the whole and the context of each operand (parser.c parse_term_body,
-   parse_equiv and infix_right). */
+   parse_equiv, parse_oper and infix_right). */
 static const struct {
   const char *name;
   const char *symbol;
@@ -77,13 +78,21 @@ static const struct {
   Prec right;
 } INFIX[] = {
   {AST_PAIR_NAME, " , ", PREC_PAIR, PREC_EQUIV, PREC_PAIR},
-  {AST_PATH_NAME, " ≡ ", PREC_EQUIV, PREC_TIMES, PREC_TIMES},
+  {AST_PATH_NAME, " ≡ ", PREC_EQUIV, PREC_OPER, PREC_OPER},
   {AST_TIMES_NAME, " × ", PREC_TIMES, PREC_MAX, PREC_TIMES},
   {AST_MAX_NAME, " ∨ ", PREC_MAX, PREC_MIN, PREC_MAX},
   {AST_MIN_NAME, " ∧ ", PREC_MIN, PREC_NEG, PREC_MIN},
+  {AST_CONS_NAME, " ∷ ", PREC_OPER, PREC_TIMES, PREC_OPER},
+  {AST_APPEND_NAME, " ++ ", PREC_OPER, PREC_TIMES, PREC_OPER},
+  {AST_COMPOSE_NAME, " ∘ ", PREC_OPER, PREC_TIMES, PREC_OPER},
+  {AST_CONCAT_NAME, " ∙ ", PREC_OPER, PREC_TIMES, PREC_OPER},
 };
 
 #define INFIX_COUNT (sizeof INFIX / sizeof INFIX[0])
+
+/* The names of the rows from INFIX_NAMED on lex as names (D5). Applied to
+   more than two arguments, they print in prefix form. */
+#define INFIX_NAMED 5u
 
 /* `NAME a b` prints infix, for example `_×_ A B` as `A × B`. */
 static int is_binary(const Term *t, const char *name) {
@@ -96,6 +105,52 @@ static int is_neg(const Term *t) {
   return t->kind == TERM_APP && t->left->kind == TERM_VAR && strcmp(t->left->name, AST_NEG_NAME) == 0;
 }
 
+/* `∥_∥₁ A` prints as `∥ A ∥₁`. */
+static int is_trunc(const Term *t) {
+  return t->kind == TERM_APP && t->left->kind == TERM_VAR && strcmp(t->left->name, AST_TRUNC_NAME) == 0;
+}
+
+static int same_name(const char *a, const char *b) {
+  return a == NULL || b == NULL ? a == b : strcmp(a, b) == 0;
+}
+
+/* Returns 1 when A and B are the same term. A system compares unequal.
+   Spines and binder bodies are walked without recursion. */
+static int same_term(const Term *a, const Term *b) {
+  while (a != NULL && b != NULL && a != b) {
+    if (a->kind != b->kind) return 0;
+    switch (a->kind) {
+      case TERM_VAR: return strcmp(a->name, b->name) == 0;
+      case TERM_NAT: return a->nat == b->nat;
+      case TERM_SYSTEM: return 0;
+      case TERM_UNIV:
+        if (a->nat != b->nat) return 0;
+        break;
+      case TERM_APP:
+        if (!same_term(a->right, b->right)) return 0;
+        a = a->left;
+        b = b->left;
+        continue;
+      case TERM_SIGMA:
+      case TERM_LAM:
+      case TERM_PI:
+      case TERM_LET:
+        if (!same_name(a->name, b->name) || !same_term(a->left, b->left)) return 0;
+        break;
+    }
+    a = a->right;
+    b = b->right;
+  }
+  return a == b;
+}
+
+/* `∃ A (λ (x : A) → B)` prints as `∃[ x ꞉ A ] B` when the binder type is the
+   same term as A. */
+static int is_exists(const Term *t) {
+  return is_binary(t, AST_EXISTS_NAME) && t->right->kind == TERM_LAM && t->right->left != NULL
+      && same_term(t->right->left, t->left->right);
+}
+
 /* Returns the INFIX row of T, or INFIX_COUNT. */
 static size_t infix_row(const Term *t) {
   size_t k = 0;
@@ -105,7 +160,18 @@ static size_t infix_row(const Term *t) {
 
 static Prec app_prec(const Term *t) {
   size_t k = infix_row(t);
-  return k < INFIX_COUNT ? INFIX[k].prec : is_neg(t) ? PREC_NEG : PREC_APP;
+  return k < INFIX_COUNT ? INFIX[k].prec
+       : is_neg(t)        ? PREC_NEG
+       : is_trunc(t)      ? PREC_ATOM
+       : is_exists(t)     ? PREC_TERM
+                          : PREC_APP;
+}
+
+/* A D5 name in operator or notation shape is part of a longer spine:
+   `_∷_ a b c` prints in prefix form. */
+static int named_head(const Term *t) {
+  size_t k = infix_row(t);
+  return (k >= INFIX_NAMED && k < INFIX_COUNT) || is_trunc(t) || is_exists(t);
 }
 
 static Prec term_prec(const Term *t) {
@@ -140,10 +206,26 @@ static void print_app(Buf *b, const Term *t) {
     print_term(b, t->right, PREC_NEG);
     return;
   }
-  /* The spine `h a1 ... an` nests to the left. An operator ends it. */
+  if (is_trunc(t)) {
+    put(b, "∥ ");
+    print_term(b, t->right, PREC_TERM);
+    put(b, " ∥₁");
+    return;
+  }
+  if (is_exists(t)) {
+    put(b, "∃[ ");
+    put(b, t->right->name);
+    put(b, " ꞉ ");
+    print_term(b, t->left->right, PREC_TERM);
+    put(b, " ] ");
+    print_term(b, t->right->right, PREC_TERM);
+    return;
+  }
+  /* The spine `h a1 ... an` nests to the left. An operator ends it, unless
+     its name lexes (D5). */
   size_t n = 0;
   const Term *head = t;
-  while (head->kind == TERM_APP && app_prec(head) == PREC_APP) {
+  while (head->kind == TERM_APP && (app_prec(head) == PREC_APP || (head != t && named_head(head)))) {
     n++;
     head = head->left;
   }

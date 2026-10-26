@@ -1,0 +1,33 @@
+-- Point constructors retain their tags when paths appear between them.
+data Interleaved (A : Type) : Type where
+  emptyI : Interleaved A
+  loopI : emptyI A ≡ emptyI A
+  injectI : (aI : A) → Interleaved A
+
+selectI : ℕ → ℕ
+selectI n = fold 7 refl (λ (a : ℕ) → a) (flagIf (natEq n 0) (emptyI ℕ) (injectI ℕ n))
+
+data Spine (A : Type) : Type where
+  emptyS : Spine A
+  loopS : emptyS A ≡ emptyS A
+  injectS : (aS : A) → Spine A
+  nextS : (restS : Spine A) → Spine A
+
+selectS : ℕ → ℕ
+selectS n = fold 7 refl (λ (a : ℕ) → a) (λ (n : ℕ) → suc n) (nextS ℕ (flagIf (natEq n 0) (emptyS ℕ) (injectS ℕ n)))
+
+-- A path field reaches its case as a path in the fold's result type.
+data PathField (A : Type) : Type where
+  emptyF : PathField A
+  pointF : (aF : A) → PathField A
+  edgeF : (pF : emptyF A ≡ emptyF A) → PathField A
+  loopF : (xF : PathField A) → xF ≡ xF
+
+readF : (n : ℕ) → n ≡ n
+readF n i = fold n (λ (a : ℕ) → a) (λ (p : n ≡ n) → p i) (λ (x : ℕ) → refl) (edgeF ℕ refl)
+
+readLaw : (n : ℕ) → readF n ≡ (λ i → n)
+readLaw n = refl
+
+readPoint : ℕ
+readPoint = readF 7 i0

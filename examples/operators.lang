@@ -1,0 +1,49 @@
+-- S3 operators (O41): infix ∷, ++, ∘ and ∙ at one right-associative level
+-- between ≡ and ×, and the notations ∥ A ∥₁ and ∃[ x ꞉ A ] B. An infix use
+-- is the prefix name applied to two arguments. Local definitions only.
+_∷_ : ℕ → ℕ → ℕ
+_∷_ x xs = natAdd (natAdd x x) xs
+_++_ : ℕ → ℕ → ℕ
+_++_ m n = natAdd (natAdd m m) n
+chain : ℕ
+chain = 1 ∷ 2 ∷ 3
+mixed : ℕ
+mixed = 1 ∷ 2 ++ 3
+left : ℕ
+left = (1 ∷ 2) ++ 3
+consLaw : (x : ℕ) → (y : ℕ) → x ∷ y ≡ x ++ y
+consLaw x y = refl
+double : ℕ → ℕ
+double n = natAdd n n
+_∘_ : (ℕ → ℕ) → (ℕ → ℕ) → ℕ → ℕ
+_∘_ f g n = f (g n)
+apply : (ℕ → ℕ) → ℕ → ℕ
+apply f n = f n
+quad : ℕ → ℕ
+quad n = apply (double ∘ double) n
+quad₂ : ℕ → ℕ
+quad₂ n = _∘_ double double n
+price : ℕ
+price = 1200
+cost : ℕ
+cost = 1200
+same : price ≡ cost
+same = refl
+back : cost ≡ price
+back = refl
+_∙_ : price ≡ cost → cost ≡ price → price ≡ price
+_∙_ p q i = primHComp (λ j → λ { (i = i0) → price ; (i = i1) → q j }) (p i)
+round : price ≡ price
+round = same ∙ back
+ends : ℕ
+ends = round i1
+
+data ∥_∥₁ (A : Type) : Type where
+  ∣_∣₁ : (a : A) → ∥_∥₁ A
+  squash₁ : (x : ∥ A ∥₁) → (y : ∥ A ∥₁) → x ≡ y
+
+∃ : (A : Type) → (A → Type) → Type
+∃ A B = ∥ Σ A (λ x → B x) ∥₁
+
+two : ∃[ n ꞉ ℕ ] n ≡ 2
+two = ∣_∣₁ (Σ ℕ (λ n → n ≡ 2)) (2 , refl)

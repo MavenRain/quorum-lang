@@ -1,0 +1,11 @@
+data BagW (A : Type) : Type where
+  ηw : (a₁ : A) → BagW A
+  ew : BagW A
+  mw : (x₁ : BagW A) → (y₁ : BagW A) → BagW A
+  unitw : (x₂ : BagW A) → mw A (ew A) x₂ ≡ x₂
+  assocw : (x₃ : BagW A) → (y₃ : BagW A) → (z₃ : BagW A) → mw A (mw A x₃ y₃) z₃ ≡ mw A x₃ (mw A y₃ z₃)
+  commw : (x₄ : BagW A) → (y₄ : BagW A) → mw A x₄ y₄ ≡ mw A y₄ x₄
+  truncw : (x₅ : BagW A) → (y₅ : BagW A) → (p₅ : PathP (λ _ → BagW A) x₅ y₅) → (q₅ : x₅ ≡ y₅) → p₅ ≡ q₅
+
+weigh : ((x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → BagW ℕ → ℕ
+weigh st b = foldᴮ (λ (a : ℕ) (n : ℕ) → natAdd (natMul n 2) a) (λ (x : ℕ) (y : ℕ) (n : ℕ) → refl) st 0 b

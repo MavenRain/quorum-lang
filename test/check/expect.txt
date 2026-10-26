@@ -36,3 +36,8 @@ cell-cc.lang REFUSE_CELL
 cell-alias-param.lang REFUSE_CELL
 cell-alias-index.lang REFUSE_CELL
 cell-alias-record.lang REFUSE_CELL
+elim-family.lang DOMAIN_FAMILY
+fold-hit-bad.lang TYPE_REFL
+bag-no-comm.lang TYPE_BAG
+bag-no-trunc.lang TYPE_BAG
+bag-bad-swap.lang TYPE_REFL

@@ -16,8 +16,8 @@ static const char *const OP_NAMES[] = {
   [OP_NONE] = "nothing", [OP_SOME] = "just", [OP_NIL] = "nil", [OP_CONS] = "cons",
   [OP_PACK] = "pack", [OP_CTOR] = "?",
   [OP_EITHER] = "either", [OP_OPTION_ELIM] = "option",
-  [OP_PURE] = "pure", [OP_MAP] = "map", [OP_BIND] = "bind", [OP_FOLD_NAT] = "fold",
-  [OP_FOLD_LIST] = "fold", [OP_FOLD_FAMILY] = "fold", [OP_UNFOLD] = "unfold",
+  [OP_PURE] = "pure", [OP_MAP] = "map", [OP_BIND] = "bind", [OP_FOLD_NAT] = "fold", [OP_ELIM_NAT] = "elim",
+  [OP_FOLD_LIST] = "fold", [OP_FOLD_FAMILY] = "fold", [OP_FOLD_BAG] = "foldᴮ", [OP_UNFOLD] = "unfold",
   [OP_FILTER] = "filter", [OP_WITNESS] = "fst", [OP_PAYLOAD] = "snd",
   [OP_NAT_ADD] = "natAdd", [OP_NAT_SUB] = "natSub",
   [OP_NAT_MUL] = "natMul", [OP_NAT_EQ] = "natEq", [OP_NAT_LE] = "natLe",
@@ -39,8 +39,8 @@ static const unsigned char OP_ARITY[] = {
   [OP_INL] = 1, [OP_INR] = 1, [OP_NONE] = 0, [OP_SOME] = 1, [OP_NIL] = 0,
   [OP_CONS] = 2, [OP_PACK] = 2, [OP_CTOR] = VARIES, [OP_PCTOR] = VARIES,
   [OP_EITHER] = 3, [OP_OPTION_ELIM] = 3, [OP_PURE] = 1,
-  [OP_MAP] = 2, [OP_BIND] = 2, [OP_FOLD_NAT] = 3, [OP_FOLD_LIST] = 3,
-  [OP_FOLD_FAMILY] = VARIES, [OP_UNFOLD] = 3, [OP_FILTER] = 2, [OP_WITNESS] = 1,
+  [OP_MAP] = 2, [OP_BIND] = 2, [OP_FOLD_NAT] = 3, [OP_ELIM_NAT] = 3, [OP_FOLD_LIST] = 3,
+  [OP_FOLD_FAMILY] = VARIES, [OP_FOLD_BAG] = 3, [OP_UNFOLD] = 3, [OP_FILTER] = 2, [OP_WITNESS] = 1,
   [OP_PAYLOAD] = 1,
   [OP_NAT_ADD] = 2, [OP_NAT_SUB] = 2, [OP_NAT_MUL] = 2,
   [OP_NAT_EQ] = 2, [OP_NAT_LE] = 2, [OP_FLAG_IF] = 3, [OP_PROJ] = 1,
@@ -553,13 +553,97 @@ static const Value *stuck_fold(Machine *m, uint32_t family, const Value *const *
   return val_op(m, VAL_STUCK, OP_FOLD_FAMILY, family, 0, args, ncases + 1u);
 }
 
+static const Value *fold_family(Machine *m, uint32_t family, const Value *const *cases, uint32_t ncases, const Value *x);
+static const Value *reduce_papp(Machine *m, const Value *const *a, uint32_t n);
+static Core *new_core(Machine *m, CoreKind kind);
+
+/* Map a path field through the fold, using an environment so that open
+   cases and endpoints retain their free variables. */
+static const Value *fold_path_field(Machine *m, uint32_t family, const Value *const *cases, uint32_t ncases, const Value *p, const Value *type) {
+  const Env *env = NULL;
+  const Core **args = arena_alloc(m->arena, ((size_t)ncases + 1u) * sizeof *args);
+  const Core **pa = arena_alloc(m->arena, 4u * sizeof *pa);
+  Core *app = new_core(m, CORE_OP);
+  Core *body = new_core(m, CORE_OP);
+  Core *var;
+  uint32_t i;
+  if (args == NULL || pa == NULL || app == NULL || body == NULL)
+    return oom(m);
+  if (!val_is(type, OP_PATHP) || type->argc != 3u)
+    return internal(m, "a fold of a field without a path type");
+  env = env_push(m, env, p);
+  env = env == NULL ? NULL : env_push(m, env, type->args[1]);
+  env = env == NULL ? NULL : env_push(m, env, type->args[2]);
+  for (i = 0; i < ncases && env != NULL; i++) {
+    env = env_push(m, env, cases[i]);
+    var = new_core(m, CORE_VAR);
+    if (var == NULL)
+      return NULL;
+    var->index = ncases - i;
+    args[i] = var;
+  }
+  if (env == NULL)
+    return NULL;
+  for (i = 0; i < 4u; i++) {
+    var = new_core(m, CORE_VAR);
+    if (var == NULL)
+      return NULL;
+    var->index = i == 0u ? ncases + 3u : i == 1u ? 0u : ncases + 4u - i;
+    pa[i] = var;
+  }
+  app->op = OP_PAPP;
+  app->args = pa;
+  app->argc = 4u;
+  args[ncases] = app;
+  body->op = OP_FOLD_FAMILY;
+  body->inst = family;
+  body->args = args;
+  body->argc = ncases + 1u;
+  return val_make(m, OP_PLAM, 0, 1u, val_closure(m, VAL_LAM, "i", NULL, env, body), NULL, NULL);
+}
+
+/* fold case... x at a path constructor X (S3 D2): at depth 1, the case of
+   X applied to the fields (a recursive field folded), at the interval arg,
+   with the folded declared ends (so i0 and i1 give the fold of an end). A
+   fold at a 2-cell or at a cell with a path field stays stuck (O52). */
+static const Value *fold_pctor(Machine *m, uint32_t family, const Value *const *cases, uint32_t ncases, const Value *x) {
+  const FamilyInfo *fam = family < m->family_count ? &m->families[family] : NULL;
+  const CtorInfo *ci = x->inst < m->ctor_count ? &m->ctors[x->inst] : NULL;
+  const Env *env = NULL;
+  const Value *pa[4];
+  const Value *acc;
+  uint32_t p = fam == NULL ? 0u : fam->param_count;
+  uint32_t flat = 1u;
+  uint32_t i;
+  if (fam == NULL || ci == NULL || ci->ends == NULL || x->inst < fam->first_ctor || x->inst - fam->first_ctor >= ncases || x->argc != p + ci->field_count + ci->depth)
+    return internal(m, "a fold of a path constructor of another family");
+  for (i = 0; i < ci->field_count; i++)
+    flat = ci->fields[i].type != NULL && ci->fields[i].type->kind == CORE_OP && ci->fields[i].type->op == OP_PATHP ? 0u : flat;
+  if (ci->depth != 1u || flat == 0u)
+    return stuck_fold(m, family, cases, ncases, x);
+  acc = cases[x->inst - fam->first_ctor];
+  for (i = 0; i < p + ci->field_count; i++)
+    env = env_push(m, env, x->args[i]);
+  for (i = 0; i < ci->field_count && acc != NULL; i++)
+    acc = apply_value(m, acc, ci->fields[i].recursive ? fold_family(m, family, cases, ncases, x->args[p + i]) : x->args[p + i]);
+  pa[0] = acc;
+  pa[1] = x->args[p + ci->field_count];
+  pa[2] = fold_family(m, family, cases, ncases, eval_core(m, env, ci->ends[0]));
+  pa[3] = fold_family(m, family, cases, ncases, eval_core(m, env, ci->ends[1]));
+  return acc == NULL || pa[2] == NULL || pa[3] == NULL ? NULL : reduce_papp(m, pa, 4u);
+}
+
 /* fold case... x over a domain family: the case of the constructor of X,
    applied to its fields. A recursive field arrives folded. */
 static const Value *fold_family(Machine *m, uint32_t family, const Value *const *cases, uint32_t ncases, const Value *x) {
   const FamilyInfo *fam;
   const CtorInfo *ctor;
+  const Env *env = NULL;
+  const Core *t;
+  const Core *line;
   const Value *acc;
   const Value *field;
+  int hit = 0;
   uint32_t i;
   if (x == NULL)
     return NULL;
@@ -571,6 +655,8 @@ static const Value *fold_family(Machine *m, uint32_t family, const Value *const 
   case SCRUT_VALUE:
     break;
   }
+  if (val_is(x, OP_PCTOR))
+    return fold_pctor(m, family, cases, ncases, x);
   if (!val_is(x, OP_CTOR) || x->inst >= m->ctor_count || family >= m->family_count)
     return internal(m, "a fold of a value that is not in the family");
   fam = &m->families[family];
@@ -579,13 +665,83 @@ static const Value *fold_family(Machine *m, uint32_t family, const Value *const 
     return internal(m, "a fold of a constructor of another family");
   if (!enter(m))
     return NULL;
+  for (i = 0; i < fam->ctor_count; i++)
+    hit = hit || m->ctors[fam->first_ctor + i].depth != 0u;
+  for (i = 0; i < fam->param_count; i++) {
+    env = env_push(m, env, x->args[i]);
+    if (env == NULL) {
+      m->depth--;
+      return NULL;
+    }
+  }
   acc = cases[x->inst - fam->first_ctor];
   for (i = 0; i < ctor->field_count && acc != NULL; i++) {
     field = x->args[fam->param_count + i];
-    acc = apply_value(m, acc, ctor->fields[i].recursive ? fold_family(m, family, cases, ncases, field) : field);
+    t = ctor->fields[i].type;
+    line = t != NULL && t->kind == CORE_OP && t->op == OP_PATHP && t->argc == 3u && t->args[0] != NULL && t->args[0]->kind == CORE_LAM ? t->args[0]->b : NULL;
+    if (ctor->fields[i].recursive)
+      field = fold_family(m, family, cases, ncases, field);
+    else if (hit && line != NULL && line->kind == CORE_OP && line->op == OP_FAMILY && line->inst == family)
+      field = fold_path_field(m, family, cases, ncases, field, eval_core(m, env, t));
+    acc = apply_value(m, acc, field);
   }
   m->depth--;
   return acc;
+}
+
+static const Value *reduce_fold_bag(Machine *m, const Value *const *a, uint32_t n);
+
+/* foldᴮ F B X, or NULL. */
+static const Value *fold_bag_at(Machine *m, const Value *f, const Value *b, const Value *x) {
+  const Value **a = b == NULL || x == NULL ? NULL : arena_alloc(m->arena, 3u * sizeof *a);
+  if (a == NULL)
+    return NULL;
+  a[0] = f;
+  a[1] = b;
+  a[2] = x;
+  return reduce_fold_bag(m, a, 3u);
+}
+
+/* F Y B, or NULL. */
+static const Value *bag_step(Machine *m, const Value *f, const Value *y, const Value *b) {
+  const Value *fy = apply_value(m, f, y);
+  return fy == NULL ? NULL : apply_value(m, fy, b);
+}
+
+/* foldᴮ f b x over a bag (S3 D4): η y is f y b, e is b, m y z is
+   foldᴮ f (foldᴮ f b z) y. At an interval variable, unit and assoc fold
+   their left end (the two ends fold to one value); comm and trunc stay
+   stuck (the swap and st arguments of the check justify them). */
+static const Value *reduce_fold_bag(Machine *m, const Value *const *a, uint32_t n) {
+  const Value *x = a[2];
+  const CtorInfo *ci;
+  const FamilyInfo *fam;
+  const Env *env = NULL;
+  const Value *out;
+  uint32_t p;
+  uint32_t k;
+  uint32_t i;
+  if (x == NULL)
+    return NULL;
+  if (blocked(m, x, OP_FOLD_BAG, 0, 0, a, n, &out))
+    return out;
+  ci = (val_is(x, OP_CTOR) || val_is(x, OP_PCTOR)) && x->inst < m->ctor_count ? &m->ctors[x->inst] : NULL;
+  fam = ci == NULL || ci->family >= m->family_count ? NULL : &m->families[ci->family];
+  if (fam == NULL || x->inst < fam->first_ctor || x->inst - fam->first_ctor >= fam->ctor_count || x->argc < fam->param_count + ci->field_count)
+    return internal(m, "a foldᴮ of a value that is not a bag");
+  p = fam->param_count;
+  k = x->inst - fam->first_ctor;
+  for (i = 0; i < p + ci->field_count; i++)
+    env = env_push(m, env, x->args[i]);
+  if (!enter(m))
+    return NULL;
+  out = k == 0u ? bag_step(m, a[0], x->args[p], a[1])
+      : k == 1u ? a[1]
+      : k == 2u ? fold_bag_at(m, a[0], fold_bag_at(m, a[0], a[1], x->args[p + 1u]), x->args[p])
+      : (k == 3u || k == 4u) && ci->ends != NULL ? fold_bag_at(m, a[0], a[1], eval_core(m, env, ci->ends[0]))
+      : val_op(m, VAL_STUCK, OP_FOLD_BAG, 0, 0, a, n);
+  m->depth--;
+  return out;
 }
 
 /* 1 when the step result R ends the list. *TAIL is then the end. */
@@ -715,6 +871,33 @@ static const Value *nat_add(Machine *m, const Value *const *a, uint32_t n) {
   if (!nat_args(m, OP_NAT_ADD, a, n, &x, &y, &out))
     return out;
   return x + y < x ? overflow(m) : val_nat(m, x + y);
+}
+
+/* elim z s n (S3 D1): s applied to each k < n and the result for k,
+   from z. A scrutinee natAdd x j with a literal j is j successors of x,
+   so elim also computes on suc x for a variable x. */
+static const Value *reduce_elim_nat(Machine *m, const Value *const *a, uint32_t n) {
+  const Value *x = a[2];
+  const Value *acc;
+  const Value *out;
+  uint64_t k;
+  if (x != NULL && x->kind == VAL_STUCK && x->op == OP_NAT_ADD && x->argc == 2u && x->args[1] != NULL && x->args[1]->kind == VAL_NAT) {
+    const Value *sub[3] = {a[0], a[1], x->args[0]};
+    acc = reduce_elim_nat(m, sub, 3u);
+    for (k = 0; k < x->args[1]->nat && acc != NULL; k++) {
+      const Value *add[2] = {x->args[0], val_nat(m, k)};
+      acc = spend(m, 1) ? apply_value(m, apply_value(m, a[1], k == 0 ? x->args[0] : nat_add(m, add, 2u)), acc) : NULL;
+    }
+    return acc;
+  }
+  if (blocked(m, x, OP_ELIM_NAT, 0, 0, a, n, &out))
+    return out;
+  if (x->kind != VAL_NAT)
+    return internal(m, "an elim of a value that is not a ℕ");
+  acc = a[0];
+  for (k = 0; k < x->nat && acc != NULL; k++)
+    acc = spend(m, 1) ? apply_value(m, apply_value(m, a[1], val_nat(m, k)), acc) : NULL;
+  return acc;
 }
 
 static const Value *nat_sub(Machine *m, const Value *const *a, uint32_t n) {
@@ -1375,10 +1558,14 @@ static const Value *reduce_op(Machine *m, Op op, uint32_t inst, uint32_t field, 
     return reduce_bind(m, inst, a, n);
   case OP_FOLD_NAT:
     return reduce_fold_nat(m, a, n);
+  case OP_ELIM_NAT:
+    return reduce_elim_nat(m, a, n);
   case OP_FOLD_LIST:
     return reduce_fold_list(m, a);
   case OP_FOLD_FAMILY:
     return fold_family(m, inst, a, n - 1u, a[n - 1u]);
+  case OP_FOLD_BAG:
+    return reduce_fold_bag(m, a, n);
   case OP_UNFOLD:
     return reduce_unfold(m, a, n);
   case OP_FILTER:

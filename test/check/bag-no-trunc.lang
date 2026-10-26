@@ -1,0 +1,10 @@
+data BagT (A : Type) : Type where
+  ηt : (a₁ : A) → BagT A
+  et : BagT A
+  mt : (x₁ : BagT A) → (y₁ : BagT A) → BagT A
+  unitt : (x₂ : BagT A) → mt A (et A) x₂ ≡ x₂
+  assoct : (x₃ : BagT A) → (y₃ : BagT A) → (z₃ : BagT A) → mt A (mt A x₃ y₃) z₃ ≡ mt A x₃ (mt A y₃ z₃)
+  commt : (x₄ : BagT A) → (y₄ : BagT A) → mt A x₄ y₄ ≡ mt A y₄ x₄
+
+count : (A : Type) → ((x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → BagT A → ℕ
+count A st b = foldᴮ (λ (a : A) (n : ℕ) → suc n) (λ (x : A) (y : A) (n : ℕ) → refl) st 0 b

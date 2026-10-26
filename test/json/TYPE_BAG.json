@@ -1,0 +1,2 @@
+{"code":"TYPE_BAG","span":{"file":"test/json/TYPE_BAG.lang","line":5,"col":14,"endLine":5,"endCol":14},"expected":null,"found":null,"fix":null,"retry":true,"message":"foldᴮ needs a bag: a cell monad with one type parameter and the constructors η, e, m, unit, assoc, comm and trunc in this order; found a last argument of type Box ℕ"}
+{"parsed":2,"typed":1,"laws":{"discharged":0,"total":0}}

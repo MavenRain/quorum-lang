@@ -1,0 +1,9 @@
+data ∥_∥₁ (A : Type) : Type where
+  ∣_∣₁ : (a : A) → ∥_∥₁ A
+  squash₁ : (x : ∥ A ∥₁) → (y : ∥ A ∥₁) → x ≡ y
+
+∃ : (A : Type) → (A → Type) → Type
+∃ A B = ∥ Σ A (λ x → B x) ∥₁
+
+two : ∃ ℕ (λ (n : ℕ) → n ≡ 2)
+two = ∣_∣₁ (Σ ℕ (λ n → n ≡ 2)) (2 , refl)

@@ -24,6 +24,12 @@ typedef enum {
   TOK_LBRACE,      /* { */
   TOK_RBRACE,      /* } */
   TOK_SEMI,        /* ; */
+  TOK_OPER,        /* ∷, ++, ∘ or ∙ (S3 D5) */
+  TOK_TRUNC_OPEN,  /* ∥ */
+  TOK_TRUNC_CLOSE, /* ∥₁ */
+  TOK_EXISTS,      /* ∃[ */
+  TOK_TYPED,       /* ꞉ (U+A789) */
+  TOK_RBRACKET,    /* ] */
   TOK_KW_DATA,
   TOK_KW_WHERE,
   TOK_KW_POSTULATE,

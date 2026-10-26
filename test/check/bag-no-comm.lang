@@ -1,0 +1,10 @@
+data BagC (A : Type) : Type where
+  ηc : (a₁ : A) → BagC A
+  ec : BagC A
+  mc : (x₁ : BagC A) → (y₁ : BagC A) → BagC A
+  unitc : (x₂ : BagC A) → mc A (ec A) x₂ ≡ x₂
+  assocc : (x₃ : BagC A) → (y₃ : BagC A) → (z₃ : BagC A) → mc A (mc A x₃ y₃) z₃ ≡ mc A x₃ (mc A y₃ z₃)
+  truncc : (x₅ : BagC A) → (y₅ : BagC A) → (p₅ : PathP (λ _ → BagC A) x₅ y₅) → (q₅ : x₅ ≡ y₅) → p₅ ≡ q₅
+
+count : (A : Type) → ((x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → BagC A → ℕ
+count A st b = foldᴮ (λ (a : A) (n : ℕ) → suc n) (λ (x : A) (y : A) (n : ℕ) → refl) st 0 b

@@ -18,6 +18,17 @@
 #define AST_MAX_NAME "_∨_"
 #define AST_NEG_NAME "~_"
 
+/* S3 D5: `a ∷ b`, `a ++ b`, `f ∘ g` and `p ∙ q` are `_∷_ a b`, `_++_ a b`,
+   `_∘_ f g` and `_∙_ p q`. `∥ A ∥₁` is `∥_∥₁ A`. `∃[ x ꞉ A ] B` is
+   `∃ A (λ (x : A) → B)`. Each of these names lexes as a name, so a source
+   file can also use the prefix form. */
+#define AST_CONS_NAME "_∷_"
+#define AST_APPEND_NAME "_++_"
+#define AST_COMPOSE_NAME "_∘_"
+#define AST_CONCAT_NAME "_∙_"
+#define AST_TRUNC_NAME "∥_∥₁"
+#define AST_EXISTS_NAME "∃"
+
 typedef enum {
   TERM_VAR,   /* name */
   TERM_NAT,   /* nat */

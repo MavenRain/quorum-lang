@@ -6,3 +6,5 @@ lambda-def.lang ok
 path-lambda.lang ok
 data-index.lang ok
 next.lang TYPE_MISMATCH
+cons-prefix.lang ok
+exists-lambda.lang ok

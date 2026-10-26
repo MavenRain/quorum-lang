@@ -1,0 +1,5 @@
+data Box (A : Type) : Type where
+  box : (a₁ : A) → Box A
+
+count : ((x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → Box ℕ → ℕ
+count st b = foldᴮ (λ (a : ℕ) (n : ℕ) → suc n) (λ (x : ℕ) (y : ℕ) (n : ℕ) → refl) st 0 b

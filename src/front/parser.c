@@ -7,17 +7,19 @@
      group   := '(' NAME+ ':' term ')'
      term    := 'λ' (NAME | group)+ '→' term
               | 'λ' '{' cell (';' cell)* '}'
+              | '∃[' NAME '꞉' term ']' term
               | group '→' term
               | equiv '→' term
               | equiv (',' term)?
      cell    := ('(' NAME '=' ('i0' | 'i1') ')')+ '→' term
-     equiv   := times ('≡' times)?
+     equiv   := oper ('≡' oper)?
+     oper    := times (OP oper)?        OP is ∷, ++, ∘ or ∙
      times   := max ('×' times)?
      max     := min ('∨' max)?
      min     := neg ('∧' min)?
      neg     := '~' neg | app
      app     := atom atom* | 'Type' atom atom*
-     atom    := NAME | NAT | TYPE | '(' term ')' | 'Σ' atom atom
+     atom    := NAME | NAT | TYPE | '(' term ')' | 'Σ' atom atom | '∥' term '∥₁'
      TYPE    := 'Type' | 'Type₁' | ... | 'Type' NAT
    Layout: a token in column 1 starts a declaration and ends the one before
    it. A constructor line is indented. A token at or left of the column of
@@ -170,12 +172,18 @@ static int starts_atom(const Parser *p) {
     case TOK_LPAREN:
     case TOK_KW_TYPE:
     case TOK_SIGMA:
+    case TOK_TRUNC_OPEN:
       return 1;
     case TOK_EOF:
     case TOK_RPAREN:
     case TOK_COLON:
     case TOK_EQUALS:
     case TOK_ARROW:
+    case TOK_OPER:
+    case TOK_TRUNC_CLOSE:
+    case TOK_EXISTS:
+    case TOK_TYPED:
+    case TOK_RBRACKET:
     case TOK_LAMBDA:
     case TOK_TIMES:
     case TOK_EQUIV:
@@ -337,6 +345,21 @@ static const Term *parse_leaf(Parser *p, TermKind kind) {
   return kind == TERM_VAR && term->name == NULL ? NULL : term;
 }
 
+/* `∥ A ∥₁` is `∥_∥₁ A`. */
+static const Term *parse_trunc(Parser *p) {
+  const Token *open = cur(p);
+  bump(p);
+  const Term *inner = parse_term(p);
+  if (inner == NULL || !expect(p, TOK_TRUNC_CLOSE, "'∥₁'")) return NULL;
+  Term *former = make_term(p, TERM_VAR, open->line, open->col);
+  Term *app = former == NULL ? NULL : make_term(p, TERM_APP, open->line, open->col);
+  if (app == NULL) return NULL;
+  former->name = AST_TRUNC_NAME;
+  app->left = former;
+  app->right = inner;
+  return app;
+}
+
 static const Term *parse_atom(Parser *p) {
   const Token *tok = cur(p);
   if (!starts_atom(p)) {
@@ -349,11 +372,17 @@ static const Term *parse_atom(Parser *p) {
     case TOK_LPAREN: return parse_paren(p);
     case TOK_KW_TYPE: return parse_universe(p);
     case TOK_SIGMA: return parse_sigma(p);
+    case TOK_TRUNC_OPEN: return parse_trunc(p);
     case TOK_EOF:
     case TOK_RPAREN:
     case TOK_COLON:
     case TOK_EQUALS:
     case TOK_ARROW:
+    case TOK_OPER:
+    case TOK_TRUNC_CLOSE:
+    case TOK_EXISTS:
+    case TOK_TYPED:
+    case TOK_RBRACKET:
     case TOK_LAMBDA:
     case TOK_TIMES:
     case TOK_EQUIV:
@@ -459,13 +488,49 @@ static const Term *parse_times(Parser *p) {
   return infix_right(p, TOK_TIMES, AST_TIMES_NAME, parse_max);
 }
 
+/* The D5 operators: the token text and the AST name. */
+static const struct {
+  const char *symbol;
+  const char *name;
+} OPERS[] = {
+  {"∷", AST_CONS_NAME},
+  {"++", AST_APPEND_NAME},
+  {"∘", AST_COMPOSE_NAME},
+  {"∙", AST_CONCAT_NAME},
+};
+
+#define OPERS_COUNT (sizeof OPERS / sizeof OPERS[0])
+
+static int oper_is(const Token *op, size_t k) {
+  return strlen(OPERS[k].symbol) == op->len && memcmp(OPERS[k].symbol, op->text, op->len) == 0;
+}
+
+/* `a ∷ b ++ c` is `_∷_ a (_++_ b c)`. The four D5 operators share one
+   right-associative level between `≡` and `×`. The right side nests
+   without parentheses, so it counts toward the depth limit. */
+static const Term *parse_oper(Parser *p) {
+  const Term *left = parse_times(p);
+  if (left == NULL || !at(p, TOK_OPER)) return left;
+  const Token *op = cur(p);
+  size_t k = 0;
+  while (k < OPERS_COUNT && !oper_is(op, k)) k++;
+  if (k == OPERS_COUNT) {
+    fail_at(p, op, "an operator");
+    return NULL;
+  }
+  bump(p);
+  const Term *right = enter(p) ? parse_oper(p) : NULL;
+  p->depth--;
+  return binary(p, op, OPERS[k].name, left, right);
+}
+
 /* `a ≡ b` is `_≡_ a b`. It does not chain. */
 static const Term *parse_equiv(Parser *p) {
-  const Term *left = parse_times(p);
+  const Term *left = parse_oper(p);
   if (left == NULL || !at(p, TOK_EQUIV)) return left;
   const Token *op = cur(p);
   bump(p);
-  return binary(p, op, AST_PATH_NAME, left, parse_times(p));
+  return binary(p, op, AST_PATH_NAME, left, parse_oper(p));
 }
 
 /* `(i = i0)`: one atom of a face. */
@@ -541,9 +606,28 @@ static const Term *parse_let(Parser *p) {
   return let;
 }
 
+/* `∃[ x ꞉ A ] B` is `∃ A (λ (x : A) → B)`. B extends to the right, as the
+   body of a λ. */
+static const Term *parse_exists(Parser *p) {
+  const Token *tok = cur(p);
+  bump(p);
+  const char *name = take_name(p, "a bound name after '∃['");
+  if (name == NULL || !expect(p, TOK_TYPED, "'꞉'")) return NULL;
+  const Term *domain = parse_term(p);
+  if (domain == NULL || !expect(p, TOK_RBRACKET, "']'")) return NULL;
+  const Term *body = parse_term(p);
+  Term *family = body == NULL ? NULL : make_term(p, TERM_LAM, tok->line, tok->col);
+  if (family == NULL) return NULL;
+  family->name = name;
+  family->left = domain;
+  family->right = body;
+  return binary(p, tok, AST_EXISTS_NAME, domain, family);
+}
+
 static const Term *parse_term_body(Parser *p) {
   if (at(p, TOK_KW_LET)) return parse_let(p);
   if (at(p, TOK_LAMBDA)) return peek_at(p, 1)->kind == TOK_LBRACE ? parse_system(p) : parse_lambda(p);
+  if (at(p, TOK_EXISTS)) return parse_exists(p);
   if (at_binder_group(p)) return parse_binder_type(p);
   const Term *head = parse_equiv(p);
   if (head != NULL && at(p, TOK_COMMA)) {
@@ -829,6 +913,12 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_COLON:
     case TOK_EQUALS:
     case TOK_ARROW:
+    case TOK_TRUNC_OPEN:
+    case TOK_OPER:
+    case TOK_TRUNC_CLOSE:
+    case TOK_EXISTS:
+    case TOK_TYPED:
+    case TOK_RBRACKET:
     case TOK_LAMBDA:
     case TOK_TIMES:
     case TOK_SIGMA:

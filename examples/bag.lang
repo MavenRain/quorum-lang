@@ -1,0 +1,92 @@
+-- The S3 bag (PLAN sec 3.1, O45, O46): FMSet in generator form, the union
+-- laws as guest paths, and closed ℕ entries for the Wasm differential.
+-- S3 has no imports (O43): the isSet ℕ proof is a copy of lib/prelude.lang.
+-- The comparator and its laws are in the section NatSet (O55): outside it,
+-- they take a type first, so they are not Wasm entries.
+sym : (A : Type) → (x : A) → (y : A) → x ≡ y → y ≡ x
+sym A x y p i = p (~ i)
+
+cong : (A : Type) → (B : Type) → (f : A → B) → (x : A) → (y : A) → x ≡ y → f x ≡ f y
+cong A B f x y p i = f (p i)
+
+_∙_ : (A : Type) → (x : A) → (y : A) → (z : A) → x ≡ y → y ≡ z → x ≡ z
+_∙_ A x y z p q i = primHComp (λ j → λ { (i = i0) → x ; (i = i1) → q j }) (p i)
+
+isSet : Type → Type
+isSet A = (x : A) → (y : A) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q
+
+absurd : false ≡ true → (C : Type) → C
+absurd p C = primTransp (λ i → elim (λ (b : Bool) → Type) C ℕ (p i)) i0 0
+
+Sound : (A : Type) → (A → A → Bool) → Type
+Sound A eq = (x : A) → (y : A) → eq x y ≡ true → x ≡ y
+
+Reflexive : (A : Type) → (A → A → Bool) → Type
+Reflexive A eq = (x : A) → eq x x ≡ true
+
+collapseAt : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → (a : A) → (x : A) → a ≡ x → (c : Bool) → eq a x ≡ c → a ≡ x
+collapseAt A eq sound rfl a x p c h = elim (λ (d : Bool) → eq a x ≡ d → a ≡ x) (λ (g : eq a x ≡ true) → sound a x g) (λ (g : eq a x ≡ false) → p) c h
+
+collapse : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → (a : A) → (x : A) → a ≡ x → a ≡ x
+collapse A eq sound rfl a x p = collapseAt A eq sound rfl a x p (eq a x) refl
+
+collapseConst : (A : Type) → (eq : A → A → Bool) → (sound : Sound A eq) → (rfl : Reflexive A eq) → (a : A) → (x : A) → (p : a ≡ x) → (q : a ≡ x) → collapse A eq sound rfl a x p ≡ collapse A eq sound rfl a x q
+collapseConst A eq sound rfl a x p q = elim (λ (c : Bool) → (h : eq a x ≡ c) → collapseAt A eq sound rfl a x p c h ≡ collapseAt A eq sound rfl a x q c h) (λ (h : eq a x ≡ true) → refl) (λ (h : eq a x ≡ false) → absurd (_∙_ Bool false (eq a x) true (sym Bool (eq a x) false h) (_∙_ Bool (eq a x) (eq a a) true (cong A Bool (λ (y : A) → eq a y) x a (sym A a x p)) (rfl a))) (p ≡ q)) (eq a x) refl
+
+discreteIsSet : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → isSet A
+discreteIsSet A eq sound rfl a b p q j i = primHComp (λ k → λ { (i = i0) → collapse A eq sound rfl a a (λ (l : I) → a) k ; (i = i1) → collapseConst A eq sound rfl a b p q j k ; (j = i0) → collapse A eq sound rfl a (p i) (λ (l : I) → p (l ∧ i)) k ; (j = i1) → collapse A eq sound rfl a (q i) (λ (l : I) → q (l ∧ i)) k }) a
+
+module NatSet (X : Type) where
+  eqℕ : ℕ → ℕ → Bool
+  eqℕ u v = elim (λ (k : ℕ) → ℕ → Bool) (λ (j : ℕ) → elim (λ (i : ℕ) → Bool) true (λ (i : ℕ) (r : Bool) → false) j) (λ (k : ℕ) (ih : ℕ → Bool) (j : ℕ) → elim (λ (i : ℕ) → Bool) false (λ (i : ℕ) (r : Bool) → ih i) j) u v
+  reflℕ : (n : ℕ) → eqℕ n n ≡ true
+  reflℕ n = elim (λ (k : ℕ) → eqℕ k k ≡ true) refl (λ (k : ℕ) (ih : eqℕ k k ≡ true) → ih) n
+  soundℕ : (u : ℕ) → (v : ℕ) → eqℕ u v ≡ true → u ≡ v
+  soundℕ u v = elim (λ (k : ℕ) → (j : ℕ) → eqℕ k j ≡ true → k ≡ j) (λ (j : ℕ) → elim (λ (i : ℕ) → eqℕ 0 i ≡ true → 0 ≡ i) (λ (h : eqℕ 0 0 ≡ true) → refl) (λ (i : ℕ) (r : eqℕ 0 i ≡ true → 0 ≡ i) (h : eqℕ 0 (suc i) ≡ true) → absurd h (0 ≡ suc i)) j) (λ (k : ℕ) (ih : (j : ℕ) → eqℕ k j ≡ true → k ≡ j) (j : ℕ) → elim (λ (i : ℕ) → eqℕ (suc k) i ≡ true → suc k ≡ i) (λ (h : eqℕ (suc k) 0 ≡ true) → absurd h (suc k ≡ 0)) (λ (i : ℕ) (r : eqℕ (suc k) i ≡ true → suc k ≡ i) (h : eqℕ (suc k) (suc i) ≡ true) → cong ℕ ℕ (λ (l : ℕ) → suc l) k i (ih i h)) j) u v
+  isSetℕ : isSet ℕ
+  isSetℕ = discreteIsSet ℕ eqℕ soundℕ reflℕ
+
+data FMSet (A : Type) : Type where
+  eta : (el : A) → FMSet A
+  [] : FMSet A
+  m : (l₁ : FMSet A) → (r₁ : FMSet A) → FMSet A
+  munit : (s₂ : FMSet A) → m A ([] A) s₂ ≡ s₂
+  massoc : (s₃ : FMSet A) → (t₃ : FMSet A) → (u₃ : FMSet A) → m A (m A s₃ t₃) u₃ ≡ m A s₃ (m A t₃ u₃)
+  mcomm : (s₄ : FMSet A) → (t₄ : FMSet A) → m A s₄ t₄ ≡ m A t₄ s₄
+  trunc : (s₅ : FMSet A) → (t₅ : FMSet A) → (p₅ : s₅ ≡ t₅) → (q₅ : s₅ ≡ t₅) → p₅ ≡ q₅
+
+-- The union and the cons view (sec 2.3) are the generator m. In the section,
+-- the infix forms take A from the section parameter (O41).
+module Bag (A : Type) where
+  _∷_ : A → FMSet A → FMSet A
+  _∷_ x xs = m A (eta A x) xs
+  _++_ : FMSet A → FMSet A → FMSet A
+  _++_ xs ys = m A xs ys
+  appUnitL : (xs : FMSet A) → [] A ++ xs ≡ xs
+  appUnitL xs = munit A xs
+  appUnitR : (xs : FMSet A) → xs ++ [] A ≡ xs
+  appUnitR xs = _∙_ (FMSet A) (xs ++ [] A) ([] A ++ xs) xs (mcomm A xs ([] A)) (munit A xs)
+  appAssoc : (xs : FMSet A) → (ys : FMSet A) → (zs : FMSet A) → (xs ++ ys) ++ zs ≡ xs ++ ys ++ zs
+  appAssoc xs ys zs = massoc A xs ys zs
+  appComm : (xs : FMSet A) → (ys : FMSet A) → xs ++ ys ≡ ys ++ xs
+  appComm xs ys = mcomm A xs ys
+  consApp : (x : A) → (xs : FMSet A) → (ys : FMSet A) → (x ∷ xs) ++ ys ≡ x ∷ xs ++ ys
+  consApp x xs ys = massoc A (eta A x) xs ys
+  comm : (x : A) → (y : A) → (xs : FMSet A) → x ∷ y ∷ xs ≡ y ∷ x ∷ xs
+  comm x y xs = _∙_ (FMSet A) (x ∷ y ∷ xs) (m A (m A (eta A x) (eta A y)) xs) (y ∷ x ∷ xs) (sym (FMSet A) (m A (m A (eta A x) (eta A y)) xs) (x ∷ y ∷ xs) (massoc A (eta A x) (eta A y) xs)) (_∙_ (FMSet A) (m A (m A (eta A x) (eta A y)) xs) (m A (m A (eta A y) (eta A x)) xs) (y ∷ x ∷ xs) (cong (FMSet A) (FMSet A) (λ (z : FMSet A) → m A z xs) (m A (eta A x) (eta A y)) (m A (eta A y) (eta A x)) (mcomm A (eta A x) (eta A y))) (massoc A (eta A y) (eta A x) xs))
+  count : FMSet A → ℕ
+  count xs = foldᴮ (λ (a : A) (n : ℕ) → suc n) (λ (x : A) (y : A) (n : ℕ) → refl) (isSetℕ A) 0 xs
+
+-- The D10 entries: closed ℕ and Bool functions. Each bag has a static shape
+-- (the elements are the parameters), so the residual has no bag.
+count3 : ℕ → ℕ → ℕ → ℕ
+count3 a b c = count ℕ (_∷_ ℕ a (_∷_ ℕ b (_∷_ ℕ c ([] ℕ))))
+
+countUnion : ℕ → ℕ → ℕ → ℕ
+countUnion a b c = count ℕ (_++_ ℕ (_∷_ ℕ a ([] ℕ)) (_∷_ ℕ b (_∷_ ℕ c ([] ℕ))))
+
+countFlags : Bool → Bool → ℕ
+countFlags p q = count Bool (_++_ Bool (_∷_ Bool p ([] Bool)) (_∷_ Bool q ([] Bool)))
+
+scale : ℕ → ℕ → ℕ → ℕ
+scale n a b = foldᴮ (λ (x : ℕ) (k : ℕ) → natAdd k k) (λ (x : ℕ) (y : ℕ) (k : ℕ) → refl) (isSetℕ ℕ) n (_∷_ ℕ a (_∷_ ℕ b ([] ℕ)))

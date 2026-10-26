@@ -1,10 +1,12 @@
 # quorum-lang status
 
-The build implements slices S1 and S2 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1, S2 and S3 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
-Slices S3 to S12 are not started. The next slice is S3.
+S3 is the eliminators for ℕ, Bool, higher inductive types and bags,
+and the guest Prelude (sec 3.1). Slices S4 to S12 are not started.
+The next slice is S4.
 
 ## Implemented
 
@@ -31,6 +33,18 @@ Slices S3 to S12 are not started. The next slice is S3.
 - S2 removes the kit builtins `Eq`, `symm`, `trans`, `cong`,
   `transport`, `pair`, `first`, `second`, `pack`, `witness` and
   `payload` ("S2 renames" in `docs/GRAMMAR.md`).
+- Eliminators (S3): `elim` is the dependent eliminator for `ℕ` and
+  `Bool` (large elimination to `Type₁`). A `fold` over a CM with path
+  constructors takes one case for each constructor, and a path case
+  is a path over the result type. `foldᴮ f swap st b xs` folds a bag
+  with the swap obligation and `isSet` of the result type (O40).
+- Prelude (S3): lib/prelude.lang holds the sec 3.1 definitions
+  (`_∘_`, `sym`, `cong`, `_∙_`, `isProp`, `isSet`, `∥_∥₁`, `rec₁`,
+  `∃`) and `isSetℕ` and `isSetBool` by a guest Hedberg proof (Q16
+  (b)). examples/bag.lang holds `FMSet`, `_∷_`, `_++_`, `comm` and
+  the union laws.
+- Operators (S3): infix `∷`, `++`, `∘` and `∙`, and the notations
+  `∥ A ∥₁` and `∃[ x ꞉ A ] B` (O41).
 - Refusals: `List`, `cons`, `nil` and `unfold` give `REFUSE_CELL` (R1).
   A parameterized declaration that is not a cell signature, a type
   index, a record field of a type-constructor type and a coinductive
@@ -56,12 +70,20 @@ Slices S3 to S12 are not started. The next slice is S3.
 - Mutants at S2 (3 of 3 killed): the generator count test skipped
   (`cell-ghost.lang` fails), the CC refusal skipped (`cell-cc.lang`
   fails), the type index check skipped (`cell-type-index.lang` fails).
+- Gate counts at S3: 83 files canonical under `fmt`, 23 JSON fixtures,
+  34 codes with a fixture or a row, 43 check refusals, 9 parse
+  refusals, 56 evaluations, 4007 differential cases with 0
+  mismatches, 18 Wasm modules valid.
+- Mutants at S3 (3 of 3 killed): the comm cell dropped from the bag
+  shape (`bag-no-comm.lang` fails), the swap obligation not checked
+  (`bag-bad-swap.lang` fails), the set truncation cell dropped from
+  the bag shape (`bag-no-trunc.lang` fails).
 
 ## Remaining work
 
-1. S3 to S12: see `docs/PLAN.md` sec 9. Q7 must be ruled before S6, Q14
+1. S4 to S12: see `docs/PLAN.md` sec 9. Q7 must be ruled before S6, Q14
    before S10 and Q15 before S11.
-2. The O items O14 to O36 (`docs/PLAN.md` sec 10) are Claude readings.
+2. The O items O14 to O56 (`docs/PLAN.md` sec 10) are Claude readings.
    The USER can rule each one.
 
 ## Known limits
@@ -80,8 +102,11 @@ Slices S3 to S12 are not started. The next slice is S3.
 - Kan computation: `primHComp` reduces only on a face that holds.
   `primTransp` also computes for universe, `ℕ`, `Bool` and `Unit` lines.
   Other cases can remain stuck and cannot lower to Wasm (O27).
-- Eliminators: S2 has no eliminator for an indexed family or a higher
-  inductive family. A `fold` over one gives `DOMAIN_FAMILY` (O31).
+- Eliminators: S3 has no eliminator for an indexed family. A `fold`
+  over one gives `DOMAIN_FAMILY` (O31). A `fold` at a 2-cell stays
+  stuck (O52). In a Wasm entry, an `elim` over a run-time `ℕ` or a
+  `foldᴮ` over a bag of run-time shape gives `REFUSE_RUNTIME_TREE`
+  (O46, O50).
 - Names: S2 has no qualified names. A module name is not a global name
   (O35).
 

@@ -1,0 +1,6 @@
+data Trunc₀ (A : Type) : Type where
+  ∣_∣ : (a₁ : A) → Trunc₀ A
+  squash : (u₁ : Trunc₀ A) → (v₁ : Trunc₀ A) → u₁ ≡ v₁
+
+bad : Trunc₀ ℕ → ℕ
+bad t = fold (λ (a : ℕ) → a) (λ (u : ℕ) (v : ℕ) → refl) t

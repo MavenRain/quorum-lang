@@ -1,4 +1,4 @@
-# Grammar (S2 surface)
+# Grammar (S3 surface)
 
 quorum-lang has an Agda-like Unicode surface (ruling Q13 (b),
 2026-10-25). Each operation has one canonical spelling. `langc fmt FILE`
@@ -14,6 +14,8 @@ spellings, and gives the warning W_NONCANON with the canonical text as
   `₀`..`₉` and bytes of 0x80 or more. A `-` is a name character when a
   name start follows it: `ℓ-max` is one name, and `x-1` gives LEX_CHAR.
   `x->y` is the name `x`, the symbol `->` and the name `y`.
+- S3: `+`, `[` and `]` are also name characters, and a name can start
+  with them. Thus `_++_`, `[]` and `++-assoc` are names.
 - The code points `→`, `λ`, `×`, `Σ`, `≡`, `∧` and `∨` are symbols, not
   name characters. Thus `ℕ` and `ℓ` are names.
 - A ℕ literal is decimal, from 0 to 2^64 - 1. A letter directly after a
@@ -23,6 +25,11 @@ spellings, and gives the warning W_NONCANON with the canonical text as
   (`Type₁`) is the universe at that level. `Type` is level 0.
 - Symbols: `:` `=` `(` `)` `→` `λ` `×` `Σ` `≡` `~` `∧` `∨` `,` `{` `}`
   `;`.
+- S3 reserved names: `∷`, `++`, `∘`, `∙` (the operators), `∥`, `∥₁`,
+  `∃[`, `꞉` and `]`. A reserved name is a token only when it is the full
+  name, as a keyword: `x∷xs` is one name, and `x ∷ xs` is the operator.
+  The names `_∷_`, `_++_`, `_∘_`, `_∙_`, `∥_∥₁`, `∣_∣₁`, `∃` and `[]` are
+  not reserved.
 
 ## Grammar
 
@@ -42,22 +49,35 @@ result := NAME NAME* atom*
 term   := 'let' NAME '=' term 'in' term
         | 'λ' '{' cell (';' cell)* '}'
         | 'λ' binder+ '→' term
+        | '∃[' NAME '꞉' term ']' term
         | group '→' term
         | equiv ',' term
         | equiv ('→' term)?
 cell   := face+ '→' term
 face   := '(' NAME '=' ('i0' | 'i1') ')'
-equiv  := times ('≡' times)?
+equiv  := oper ('≡' oper)?
+oper   := times (OP oper)?
 times  := max ('×' times)?
 max    := min ('∨' max)?
 min    := neg ('∧' min)?
 neg    := '~' neg | app
 app    := 'Type' atom | atom atom*
 atom   := NAME | NAT | TYPE | '(' term ')' | 'Σ' atom atom
+        | '∥' term '∥₁'
 TYPE   := 'Type' | 'Type₁'
+OP     := '∷' | '++' | '∘' | '∙'
 binder := NAME | group
 group  := '(' NAME ':' term ')'
 ```
+
+S3 rewrites at parse time: `l OP r` is `_OP_ l r` (thus `x ∷ xs` is
+`_∷_ x xs`); `∥ t ∥₁` is `∥_∥₁ t`; `∃[ x ꞉ A ] B` is
+`∃ A (λ (x : A) → B)`, and `B` extends to the right as the body of a λ.
+The four operators have one level, between `≡` and `×`, and associate to
+the right: `x ∷ y ++ z` is `x ∷ (y ++ z)`. There is no general mixfix.
+S3 has no implicit arguments, so a polymorphic operator takes its type
+parameters: write `_++_ A xs ys`, or use the infix form in a module
+section that gives the parameters.
 
 - A definition is a signature line and one clause line. The clause names
   the parameters: `square n = natMul n n`.
@@ -117,8 +137,9 @@ group  := '(' NAME ':' term ')'
   the section, a definition of the section takes the section parameters
   first, as explicit arguments: `twice₀ ℕ (λ n → suc n) 3`. A module
   name is not a global name. S2 has no qualified names.
-- A guest operator name, for example `_∈_`, is not mixfix in S2. Write
-  `_∈_ b bs`.
+- A guest operator name, for example `_∈_`, is not mixfix: S3 has no
+  general mixfix. Only the fixed S3 operators `∷`, `++`, `∘` and `∙`
+  are infix (O41). Write `_∈_ b bs`.
 - A `postulate` gives REFUSE_AXIOM.
 
 ## Canonical form
@@ -134,6 +155,13 @@ group  := '(' NAME ':' term ')'
 - one name in each binder group, and one group for each `→`;
 - `A × B`, `a ≡ b`, `a , b`, `r ∧ s` and `r ∨ s` as infix, and `~ r`
   with one space;
+- `_∷_`, `_++_`, `_∘_` and `_∙_` applied to two arguments as infix
+  (`x ∷ xs`), and applied to more arguments in prefix form
+  (`_∘_ f g n`);
+- `∥_∥₁ A` as `∥ A ∥₁`, but a constructor result in prefix form
+  (`∣_∣₁ : (a : A) → ∥_∥₁ A`);
+- `∃ A (λ (x : A) → B)` as `∃[ x ꞉ A ] B` when the binder type is the
+  same term as `A`, else in prefix form;
 - parentheses only where the precedence needs them, and on each argument
   of an application that is not an atom;
 - a `let` on one line: `let x = t in u`;
@@ -151,10 +179,13 @@ group  := '(' NAME ':' term ')'
 | `Type 0`, `Type₀`, `Type 1` | `Type`, `Type`, `Type₁` |
 | `(x y : A) → B` | `(x : A) → (y : A) → B` |
 | `f = λ x → t` | `f x = t` |
+| `_∷_ x xs` (also `_++_`, `_∘_`, `_∙_`) | `x ∷ xs` |
+| `∃ A (λ (x : A) → B)` | `∃[ x ꞉ A ] B` |
 
 Other text that is not in the canonical form (spaces, line breaks,
 indentation, parentheses) also gives W_NONCANON. S2 adds no ASCII
-spelling: `×`, `Σ`, `≡`, `∧` and `∨` have no ASCII form.
+spelling: `×`, `Σ`, `≡`, `∧` and `∨` have no ASCII form. S3 adds no
+ASCII spelling: the operators and the notations have no ASCII form.
 
 The S0 keywords `def`, `fun`, `=>`, `:=`, `family`, `axiom`, `Sigma` and
 `*` are not accepted. They give PARSE_EXPECT.
@@ -194,6 +225,12 @@ and the `nat` operations.
 S2 adds the kernel names `I`, `i0`, `i1`, `~_`, `_∧_`, `_∨_`, `PathP`,
 `_≡_`, `primTransp`, `primHComp`, `_,_`, `fst`, `snd`, `Level`,
 `lzero`, `lsuc` and `ℓ-max`.
+
+S3 adds the kernel names `elim` (the dependent eliminator for closed
+data: `elim P c_1 .. c_n x`) and `foldᴮ` (the bag recursor:
+`foldᴮ f swap st b xs` for a bag-shaped cell monad, else TYPE_BAG).
+`fold` also takes a cell monad with path constructors: one case for each
+constructor, in order.
 
 Refused names:
 

@@ -49,6 +49,7 @@ Q7 is not ruled. It blocks S6 only. Claude asks it at the S5 close.
 | Q11 | (b) | v1 keeps the certificate chain. The slice S11 adds a constant-size proof (sec 5, Q15, O13). |
 | Q12 | (a) | One fixed offline proxy gives the token counts (A13, S9). |
 | Q13 | (b) | The surface is Agda-like Unicode with the design names (sec 3, A1, docs/GRAMMAR.md, S1). |
+| Q16 | (b) | Ruled 2026-10-26 at S3 (AskUserQuestion), verbatim "(b) Guest proof". The kernel has a dependent eliminator `elim` for ℕ and Bool. Discreteness and Hedberg are guest laws in lib/prelude.lang. The kernel has no constant for `isSet` (sec 3.1, O37, O44). |
 
 ### 1.3 Readings (Claude, NOT ruled)
 
@@ -115,7 +116,10 @@ and `primHComp` (a system `λ { ... }` is legal only as the side of
 `data NAME group* : A₁ → ... → Type where`, with value parameters and
 index types that are not dependent (O24). S2 has no eliminator for an
 indexed family or a higher inductive family: `fold` over one gives
-`DOMAIN_FAMILY` (O31). S3 adds the eliminator.
+`DOMAIN_FAMILY` (O31). S3 adds the eliminators (O37, O38, O40):
+`elim` for ℕ and Bool, `fold` over a CM with path constructors and
+`foldᴮ` for a bag. A `fold` over an indexed family still gives
+`DOMAIN_FAMILY`.
 
 ### 2.3 Each type former of the design
 
@@ -214,6 +218,19 @@ The tables give the design name only. docs/GRAMMAR.md gives the surface.
 | `trunc` | CM former (set truncation cell) | S3 |
 | `foldᴮ` | kernel eliminator with the swap obligation (O1) | S3 |
 | `_++_` | defined (`m` of the generator form); the Prelude equation is a law | S3 |
+
+S3 status (Claude reading, NOT ruled; O37 to O56). Each row above with
+slice S3 is a guest term or a kernel rule, and `langc check` checks it.
+lib/prelude.lang holds `_∘_`, `sym`, `cong`, `_∙_`, `isProp`, `isSet`,
+`∥_∥₁` (`∣_∣₁`, `squash₁`), `rec₁`, `∃` and the Hedberg chain (Q16 (b),
+O44): `absurd`, `eqℕ`, `reflℕ`, `soundℕ`, `eqBool`, `reflBool`,
+`soundBool`, `discreteIsSet`, `isSetℕ` and `isSetBool`.
+examples/bag.lang holds `FMSet` in generator form (constructors `eta`,
+`[]`, `m`, `munit`, `massoc`, `mcomm`, `trunc`) and, in
+`module Bag (A : Type)`, the derived view `_∷_` and `comm`, `_++_`
+(`m`), the laws (O45, O56) and `count` by `foldᴮ`. `foldᴮ` is a kernel
+eliminator (O40). `∃[ x ꞉ A ] B` is a notation for
+`∃ A (λ (x : A) → B)` (O41).
 
 ### 3.2 Design.agda, secs 1 to 4
 
@@ -529,7 +546,7 @@ commit message file and the next prompt file. The USER commits.
 | S0 | kit seed, design/DESIGN.md, this plan, README.md, AGENTS.md | GREEN: make -j 2 check EXIT 0, gate: 0 failures, 16-line log | none | this file |
 | S1 | surface: Agda-like Unicode grammar (Q13 (b)); `langc fmt`; `W_NONCANON`; `check --json`; progress counts (parsed, typed); kit formers under R1 and R2 (O7) | GREEN (A1, A2, A6, A15): make check EXIT 0, gate: 0 failures, 19-line log; fmt: 56 files canonical; json: 19 fixtures; diagnostics: 30 codes, 0 without a fixture or a row; refusals: 26 check, 9 parse; differential: 745 cases, 0 mismatches; wasm: 13 modules valid | 3: `fmt` not idempotent, a JSON key dropped, a count off by one; 3 of 3 KILLED | docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S2 | kernel: Path, PathP, I, transp, hcomp, Sigma, Pi, U and levels (port zkpolicy-lang); `REFUSE_CELL` for CMs only (Q1 (b); port the CM branch of intent-lang, resolve-lang); indexed families; records as named Sigma (Q2); parameter sections (O8) | GREEN: each sec 2.4 refuse fixture gives `REFUSE_CELL` (6 files in test/check, sec 2.4 note); `Maybe₀`, `Trunc₀`, `Bag₀` check (examples/cells.lang); `sym`, `cong`, `trans` type check (examples/paths.lang); make check EXIT 0, gate: 0 failures (serial log); fmt: 74 files canonical; json: 22 fixtures; diagnostics: 33 codes, 0 without a fixture or a row; refusals: 38 check, 9 parse; evals: 41; differential: 767 cases, 0 mismatches; wasm: 16 modules valid | 3: generator test skipped (`cell-ghost.lang` fails), CC refusal skipped (`cell-cc.lang` fails), family index check skipped (`cell-type-index.lang` fails); 3 of 3 KILLED | sec 2 notes; sec 10 O14 to O36; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
-| S3 | HITs: `∥_∥₁`, `FMSet` in generator form with its eliminator (O1), union, the truncation recursor, `∃`: the sec 3.1 Prelude in the guest | the guest Prelude checks; the `_++_` equation and the union unit, associativity and commutativity laws check; Wasm differential for bag operations, 0 mismatches | 3: comm path dropped, swap obligation not checked, set truncation dropped | sec 3.1 status |
+| S3 | HITs: `∥_∥₁`, `FMSet` in generator form with its eliminator (O1), union, the truncation recursor, `∃`: the sec 3.1 Prelude in the guest | GREEN: lib/prelude.lang checks (the guest Prelude, with `isSetℕ` and `isSetBool` by a guest Hedberg proof, Q16 (b)); in examples/bag.lang the `_++_` equation (`consApp`, `appUnitL`) and the union unit, associativity and commutativity laws (`appUnitL`, `appUnitR`, `appAssoc`, `appComm`) check; make check EXIT 0, gate: 0 failures (serial log); fmt: 83 files canonical; json: 23 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 56; differential: 4007 cases, 0 mismatches (bag entries `count3`, `countUnion`, `countFlags`, `scale`); wasm: 18 modules valid | 3: comm path dropped (`bag-no-comm.lang` fails), swap obligation not checked (`bag-bad-swap.lang` fails), set truncation dropped (`bag-no-trunc.lang` fails); 3 of 3 KILLED | sec 1.2 Q16; sec 2.2 and 3.1 status; sec 10 O37 to O56; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | 7 of 7 sec 1 to 6 laws discharged; the toy instance proves each obligation; O3 result recorded | 3: `keeps` not checked, quorum index ignored, `single` dropped | sec 3.2, 3.3 status |
 | S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | 12 of 12 design laws discharged; `run` agrees with direct evaluation on each fixture (Wasm differential) | 3: fragment admits a higher-order value, `⟦_⟧` escapes the seal, `factors` not checked | sec 3.4, sec 6 |
 | S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | decrypt of the sum of casts = the bag counts, N cases, 0 mismatches; known-answer vectors equal; each invalid-proof fixture refused; each DKG fixture (good dealing, bad share, bad proof of knowledge) gives its result | 3: one slot of `⊕` skipped, DLEQ check skipped, Lagrange sign flipped | sec 4.2 |
@@ -545,7 +562,9 @@ commit message file and the next prompt file. The USER commits.
 - O1. `foldᴮ`. The Prelude gives a cons-form eliminator with a swap
   obligation. In generator form, the kernel gives the generator eliminator as a
   primitive eliminator into a set, and the swap obligation is an
-  argument. S3 decides if the generator recursor can derive it.
+  argument. S3 decides if the generator recursor can derive it. S3
+  result: it cannot, so `foldᴮ` is a kernel rule with the swap
+  obligation as an argument (O40).
 - O2. `zero`. The Prelude imports only `suc` from Nat. quorum-lang
   admits `zero` as part of the `Nat` data declaration and adds no other
   operation. The USER can rule otherwise.
@@ -683,7 +702,9 @@ commit message file and the next prompt file. The USER commits.
 - O31. No `fold` over an indexed family or a higher inductive family
   (Claude reading, NOT ruled). Each needs a dependent eliminator (S3),
   so S2 gives `DOMAIN_FAMILY`. A `fold` over a CM, or over a family with
-  value parameters only, works as in S1.
+  value parameters only, works as in S1. S3 narrows O31: a `fold`
+  over a CM with path constructors works (O38). An indexed family
+  keeps `DOMAIN_FAMILY`.
 - O32. Path constructors (Claude reading, NOT ruled). A path constructor
   is legal only in a CM. In another program family it gives
   `DOMAIN_FAMILY`. The fields of a path constructor are a telescope. S2
@@ -712,6 +733,137 @@ commit message file and the next prompt file. The USER commits.
   prefix, so that check does not see a DOMAIN code. S2 adds the
   `DOMAIN_FAMILY` row and test/json/DOMAIN_FAMILY.{lang,json}. A later
   slice can add DOMAIN to the pattern.
+- O37. `elim` (D1 of the S3 design; Claude reading, NOT ruled).
+  `elim P c₁ .. cₙ x` is the dependent eliminator for the closed kernel
+  types ℕ and Bool (O48). The motive P is `D → Type` or `D → Type₁`
+  (large elimination). For ℕ, `elim P z s n` with
+  `s : (k : ℕ) → P k → P (suc k)`. For Bool, `elim P yes no b` (O49).
+  The core drops P. An `elim` over a domain family gives
+  `DOMAIN_FAMILY` (test/check/elim-family.lang). An `elim` over another
+  type gives `TYPE_MISMATCH`. The non-dependent `fold` stays.
+- O38. `fold` over a higher inductive type (D2; Claude reading, NOT
+  ruled). A `fold` over a CM with path constructors takes one case for
+  each constructor in order, the path cases included (port of
+  zkpolicy-lang 1d263fb). A recursive field gives B. A path field
+  `x ≡ y` over the family gives `Path B x* y*`. A 1-cell case has the
+  type `Path B a* b*`, and a 2-cell case has the type
+  `Path (Path B x* y*) p* q*`. Thus the `squash₁` case is `isProp B`
+  and a set truncation case is `isSet B`. A `fold` at a 1-cell at an
+  interval variable reduces to the case at that variable. The lowering
+  drops the path cases. An indexed family keeps `DOMAIN_FAMILY` (O31
+  narrowed).
+- O39. `rec₁` (D3; Claude reading, NOT ruled). `rec₁` is a guest
+  definition in lib/prelude.lang: `rec₁ A B pr f x = fold f pr x`, with
+  `pr : isProp B`.
+- O40. `foldᴮ` (D4; Claude reading, NOT ruled). `foldᴮ f swap st b xs`
+  is a kernel builtin. xs has the type `F A`, where F is a bag: a CM with
+  one type parameter and 7 constructors in this order: a point with one
+  field of type A, a point with no field, a point with two recursive
+  fields, the 1-cells `m e x ≡ x`, `m (m x y) z ≡ m x (m y z)` and
+  `m x y ≡ m y x`, and the 2-cell set truncation. B comes from the
+  expected type, else from b. `f : A → B → B`;
+  `swap : (x : A) → (y : A) → (b : B) → f x (f y b) ≡ f y (f x b)`;
+  `st : isSet B` (unfolded); `b : B`. The core drops swap and st. The
+  first point `x` reduces to `f x b`, the empty point to `b`, and
+  `m x y` to `foldᴮ f swap st (foldᴮ f swap st b y) x`. The unit and
+  associativity cells hold by computation. The comm and set truncation
+  cells at an interval variable stay stuck: swap and st justify them.
+  This answers O1: the generator recursor does not give the cons-form
+  fold without a dependent eliminator over the higher inductive type,
+  so `foldᴮ` is a kernel rule. A last argument that is not a bag gives
+  `TYPE_BAG`.
+- O41. Operators (D5; Claude reading, NOT ruled). S3 has a fixed table
+  and no general mixfix. The infix operators `∷`, `++`, `∘` and `∙` are
+  at one right-associative level between `≡` and `×`. `l OP r` changes
+  at parse time to `_OP_ l r`. The notation `∥ t ∥₁` is `∥_∥₁ t`. The
+  notation `∃[ x ꞉ A ] B` is `∃ A (λ (x : A) → B)`, and it extends to
+  the right, as λ does. `_OP_`, `∥_∥₁`, `∣_∣₁` and `[]` are names. S3
+  has no `∣ t ∣₁` notation: a constructor takes its parameters
+  (`∣_∣₁ A a`). S3 has no implicit arguments, so the infix use of a
+  polymorphic operator works only in a module section, where the
+  section gives the type parameters. Outside a section, write
+  `_++_ A xs ys`. S3 has no ASCII spellings, so it adds no
+  `W_NONCANON` fixture. `+`, `[` and `]` are name characters in S3, so
+  test/parse/bad-char.lang changes `natAdd 1 + 2` to `natAdd 1 @ 2`
+  (the row still expects `LEX_CHAR`). `fmt` removes the parentheses on
+  the right of a right-associative operator (`xs ++ (ys ++ zs)` prints
+  `xs ++ ys ++ zs`) and keeps the parentheses on the left.
+- O42. Levels (D6; Claude reading, NOT ruled). The Prelude uses the
+  fixed level `Type`. Large elimination at `Type₁` occurs only through
+  an `elim` motive. S3 adds no level variables (O18 stays).
+- O43. The Prelude file (D7; Claude reading, NOT ruled). The S3 design
+  put the Prelude in examples/prelude.lang. O47 moves it to
+  lib/prelude.lang. The file is standalone: S3 has no imports, and S4
+  decides a preload or a copy. examples/paths.lang keeps its own `sym`,
+  `cong`, `trans` and `transport`.
+- O44. `isSet` for the base types (D8, Q16 (b); Claude reading, NOT
+  ruled). The kernel has no constant for `isSet`. lib/prelude.lang
+  proves `isSetℕ` and `isSetBool` in the guest. `absurd` uses
+  `primTransp` over the large motive
+  `elim (λ (b : Bool) → Type) C ℕ`. `eqℕ`, `eqBool`, `reflℕ`,
+  `reflBool`, `soundℕ` and `soundBool` use `elim`. `discreteIsSet` is
+  Hedberg: the constant map `collapse`, its constancy `collapseConst`,
+  then the square of the cubical library by `primHComp`. The structural
+  conversion (O27) is sufficient: the square checks. Negative probes
+  (scratch copies, not gate lines) give `TYPE_SYSTEM` or `TYPE_REFL`,
+  so the check is not vacuous.
+- O45. Laws (D9; Claude reading, NOT ruled). The laws are guest paths
+  in `module Bag (A : Type)` of examples/bag.lang: the union unit (left
+  `munit`, right `mcomm ∙ munit`), associativity (`massoc`),
+  commutativity (`mcomm`), the Prelude equation
+  `(x ∷ xs) ++ ys ≡ x ∷ xs ++ ys` (`massoc (eta x)`) and
+  `[] ++ ys ≡ ys` (`munit`). `_∷_ x xs = m (eta x) xs`. The derived
+  `comm` is `sym massoc ∙ (cong (λ z → m z xs) mcomm ∙ massoc)`.
+  `check --json` counts no laws in S3 (laws are counted from S4).
+- O46. Bag entries in Wasm (D10; Claude reading, NOT ruled). The bag
+  differential entries are closed ℕ and Bool functions with a bag of
+  static shape (the elements are the parameters): `count3`,
+  `countUnion`, `countFlags` and `scale` in examples/bag.lang. The
+  evaluator reduces `foldᴮ` on points, so the residual has no bag. A
+  `foldᴮ` that stays in a residual gives `REFUSE_RUNTIME_TREE` (host
+  limit). S8 decides a run-time bag form.
+- O47. The Prelude place (Claude reading, NOT ruled). The Prelude is
+  lib/prelude.lang, not examples/prelude.lang (O43). The gate builds
+  each examples/*.lang file to Wasm and runs each ℕ and Bool entry
+  (test/gate.sh:223). `eqℕ` is such an entry, and its residual holds a
+  stuck `elim` that the host cannot lower (O50). lib/ is in the `fmt`
+  loop, and the eval rows check it (O51). The json, codes and IR checks
+  do not read lib/.
+- O48. The scope of `elim` (Claude reading, NOT ruled). ℕ and Bool are
+  kernel builtins, not domain families, so `elim` is a rule for these
+  two types only. A domain family keeps `fold`. A program cannot
+  declare closed data (`REFUSE_DATA`, R2).
+- O49. The Bool case order (Claude reading, NOT ruled).
+  `elim P yes no b` has the order of `flagIf b yes no`: the case for
+  `true` is first.
+- O50. `elim` in Wasm (Claude reading, NOT ruled). An `elim` over a
+  run-time ℕ in a Wasm entry gives `REFUSE_RUNTIME_TREE` (host limit:
+  the host has no loop with a counter yet). A later slice can lower it
+  as fold_nat in src/front/lower.c. S3 does not need it (O55).
+- O51. Eval rows for lib/ (Claude reading, NOT ruled). An eval row for
+  a lib/ file uses the FILE form `../lib/NAME`, because test/gate.sh
+  reads `examples/FILE.lang`.
+- O52. A `fold` at a 2-cell (Claude reading, NOT ruled). A `fold` at a
+  2-cell path constructor stays stuck in S3. `foldᴮ` does not need it.
+- O53. The bag test (Claude reading, NOT ruled). `foldᴮ` tests the bag
+  shape when it checks (bag_shaped in src/front/check.c), not at the
+  data declaration. FamilyInfo has no bag flag (D4 changed).
+- O54. The Hedberg name (Claude reading, NOT ruled). The design name
+  `discrete→isSet` is `discreteIsSet`, because `→` is a reserved
+  symbol.
+- O55. The place of the bag entries (Claude reading, NOT ruled).
+  examples/bag.lang holds a local copy of the Hedberg chain for ℕ.
+  `eqℕ`, `reflℕ`, `soundℕ` and `isSetℕ` are in
+  `module NatSet (X : Type) where`, so outside the section each one
+  takes a type first, and the differential does not select it as an
+  entry. An alias `Cmp A = A → A → Bool` does not help: the entry test
+  reads the unfolded Pi, and `langc abi` gives
+  `REFUSE_RUNTIME_CLOSURE` on `eqℕ`, because the `elim` motive is a
+  function type.
+- O56. Law names (Claude reading, NOT ruled). The design law names
+  `++-unitˡ`, `++-unitʳ`, `++-assoc` and `++-comm` are `appUnitL`,
+  `appUnitR`, `appAssoc` and `appComm`. The Prelude equation is
+  `consApp`. A name that starts with `+` or holds `ˡ` was not tried.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 
@@ -751,3 +903,6 @@ commit message file and the next prompt file. The USER commits.
 - Q15. Constant-size IVC proof scheme (S11, Q11 (b), O13). (a) A folding
   scheme (Nova-style) with a final compressed proof. (b) A recursive
   SNARK. Needed before S11.
+- Q16. `isSet ℕ` and `isSet Bool` (S3). RULED (b) 2026-10-26. (b) A
+  guest proof: a dependent eliminator `elim` for ℕ and Bool in the
+  kernel, and discreteness and Hedberg as guest laws in the Prelude.

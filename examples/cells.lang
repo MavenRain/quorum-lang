@@ -23,3 +23,27 @@ data Bag₀ (A : Type) : Type where
   assoc₀ : (x₄ : Bag₀ A) → (y₄ : Bag₀ A) → (z₄ : Bag₀ A) → m₀ A (m₀ A x₄ y₄) z₄ ≡ m₀ A x₄ (m₀ A y₄ z₄)
   comm₀ : (x₅ : Bag₀ A) → (y₅ : Bag₀ A) → m₀ A x₅ y₅ ≡ m₀ A y₅ x₅
   trunc₀ : (x₆ : Bag₀ A) → (y₆ : Bag₀ A) → (p₆ : PathP (λ _ → Bag₀ A) x₆ y₆) → (q₆ : x₆ ≡ y₆) → p₆ ≡ q₆
+
+rec₀ : (A : Type) → (B : Type) → ((x : B) → (y : B) → x ≡ y) → (A → B) → Trunc₀ A → B
+rec₀ A B pr f x = fold f pr x
+
+truncMap : (A : Type) → (B : Type) → (A → B) → Trunc₀ A → Trunc₀ B
+truncMap A B f t = fold (λ (a : A) → ∣_∣ B (f a)) (λ (u : Trunc₀ B) (v : Trunc₀ B) → squash B u v) t
+
+bagMap : (A : Type) → (B : Type) → (A → B) → Bag₀ A → Bag₀ B
+bagMap A B f b = fold (λ (a : A) → η₀ B (f a)) (e₀ B) (λ (x : Bag₀ B) (y : Bag₀ B) → m₀ B x y) (λ (x : Bag₀ B) → unit₀ B x) (λ (x : Bag₀ B) (y : Bag₀ B) (z : Bag₀ B) → assoc₀ B x y z) (λ (x : Bag₀ B) (y : Bag₀ B) → comm₀ B x y) (λ (x : Bag₀ B) (y : Bag₀ B) (p : x ≡ y) (q : x ≡ y) → trunc₀ B x y p q) b
+
+bagCount : (A : Type) → ((x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → Bag₀ A → ℕ
+bagCount A st b = foldᴮ (λ (a : A) (n : ℕ) → suc n) (λ (x : A) (y : A) (n : ℕ) → refl) st 0 b
+
+bagCountEta : (A : Type) → (st : (x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → (a : A) → (b : Bag₀ A) → bagCount A st (m₀ A (η₀ A a) b) ≡ suc (bagCount A st b)
+bagCountEta A st a b = refl
+
+bagCountUnit : (A : Type) → (st : (x : ℕ) → (y : ℕ) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q) → (b : Bag₀ A) → bagCount A st (m₀ A (e₀ A) b) ≡ bagCount A st b
+bagCountUnit A st b = refl
+
+cong : (A : Type) → (B : Type) → (f : A → B) → (x : A) → (y : A) → x ≡ y → f x ≡ f y
+cong A B f x y p i = f (p i)
+
+bagMapUnit : (A : Type) → (B : Type) → (f : A → B) → (x : Bag₀ A) → cong (Bag₀ A) (Bag₀ B) (bagMap A B f) (m₀ A (e₀ A) x) x (unit₀ A x) ≡ unit₀ B (bagMap A B f x)
+bagMapUnit A B f x = refl

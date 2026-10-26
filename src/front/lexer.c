@@ -28,6 +28,17 @@ static const struct {
   {"record", TOK_KW_RECORD},
   {"coinductive", TOK_KW_COINDUCTIVE},
   {"module", TOK_KW_MODULE},
+  /* S3 D5: a name with one of these texts is an operator or a notation
+     token. `_∷_`, `∥_∥₁` and `[]` stay names. */
+  {"∷", TOK_OPER},
+  {"++", TOK_OPER},
+  {"∘", TOK_OPER},
+  {"∙", TOK_OPER},
+  {"∥", TOK_TRUNC_OPEN},
+  {"∥₁", TOK_TRUNC_CLOSE},
+  {"∃[", TOK_EXISTS},
+  {"꞉", TOK_TYPED},
+  {"]", TOK_RBRACKET},
 };
 
 /* The reserved code points. Each one is a symbol, never part of a name. */
@@ -65,6 +76,12 @@ const char *tok_kind_name(TokKind kind) {
     case TOK_LBRACE: return "'{'";
     case TOK_RBRACE: return "'}'";
     case TOK_SEMI: return "';'";
+    case TOK_OPER: return "an operator";
+    case TOK_TRUNC_OPEN: return "'∥'";
+    case TOK_TRUNC_CLOSE: return "'∥₁'";
+    case TOK_EXISTS: return "'∃['";
+    case TOK_TYPED: return "'꞉'";
+    case TOK_RBRACKET: return "']'";
     case TOK_KW_DATA: return "'data'";
     case TOK_KW_WHERE: return "'where'";
     case TOK_KW_POSTULATE: return "'postulate'";
@@ -98,12 +115,13 @@ static size_t symbol_at(const Lexer *lx, TokKind *kind) {
   return 0;
 }
 
-/* A name starts with a letter, '_' or a byte >= 0x80 that does not begin a
-   reserved symbol, so ℕ and Type₁ are names. Digits and '\'' continue it. */
+/* A name starts with a letter, '_', '+', '[', ']' or a byte >= 0x80 that
+   does not begin a reserved symbol, so ℕ, Type₁, _++_ and [] are names.
+   Digits and '\'' continue it. */
 static int at_name_start(const Lexer *lx) {
   unsigned char c = (unsigned char)peek(lx, 0);
   TokKind kind = TOK_EOF;
-  int letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+  int letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '+' || c == '[' || c == ']';
   return letter || (c >= 0x80 && symbol_at(lx, &kind) == 0);
 }
 

@@ -42,8 +42,10 @@ typedef enum {
   OP_MAP,
   OP_BIND,
   OP_FOLD_NAT,
+  OP_ELIM_NAT, /* elim P z s n (S3 D1); the core drops P */
   OP_FOLD_LIST,
   OP_FOLD_FAMILY,
+  OP_FOLD_BAG,  /* foldᴮ f b xs over a bag (S3 D4); the core drops swap and st */
   OP_UNFOLD,
   OP_FILTER,
   OP_WITNESS,

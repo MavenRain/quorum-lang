@@ -1,0 +1,4 @@
+_∷_ : ℕ → ℕ → ℕ
+_∷_ x xs = natAdd x xs
+pair : ℕ
+pair = _∷_ 1 2
