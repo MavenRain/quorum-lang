@@ -1,5 +1,11 @@
 # Type formers
 
+S1 surface: quorum-lang reads the Agda-like Unicode surface of
+`docs/GRAMMAR.md`. That file also gives the map from the S0 names to the
+S1 names. In S1, F4 `List` and F7 `unfold` give `REFUSE_CELL` (rule R1),
+and F2 `Sum` and F8 `filter` give `REFUSE_BASE` (rule R2). The forms
+below are the template forms.
+
 This file specifies the type formers of each language that starts from this
 template. The specification does not depend on a host. A language has these
 formers and no others. A language adds its core types and core operations

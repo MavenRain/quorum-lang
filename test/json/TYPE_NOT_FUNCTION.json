@@ -1,0 +1,2 @@
+{"code":"TYPE_NOT_FUNCTION","span":{"file":"test/json/TYPE_NOT_FUNCTION.lang","line":2,"col":9,"endLine":2,"endCol":9},"expected":null,"found":null,"fix":null,"retry":true,"message":"a term of type ℕ is applied to an argument"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

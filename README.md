@@ -22,10 +22,22 @@ run target is a Wasm replica. Each design law is a guest theorem that
 
 ## Status
 
-S0: the lang-template tcc-wasm kit seed and the plan. The checker today
-is the kit core. No design name (Ballot, Quorum, Authorized and the
-others) is in the checker yet. docs/PLAN.md sec 9 lists the slices, and
-docs/PLAN.md sec 7 maps agent adoption to deliverables.
+S1: the kit core on an Agda-like Unicode surface (docs/GRAMMAR.md), with
+`langc fmt`, `langc check --json` and stable diagnostic codes
+(docs/DIAGNOSTICS.md). No design name (Ballot, Quorum, Authorized and
+the others) is in the checker yet. docs/PLAN.md sec 9 lists the slices,
+and docs/PLAN.md sec 7 maps agent adoption to deliverables.
+
+## Tool loop
+
+- `build/langc check FILE.lang`: type check. It prints `ok` (exit 0) or
+  one diagnostic with a stable code.
+- `build/langc check --json FILE.lang`: one JSON line for each
+  diagnostic, then the parsed and typed counts.
+- `build/langc fmt FILE.lang`: print the canonical text.
+- The kit verbs: `eval`, `ir`, `abi` and `build`.
+
+AGENTS.md gives the loop for an agent.
 
 ## Build and test
 
@@ -38,7 +50,8 @@ The gate needs tcc, clang, node, wasm-validate and wasm-objdump.
 ## Layout
 
 - design/: the USER ask and rulings (DESIGN.md) and the base design (ThresholdVC/*.agda, reference only; no build step runs Agda).
-- docs/PLAN.md: the plan of record.
+- docs/PLAN.md: the plan of record. docs/GRAMMAR.md: the surface.
+  docs/DIAGNOSTICS.md: the diagnostic codes.
 - src/front/: lexer, parser, checker, evaluator and lowering. src/wasm.c: the Wasm emitter.
 - examples/, test/: guest programs and gate fixtures.
 

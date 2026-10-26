@@ -1,0 +1,2 @@
+{"code":"LEX_NAT_RANGE","span":{"file":"test/json/LEX_NAT_RANGE.lang","line":2,"col":7,"endLine":2,"endCol":8},"expected":null,"found":null,"fix":null,"retry":true,"message":"test/json/LEX_NAT_RANGE.lang:2:7: a ℕ literal is larger than 2^64 - 1"}
+{"parsed":0,"typed":0,"laws":{"discharged":0,"total":0}}

@@ -1,0 +1,2 @@
+Endo : Type 1
+Endo = (A : Type 0) → A → A

@@ -1,0 +1,6 @@
+arrow.lang ok
+backslash.lang ok
+type-n.lang ok
+group.lang ok
+lambda-def.lang ok
+next.lang TYPE_MISMATCH

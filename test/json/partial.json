@@ -1,0 +1,2 @@
+{"code":"TYPE_MISMATCH","span":{"file":"test/json/partial.lang","line":8,"col":7,"endLine":8,"endCol":10},"expected":null,"found":null,"fix":null,"retry":true,"message":"expected a term of type Bool, found a term of type ℕ"}
+{"parsed":3,"typed":2,"laws":{"discharged":0,"total":0}}

@@ -1,0 +1,2 @@
+{"code":"REFUSE_BASE","span":{"file":"test/json/REFUSE_BASE.lang","line":1,"col":7,"endLine":1,"endCol":10},"expected":null,"found":null,"fix":null,"retry":false,"message":"Sum is not a base type of the design (rule R2)"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

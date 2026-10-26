@@ -1,0 +1,2 @@
+bad : ℕ -> Bool
+bad n = n

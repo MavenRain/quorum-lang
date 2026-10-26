@@ -181,6 +181,7 @@ typedef struct {
   const char *def; /* the current definition, for diagnostics */
   DefInfo *defs;
   uint32_t def_count;
+  uint32_t typed; /* program declarations checked before the first failure */
   uint32_t def_cap;
   FamilyInfo *families;
   uint32_t family_count;

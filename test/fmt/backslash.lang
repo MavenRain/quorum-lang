@@ -1,0 +1,2 @@
+answer : ℕ
+answer = fold (\ (acc : ℕ) → natAdd acc 2) 0 3

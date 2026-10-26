@@ -1,0 +1,2 @@
+loop : ℕ → ℕ
+loop n = loop n

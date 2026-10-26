@@ -1,0 +1,2 @@
+{"code":"TYPE_REFL","span":{"file":"test/json/TYPE_REFL.lang","line":5,"col":9,"endLine":5,"endCol":13},"expected":null,"found":null,"fix":null,"retry":true,"message":"refl cannot prove the equality: the left side normalizes to 1201, the right side normalizes to 1200"}
+{"parsed":2,"typed":1,"laws":{"discharged":0,"total":0}}

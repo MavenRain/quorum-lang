@@ -15,7 +15,7 @@ echo "examples: $count checked, $fail failed"
 
 tmp=${TMPDIR:-/tmp}/langc-gate.$$
 mkdir -p "$tmp"
-awk 'BEGIN { printf "def deep : Nat := " } { } END {
+awk 'BEGIN { printf "deep : ℕ\ndeep = " } { } END {
   for (i = 0; i < 1100; i++) printf "("; printf "1"; for (i = 0; i < 1100; i++) printf ")"; print "" }' </dev/null >"$tmp/deep.lang"
 
 # refusals DIR LABEL: each line of DIR/expect.txt is `FILE CODE`. `langc check`
@@ -88,12 +88,87 @@ eval_refused 2 EVAL_ARGS addPrice 18446744073709551616 1
 eval_refused 2 EVAL_ARGS pick 2 4 9
 eval_refused 1 EVAL_ENTRY nope
 
-status=0
-build/langc 2>/dev/null || status=$?
-[ "$status" -eq 2 ] || { echo "FAIL usage: want exit 2, got $status"; fail=$((fail + 1)); }
-status=0
-build/langc check "$tmp/missing.lang" 2>/dev/null || status=$?
-[ "$status" -eq 2 ] || { echo "FAIL missing file: want exit 2, got $status"; fail=$((fail + 1)); }
+# code_line STATUS CODE COMMAND...: COMMAND must exit STATUS and print
+# `langc: CODE: ...` on stderr.
+code_line() {
+  want_status=$1
+  code=$2
+  shift 2
+  status=0
+  "$@" 2>"$tmp/err" >/dev/null || status=$?
+  first=$(head -n 1 "$tmp/err")
+  case "$status:$first" in
+    "$want_status:langc: $code: "*) ;;
+    *) echo "FAIL $code: want exit $want_status, got exit $status: $first"; fail=$((fail + 1)) ;;
+  esac
+}
+code_line 2 USAGE build/langc
+code_line 2 IO build/langc check "$tmp/missing.lang"
+head -c 1048577 /dev/zero >"$tmp/big.lang"
+code_line 2 IO_SIZE build/langc check "$tmp/big.lang"
+printf 'spin : Bool\nspin = fold (λ (acc : Bool) → acc) true 100000000\n' >"$tmp/fuel.lang"
+code_line 1 EVAL_FUEL build/langc eval "$tmp/fuel.lang" spin
+awk 'BEGIN { print "d0 : ℕ"; print "d0 = 0"
+  for (i = 1; i <= 2100; i++) printf "d%d : ℕ\nd%d = suc d%d\n", i, i, i - 1 }' </dev/null >"$tmp/depth.lang"
+code_line 1 EVAL_DEPTH build/langc eval "$tmp/depth.lang" d2100
+# Each step makes a new ℕ value, so the arena limit (1 GiB) comes before the fuel limit.
+printf 'grow : ℕ\ngrow = fold (λ (acc : ℕ) → suc acc) 0 100000000\n' >"$tmp/oom.lang"
+code_line 1 OOM build/langc eval "$tmp/oom.lang" grow
+
+# fmt: `langc fmt F` prints F for each committed .lang file. test/parse,
+# test/fmt and the lex, parse and W_NONCANON fixtures of test/json are not
+# canonical on purpose.
+fmts=0
+for f in $(rg --files -g '*.lang' -g '!test/parse/**' -g '!test/fmt/**' -g '!test/json/LEX_*' -g '!test/json/PARSE_*' -g '!test/json/W_NONCANON.lang' . | sort); do
+  fmts=$((fmts + 1))
+  build/langc fmt "$f" 2>/dev/null | cmp -s - "$f" || { echo "FAIL fmt $f: the output is not the file"; fail=$((fail + 1)); }
+done
+echo "fmt: $fmts files canonical"
+
+# test/fmt: each line of expect.txt is `FILE NEXT`. `langc check --json FILE`
+# prints FILE.json. The fix is `langc fmt FILE`: fmt of the fix is the fix,
+# and `langc check` of the fix gives exit 0 (NEXT ok) or exit 1 and NEXT.
+while read -r file next; do
+  path=test/fmt/$file
+  build/langc check --json "$path" 2>/dev/null | cmp -s - "${path%.lang}.json" || { echo "FAIL json $path"; fail=$((fail + 1)); }
+  build/langc fmt "$path" >"$tmp/fix.lang" 2>/dev/null || { echo "FAIL fmt $path"; fail=$((fail + 1)); continue; }
+  build/langc fmt "$tmp/fix.lang" 2>/dev/null | cmp -s - "$tmp/fix.lang" || { echo "FAIL fmt $path: not idempotent"; fail=$((fail + 1)); }
+  status=0
+  build/langc check "$tmp/fix.lang" 2>"$tmp/err" >/dev/null || status=$?
+  first=$(head -n 1 "$tmp/err")
+  case "$next:$status:$first" in
+    "ok:0:"*|"$next:1:langc: $next: "*) ;;
+    *) echo "FAIL fix $path: want $next, got exit $status: $first"; fail=$((fail + 1)) ;;
+  esac
+done <test/fmt/expect.txt
+
+# test/json: `langc check --json CODE.lang` prints CODE.json byte for byte.
+# partial.lang has 2 good definitions, then a type error.
+jsons=0
+for path in test/json/*.lang; do
+  jsons=$((jsons + 1))
+  build/langc check --json "$path" 2>/dev/null | cmp -s - "${path%.lang}.json" || { echo "FAIL json $path"; fail=$((fail + 1)); }
+done
+echo "json: $jsons fixtures"
+[ "$(tail -n 1 test/json/partial.json)" = '{"parsed":3,"typed":2,"laws":{"discharged":0,"total":0}}' ] ||
+  { echo "FAIL partial.json: want parsed 3 typed 2"; fail=$((fail + 1)); }
+
+# Each code in docs/DIAGNOSTICS.md has a fixture: test/json/CODE.lang or a
+# line of this file or test/review.sh that wants `langc: CODE:`. Each code in
+# src/ has a row in docs/DIAGNOSTICS.md.
+codes=0
+missing=0
+for code in $(rg -o '^\| `([A-Z][A-Z_]+)` \|' -r '$1' docs/DIAGNOSTICS.md); do
+  codes=$((codes + 1))
+  [ -f "test/json/$code.lang" ] && continue
+  rg -q "(langc: |code_line [0-9] |eval_refused [0-9] )$code[: ]" test/gate.sh test/review.sh ||
+    { echo "FAIL $code: no fixture"; missing=$((missing + 1)); }
+done
+for code in $(rg -o --no-filename '"((LEX|PARSE|NAME|TYPE|REFUSE|EVAL|W)_[A-Z_]+|IO|IO_SIZE|OOM|USAGE)"' -r '$1' src | sort -u); do
+  rg -q "^\| \`$code\` \|" docs/DIAGNOSTICS.md || { echo "FAIL $code: no row in docs/DIAGNOSTICS.md"; missing=$((missing + 1)); }
+done
+fail=$((fail + missing))
+echo "diagnostics: $codes codes, $missing without a fixture or a row"
 
 # The IR: each example lowers, with one func line for each entry.
 irs=0
@@ -118,8 +193,7 @@ esac
 got=$(build/langc eval test/ir/lazy.lang lazy 3 2>&1) || true
 [ "$got" = "3" ] || { echo "FAIL lazy.lang: want 3, got $got"; fail=$((fail + 1)); }
 build/langc ir test/ir/lazy.lang > /dev/null || { echo "FAIL lazy.lang: ir"; fail=$((fail + 1)); }
-for want in "foldOnes 3:6" "mapUp 3:18" "bindUp 3:36" "filterUp 5:3" "trapHead 5:1" "trapSum 5:trap" "trapSum 2:3" \
-  "filterTrap 2:3" "filterTrap 5:trap" "bindTrap 5:1" "stackSum 3:15" "stackTrap 0:7" "stackTrap 2:5"; do
+for want in "stackSum 3:15" "stackTrap 0:7" "stackTrap 2:5"; do
   call=${want%%:*}
   got=$(build/langc eval test/ir/spine.lang ${call% *} ${call#* } 2>"$tmp/err") || true
   want_err=""

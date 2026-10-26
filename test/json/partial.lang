@@ -1,0 +1,8 @@
+one : ℕ
+one = 1
+
+two : ℕ
+two = natAdd one one
+
+bad : Bool
+bad = two

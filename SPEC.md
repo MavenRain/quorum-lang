@@ -2,6 +2,12 @@
 
 Status: draft before milestone M0. `quorum-lang` is a working name.
 
+S1 surface: the S1 build reads the Agda-like Unicode surface of
+`docs/GRAMMAR.md`. That file also gives the map from the S0 names to the
+S1 names. S1 refuses `unfold` and `List` (`REFUSE_CELL`) and `Sum`
+(`REFUSE_BASE`). The sections below are template text and still name
+them.
+
 Fill each section. The quoted line under each heading says what to write
 there. Delete the quoted line when the section is complete.
 

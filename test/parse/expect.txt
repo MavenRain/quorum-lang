@@ -5,5 +5,5 @@ unclosed.lang PARSE_EXPECT
 no-body.lang PARSE_EXPECT
 no-keyword.lang PARSE_EXPECT
 fun-no-binder.lang PARSE_EXPECT
-type-no-level.lang PARSE_EXPECT
+data-no-type.lang PARSE_EXPECT
 deep.lang PARSE_DEPTH

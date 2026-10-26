@@ -63,6 +63,9 @@ Flag eliminator `flagIf b yes no`. `Type 0 : Type 1` is the universe
 chain. `Sigma (x : A) B` and `(x : A) * B` are dependent pairs.
 `FORMERS.md` gives the status of each former.
 
+S1 note: quorum-lang reads the surface and the names of `docs/GRAMMAR.md`,
+not the kit surface above, and refuses `List`, `Sum` and `unfold`.
+
 The compiler enforces these rules:
 
 | Rule | Code | The compiler refuses |
@@ -106,6 +109,9 @@ parameter and the result is an `i64`. Other definitions are not exported.
 overflow past 2^64 - 1. `natSub` stops at 0. `Flag` is 0 or 1.
 
 ## Compilation
+
+S1 note: S1 refuses `unfold`, `filter` and `either` before compilation
+(see `docs/GRAMMAR.md`).
 
 Compilation is partial evaluation. The compiler normalizes the body of
 each entry with the parameters as free variables. Types and universes erase.

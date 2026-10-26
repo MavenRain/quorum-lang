@@ -1,0 +1,2 @@
+bad : Sum ℕ ℕ → ℕ
+bad s = 0

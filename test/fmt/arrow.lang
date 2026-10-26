@@ -1,0 +1,2 @@
+double : ℕ -> ℕ
+double n = natAdd n n

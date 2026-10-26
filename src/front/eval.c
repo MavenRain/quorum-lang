@@ -9,11 +9,11 @@
 #define VARIES 0xffu
 
 static const char *const OP_NAMES[] = {
-  [OP_NAT] = "Nat", [OP_FLAG] = "Flag", [OP_UNIT] = "Unit", [OP_PROD] = "Prod",
-  [OP_SUM] = "Sum", [OP_OPTION] = "Option", [OP_LIST] = "List", [OP_EQ] = "Eq",
-  [OP_FAMILY] = "?", [OP_UNIT_VAL] = "unit", [OP_FLAG_YES] = "flagYes",
-  [OP_FLAG_NO] = "flagNo", [OP_PAIR] = "pair", [OP_INL] = "inl", [OP_INR] = "inr",
-  [OP_NONE] = "none", [OP_SOME] = "some", [OP_NIL] = "nil", [OP_CONS] = "cons",
+  [OP_NAT] = "ℕ", [OP_FLAG] = "Bool", [OP_UNIT] = "Unit", [OP_PROD] = "_×_",
+  [OP_SUM] = "Sum", [OP_OPTION] = "Maybe", [OP_LIST] = "List", [OP_EQ] = "Eq",
+  [OP_FAMILY] = "?", [OP_UNIT_VAL] = "unit", [OP_FLAG_YES] = "true",
+  [OP_FLAG_NO] = "false", [OP_PAIR] = "pair", [OP_INL] = "inl", [OP_INR] = "inr",
+  [OP_NONE] = "nothing", [OP_SOME] = "just", [OP_NIL] = "nil", [OP_CONS] = "cons",
   [OP_PACK] = "pack", [OP_REFL] = "refl", [OP_CTOR] = "?", [OP_FIRST] = "first",
   [OP_SECOND] = "second", [OP_EITHER] = "either", [OP_OPTION_ELIM] = "option",
   [OP_PURE] = "pure", [OP_MAP] = "map", [OP_BIND] = "bind", [OP_FOLD_NAT] = "fold",
@@ -402,7 +402,7 @@ static const Value *reduce_option(Machine *m, const Value *const *a, uint32_t n)
     return a[0];
   if (val_is(a[2], OP_SOME))
     return apply_value(m, a[1], a[2]->args[0]);
-  return internal(m, "an option of a value that is not an Option");
+  return internal(m, "an option of a value that is not a Maybe");
 }
 
 static const Value *reduce_pure(Machine *m, uint32_t inst, const Value *x) {
@@ -501,7 +501,7 @@ static const Value *reduce_fold_nat(Machine *m, const Value *const *a, uint32_t 
   if (blocked(m, a[2], OP_FOLD_NAT, 0, 0, a, n, &out))
     return out;
   if (a[2]->kind != VAL_NAT)
-    return internal(m, "a fold of a value that is not a Nat");
+    return internal(m, "a fold of a value that is not a ℕ");
   for (k = 0; k < a[2]->nat && acc != NULL; k++)
     acc = spend(m, 1) ? apply_value(m, a[0], acc) : NULL;
   return acc;
@@ -595,7 +595,7 @@ static int unfold_end(Machine *m, const Value *g, uint64_t left, const Value *se
   }
   if (val_is(p, OP_PAIR))
     return 0;
-  *tail = internal(m, "an unfold step that is not an Option of a pair");
+  *tail = internal(m, "an unfold step that is not a Maybe of a pair");
   return 1;
 }
 
@@ -610,7 +610,7 @@ static const Value *reduce_unfold(Machine *m, const Value *const *a, uint32_t n)
   if (blocked(m, a[1], OP_UNFOLD, 0, 0, a, n, &out))
     return out;
   if (a[1]->kind != VAL_NAT)
-    return internal(m, "an unfold limit that is not a Nat");
+    return internal(m, "an unfold limit that is not a ℕ");
   buf_init(&items);
   for (i = 0; i < a[1]->nat; i++) {
     r = spend(m, 1) ? apply_value(m, a[0], seed) : NULL;
@@ -698,7 +698,7 @@ static int nat_args(Machine *m, Op op, const Value *const *a, uint32_t n, uint64
   if (blocked(m, a[0], op, 0, 0, a, n, out) || blocked(m, a[1], op, 0, 0, a, n, out))
     return 0;
   if (a[0]->kind != VAL_NAT || a[1]->kind != VAL_NAT) {
-    *out = internal(m, "a Nat operation on a value that is not a Nat");
+    *out = internal(m, "a ℕ operation on a value that is not a ℕ");
     return 0;
   }
   *x = a[0]->nat;
@@ -750,7 +750,7 @@ static const Value *reduce_flag_if(Machine *m, const Value *const *a, uint32_t n
     return a[1];
   if (val_is(a[0], OP_FLAG_NO))
     return a[2];
-  return internal(m, "a flagIf of a value that is not a Flag");
+  return internal(m, "a flagIf of a value that is not a Bool");
 }
 
 static const Value *reduce_proj(Machine *m, uint32_t inst, uint32_t field, const Value *const *a, uint32_t n) {
@@ -1195,41 +1195,77 @@ static int name_used(const Printer *p, const char *name) {
   return 0;
 }
 
-static void print_binder(Printer *p, const Value *v) {
+/* `Type`, `Type₁`, `Type₂`, ...: the level in subscript digits, as in print.c. */
+static void put_universe(Printer *p, uint64_t level) {
+  char digits[24];
+  char sub[4];
+  int n = level == 0 ? 0 : snprintf(digits, sizeof digits, "%llu", (unsigned long long)level);
+  int i;
+  put(p, "Type");
+  for (i = 0; i < n; i++) {
+    sub[0] = (char)0xe2;
+    sub[1] = (char)0x82;
+    sub[2] = (char)(0x80 + (digits[i] - '0'));
+    sub[3] = '\0';
+    put(p, sub);
+  }
+}
+
+/* `_×_ A B` prints infix as `A × B`, as in print.c. */
+static int is_times(const Value *v) {
+  return is_chain(v) && v->op == OP_PROD && v->argc == 2u;
+}
+
+/* A λ or a Π operand of `×` needs parentheses. */
+static int is_binder(const Value *v) {
+  return v != NULL && (v->kind == VAL_LAM || v->kind == VAL_PI);
+}
+
+/* The left operand binds tighter than `×`, so `(A × B) × C` keeps them. */
+static void print_times(Printer *p, const Value *v, int atom) {
+  if (atom)
+    put(p, "(");
+  print_value(p, v->args[0], is_times(v->args[0]) || is_binder(v->args[0]));
+  put(p, " × ");
+  print_value(p, v->args[1], is_binder(v->args[1]));
+  if (atom)
+    put(p, ")");
+}
+
+/* `λ x y → t` (nested lambdas merge), `(x : A) → B`, `A → B` and
+   `Σ A (λ x → B)`. MERGED is 1 for an inner lambda of a merged group. */
+static void print_binder(Printer *p, const Value *v, int merged) {
   uint32_t level = p->name_count + p->extra_count;
   const char *name = v->name != NULL ? v->name : "x";
   char fresh[32];
   uint32_t suffix = 0;
   const Value *body = closure_apply(p->m, v, val_var(p->m, level));
-  int binder_dom = v->dom != NULL && (v->dom->kind == VAL_PI || v->dom->kind == VAL_SIGMA || v->dom->kind == VAL_LAM || v->dom->kind == VAL_UNIV);
+  int binder_dom = is_binder(v->dom);
   while (name_used(p, name)) {
     snprintf(fresh, sizeof fresh, "_x%u", suffix++);
     name = fresh;
   }
   switch (v->kind) {
   case VAL_LAM:
-    put(p, "fun ");
+    put(p, merged ? " " : "λ ");
     put(p, name);
-    put(p, " => ");
     break;
   case VAL_PI:
     if (v->name == NULL) {
       print_value(p, v->dom, binder_dom);
-      put(p, " -> ");
       break;
     }
     put(p, "(");
     put(p, name);
     put(p, " : ");
     print_value(p, v->dom, 0);
-    put(p, ") -> ");
+    put(p, ")");
     break;
   case VAL_SIGMA:
-    put(p, "Sigma (");
+    put(p, "Σ ");
+    print_value(p, v->dom, 1);
+    put(p, " (λ ");
     put(p, name);
-    put(p, " : ");
-    print_value(p, v->dom, 0);
-    put(p, ") ");
     break;
   case VAL_NAT:
   case VAL_TRAP:
@@ -1243,7 +1279,16 @@ static void print_binder(Printer *p, const Value *v) {
   if (p->extra_count < PRINT_NAMES_MAX)
     p->extra[p->extra_count] = name;
   p->extra_count++;
-  print_value(p, body, v->kind == VAL_SIGMA);
+  if (v->kind == VAL_LAM && body != NULL && body->kind == VAL_LAM && p->depth < PRINT_DEPTH_MAX) {
+    p->depth++;
+    print_binder(p, body, 1);
+    p->depth--;
+  } else {
+    put(p, " → ");
+    print_value(p, body, 0);
+  }
+  if (v->kind == VAL_SIGMA)
+    put(p, ")");
   p->extra_count--;
 }
 
@@ -1269,6 +1314,8 @@ static void print_other(Printer *p, const Value *v, int atom) {
     put(p, op_name(p->m, v->op, v->inst, v->field));
     return;
   case VAL_UNIV:
+    put_universe(p, v->nat);
+    return;
   case VAL_APP:
   case VAL_LAM:
   case VAL_PI:
@@ -1278,10 +1325,6 @@ static void print_other(Printer *p, const Value *v, int atom) {
   if (atom)
     put(p, "(");
   switch (v->kind) {
-  case VAL_UNIV:
-    snprintf(num, sizeof num, "Type %llu", (unsigned long long)v->nat);
-    put(p, num);
-    break;
   case VAL_APP:
     print_value(p, v->dom, v->dom->kind != VAL_APP && v->dom->kind != VAL_VAR);
     put(p, " ");
@@ -1290,10 +1333,11 @@ static void print_other(Printer *p, const Value *v, int atom) {
   case VAL_LAM:
   case VAL_PI:
   case VAL_SIGMA:
-    print_binder(p, v);
+    print_binder(p, v, 0);
     break;
   case VAL_NAT:
   case VAL_TRAP:
+  case VAL_UNIV:
   case VAL_VAR:
   case VAL_OP:
   case VAL_STUCK:
@@ -1314,7 +1358,7 @@ static void print_value(Printer *p, const Value *v, int atom) {
     return;
   }
   p->depth++;
-  while (is_chain(v) && !p->full) {
+  while (is_chain(v) && !is_times(v) && !p->full) {
     if (atom) {
       put(p, "(");
       open++;
@@ -1328,7 +1372,10 @@ static void print_value(Printer *p, const Value *v, int atom) {
     v = v->args[v->argc - 1u];
     atom = 1;
   }
-  print_other(p, v, atom);
+  if (is_times(v) && !p->full)
+    print_times(p, v, atom);
+  else
+    print_other(p, v, atom);
   for (i = 0; i < open; i++)
     put(p, ")");
   p->depth--;

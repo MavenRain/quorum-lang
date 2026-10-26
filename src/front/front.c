@@ -13,3 +13,11 @@ int front_load(Arena *arena, const char *source, const char *text, size_t len, D
   return load_one(arena, "domain/domain.lang", ORIGIN_DOMAIN, (const char *)domain_source, domain_source_len, out, diag)
       && load_one(arena, source, ORIGIN_PROGRAM, text, len, out, diag);
 }
+
+int front_parse_one(Arena *arena, const char *source, const char *text, size_t len, TokenList *toks, DeclList *out, Diag *diag) {
+  out->items = NULL;
+  out->count = 0;
+  out->cap = 0;
+  return lex_source(arena, source, text, len, toks, diag)
+      && parse_source(arena, source, ORIGIN_PROGRAM, toks, out, diag);
+}

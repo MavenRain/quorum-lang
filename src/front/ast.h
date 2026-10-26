@@ -5,14 +5,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The product type former. The parser gives `A × B` as `_×_ A B`. */
+#define AST_TIMES_NAME "_×_"
+
 typedef enum {
   TERM_VAR,   /* name */
   TERM_NAT,   /* nat */
   TERM_APP,   /* left applied to right */
-  TERM_LAM,   /* fun (name : left) => right; left is NULL for a bare binder */
-  TERM_PI,    /* (name : left) -> right; name is NULL for left -> right */
-  TERM_SIGMA, /* Sigma (name : left) right, or (name : left) * right */
-  TERM_UNIV   /* Type nat */
+  TERM_LAM,   /* λ (name : left) → right; left is NULL for a bare binder */
+  TERM_PI,    /* (name : left) → right; name is NULL for left → right */
+  TERM_SIGMA, /* Σ left (λ name → right) */
+  TERM_UNIV   /* Type at level nat */
 } TermKind;
 
 typedef struct Term Term;
@@ -26,7 +29,7 @@ struct Term {
   const Term *right;
 };
 
-/* A named field of a constructor, or a parameter of a family. */
+/* A named field of a constructor, or a parameter of a data type. */
 typedef struct {
   const char *name;
   const Term *type;
@@ -43,12 +46,12 @@ typedef struct {
 } Ctor;
 
 typedef enum {
-  DECL_DEF,    /* def [rec] name : type := body */
-  DECL_AXIOM,  /* axiom name : type */
-  DECL_FAMILY  /* family name params := ctor | ... */
+  DECL_DEF,    /* name : type, then the clause name patterns = body */
+  DECL_AXIOM,  /* postulate name : type */
+  DECL_FAMILY  /* data name params : Type where ctors */
 } DeclKind;
 
-/* A family is legal only in the domain file (rule R1). */
+/* A data type is legal only in the domain file (rule R1). */
 typedef enum {
   ORIGIN_DOMAIN,
   ORIGIN_PROGRAM
@@ -57,14 +60,17 @@ typedef enum {
 typedef struct {
   DeclKind kind;
   Origin origin;
-  int is_rec;
+  int is_rec;     /* the body names the definition itself */
   int line;
   int col;
+  int end_line;   /* the line of the last token */
+  const char *source; /* the file that holds the declaration */
   const char *name;
   const Term *type;
-  const Term *body;
+  const Term *body;   /* clause patterns are bare lambdas around the right side */
   const Field *params;
   size_t param_count;
+  uint64_t level;     /* the level after `data NAME params :`; S1 does not check it */
   const Ctor *ctors;
   size_t ctor_count;
 } Decl;

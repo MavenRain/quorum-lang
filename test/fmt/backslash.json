@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/fmt/backslash.lang","line":2,"col":16,"endLine":3,"endCol":1},"expected":"answer = fold (λ (acc : ℕ) → natAdd acc 2) 0 3","found":"answer = fold (\\ (acc : ℕ) → natAdd acc 2) 0 3","fix":"answer : ℕ\nanswer = fold (λ (acc : ℕ) → natAdd acc 2) 0 3\n","retry":true,"message":"test/fmt/backslash.lang:2:16: the text is not in the canonical form; langc fmt test/fmt/backslash.lang prints it"}
+{"parsed":1,"typed":1,"laws":{"discharged":0,"total":0}}

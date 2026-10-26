@@ -1,0 +1,2 @@
+add : (x y : ℕ) → ℕ
+add x y = natAdd x y

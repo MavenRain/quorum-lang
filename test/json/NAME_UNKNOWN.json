@@ -1,0 +1,2 @@
+{"code":"NAME_UNKNOWN","span":{"file":"test/json/NAME_UNKNOWN.lang","line":2,"col":9,"endLine":2,"endCol":16},"expected":null,"found":null,"fix":null,"retry":true,"message":"unknown name missing"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

@@ -1,0 +1,2 @@
+{"code":"TYPE_MISMATCH","span":{"file":"test/json/TYPE_MISMATCH.lang","line":2,"col":9,"endLine":2,"endCol":9},"expected":null,"found":null,"fix":null,"retry":true,"message":"expected a term of type Bool, found a term of type ℕ"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

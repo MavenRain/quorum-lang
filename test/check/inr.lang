@@ -1,0 +1,2 @@
+bad : ℕ
+bad = inr 1

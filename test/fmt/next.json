@@ -1,0 +1,3 @@
+{"code":"TYPE_MISMATCH","span":{"file":"test/fmt/next.lang","line":2,"col":9,"endLine":2,"endCol":10},"expected":null,"found":null,"fix":null,"retry":true,"message":"expected a term of type Bool, found a term of type ℕ"}
+{"code":"W_NONCANON","span":{"file":"test/fmt/next.lang","line":1,"col":9,"endLine":3,"endCol":1},"expected":"bad : ℕ → Bool","found":"bad : ℕ -> Bool","fix":"bad : ℕ → Bool\nbad n = n\n","retry":true,"message":"test/fmt/next.lang:1:9: the text is not in the canonical form; langc fmt test/fmt/next.lang prints it"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

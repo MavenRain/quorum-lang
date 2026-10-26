@@ -1,0 +1,2 @@
+{"code":"TYPE_ARITY","span":{"file":"test/json/TYPE_ARITY.lang","line":2,"col":9,"endLine":2,"endCol":9},"expected":null,"found":null,"fix":null,"retry":true,"message":"natAdd needs 2 arguments, found 1"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

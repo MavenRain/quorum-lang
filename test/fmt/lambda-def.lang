@@ -1,0 +1,2 @@
+keep : ℕ → ℕ → ℕ
+keep = λ x y → x

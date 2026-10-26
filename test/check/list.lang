@@ -1,0 +1,2 @@
+bad : List ℕ → ℕ
+bad xs = 0

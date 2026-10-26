@@ -11,20 +11,18 @@ typedef enum {
   TOK_LPAREN,
   TOK_RPAREN,
   TOK_COLON,
-  TOK_DEFINE,   /* := */
-  TOK_ARROW,    /* -> */
-  TOK_FATARROW, /* => */
-  TOK_STAR,
-  TOK_BAR,
-  TOK_KW_DEF,
-  TOK_KW_REC,
-  TOK_KW_FUN,
-  TOK_KW_FAMILY,
-  TOK_KW_AXIOM,
-  TOK_KW_TYPE,
-  TOK_KW_SIGMA
+  TOK_EQUALS,
+  TOK_ARROW,       /* → (U+2192), or -> (not canonical) */
+  TOK_LAMBDA,      /* λ (U+03BB), or \ (not canonical) */
+  TOK_TIMES,       /* × (U+00D7) */
+  TOK_SIGMA,       /* Σ (U+03A3) */
+  TOK_KW_DATA,
+  TOK_KW_WHERE,
+  TOK_KW_POSTULATE,
+  TOK_KW_TYPE      /* Type, Type₁, ...: the level is in nat */
 } TokKind;
 
+/* COL counts code points, not bytes. */
 typedef struct {
   TokKind kind;
   const char *text;
@@ -34,10 +32,21 @@ typedef struct {
   int col;
 } Token;
 
+/* A `--` comment. TEXT starts at the `--`. LEN does not include the
+   white space at the end of the line. */
+typedef struct {
+  const char *text;
+  size_t len;
+  int line;
+  int col;
+} Comment;
+
 /* The last token is TOK_EOF. */
 typedef struct {
   const Token *items;
   size_t count;
+  const Comment *comments;
+  size_t comment_count;
 } TokenList;
 
 /* SOURCE names the input in diagnostics. Returns 1, or 0 after a diagnostic. */

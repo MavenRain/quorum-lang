@@ -16,7 +16,8 @@
 #define NO_FAMILY UINT32_MAX
 #define NO_DEF UINT32_MAX
 
-#define FAIL(c, code, ...) diag_fail((c)->m->diag, (code), (c)->m->def, __VA_ARGS__)
+#define FAIL(c, code, ...) diag_fail_at((c)->m->diag, (code), (c)->m->def, span_of(c), NULL, NULL, __VA_ARGS__)
+#define FAIL_NAME(c, name, code, ...) diag_fail_at((c)->m->diag, (code), (c)->m->def, span_named((c), (name)), NULL, NULL, __VA_ARGS__)
 
 typedef struct Scope Scope;
 struct Scope {
@@ -37,7 +38,27 @@ typedef struct {
   uint32_t eta_count;
   uint32_t self;      /* the family whose fields are checked, or NO_FAMILY */
   uint32_t self_uses; /* the uses of that family in the current field */
+  const Term *at;     /* the term being checked, for the span of a failure */
 } Checker;
+
+/* The span of a failure: the term being checked, else the declaration.
+   A name gets its width; other terms get a point span. */
+static Span span_of(const Checker *c) {
+  const Decl *d = &c->decls->items[c->decl_index];
+  int line = c->at != NULL ? c->at->line : d->line;
+  int col = c->at != NULL ? c->at->col : d->col;
+  int width = c->at != NULL && c->at->kind == TERM_VAR ? utf8_width(c->at->name, strlen(c->at->name)) : 0;
+  return (Span){d->source, line, col, line, col + width};
+}
+
+/* The span of a use of NAME: the current term with the width of NAME. A
+   name at the head of an application is checked with the application as
+   the current term, and there span_of gives one point. */
+static Span span_named(const Checker *c, const char *name) {
+  Span s = span_of(c);
+  s.end_col = s.col + utf8_width(name, strlen(name));
+  return s;
+}
 
 typedef enum {
   RULE_TYPE0,
@@ -67,6 +88,7 @@ typedef enum {
   RULE_CONG,
   RULE_TRANSPORT,
   RULE_NAT2,
+  RULE_SUC,
   RULE_FLAG_IF
 } Rule;
 
@@ -80,43 +102,35 @@ typedef struct {
 } Builtin;
 
 static const Builtin BUILTINS[] = {
-  {"Nat", 0, RULE_TYPE0, OP_NAT, OP_NAT, 0},
-  {"Flag", 0, RULE_TYPE0, OP_FLAG, OP_NAT, 0},
+  {"ℕ", 0, RULE_TYPE0, OP_NAT, OP_NAT, 0},
+  {"Bool", 0, RULE_TYPE0, OP_FLAG, OP_NAT, 0},
   {"Unit", 0, RULE_TYPE0, OP_UNIT, OP_NAT, 0},
-  {"Prod", 2, RULE_TYPE2, OP_PROD, OP_NAT, 0},
-  {"Sum", 2, RULE_TYPE2, OP_SUM, OP_NAT, 0},
-  {"Option", 1, RULE_TYPE1, OP_OPTION, OP_NAT, 0},
-  {"List", 1, RULE_TYPE1, OP_LIST, OP_NAT, 0},
+  {"_×_", 2, RULE_TYPE2, OP_PROD, OP_NAT, 0},
+  {"Maybe", 1, RULE_TYPE1, OP_OPTION, OP_NAT, 0},
   {"Eq", 3, RULE_EQ, OP_EQ, OP_NAT, 0},
   {"unit", 0, RULE_VALUE0, OP_UNIT_VAL, OP_UNIT, 0},
-  {"flagYes", 0, RULE_VALUE0, OP_FLAG_YES, OP_FLAG, 0},
-  {"flagNo", 0, RULE_VALUE0, OP_FLAG_NO, OP_FLAG, 0},
+  {"true", 0, RULE_VALUE0, OP_FLAG_YES, OP_FLAG, 0},
+  {"false", 0, RULE_VALUE0, OP_FLAG_NO, OP_FLAG, 0},
   {"pair", 2, RULE_PAIR, OP_PAIR, OP_PROD, 0},
-  {"inl", 1, RULE_INJ, OP_INL, OP_SUM, 0},
-  {"inr", 1, RULE_INJ, OP_INR, OP_SUM, 1},
-  {"none", 0, RULE_EMPTY, OP_NONE, OP_OPTION, 0},
-  {"nil", 0, RULE_EMPTY, OP_NIL, OP_LIST, 0},
-  {"some", 1, RULE_SOME, OP_SOME, OP_OPTION, 0},
-  {"cons", 2, RULE_CONS, OP_CONS, OP_LIST, 0},
+  {"nothing", 0, RULE_EMPTY, OP_NONE, OP_OPTION, 0},
+  {"just", 1, RULE_SOME, OP_SOME, OP_OPTION, 0},
   {"pack", 2, RULE_PACK, OP_PACK, OP_NAT, 0},
   {"refl", 0, RULE_REFL, OP_REFL, OP_EQ, 0},
   {"first", 1, RULE_PART, OP_FIRST, OP_PROD, 0},
   {"second", 1, RULE_PART, OP_SECOND, OP_PROD, 1},
   {"witness", 1, RULE_SIGMA_PART, OP_WITNESS, OP_NAT, 0},
   {"payload", 1, RULE_SIGMA_PART, OP_PAYLOAD, OP_NAT, 1},
-  {"either", 3, RULE_EITHER, OP_EITHER, OP_SUM, 0},
   {"option", 3, RULE_OPTION, OP_OPTION_ELIM, OP_OPTION, 0},
   {"pure", 1, RULE_PURE, OP_PURE, OP_NAT, 0},
   {"map", 2, RULE_MAP, OP_MAP, OP_NAT, 0},
   {"bind", 2, RULE_BIND, OP_BIND, OP_NAT, 0},
-  {"filter", 2, RULE_FILTER, OP_FILTER, OP_NAT, 0},
   {"fold", 2, RULE_FOLD, OP_FOLD_NAT, OP_NAT, 0},
-  {"unfold", 3, RULE_UNFOLD, OP_UNFOLD, OP_LIST, 0},
   {"symm", 1, RULE_SYMM, OP_SYMM, OP_EQ, 0},
   {"trans", 2, RULE_TRANS, OP_TRANS, OP_EQ, 0},
   {"cong", 2, RULE_CONG, OP_CONG, OP_EQ, 0},
   {"transport", 3, RULE_TRANSPORT, OP_TRANSPORT, OP_EQ, 0},
   {"natAdd", 2, RULE_NAT2, OP_NAT_ADD, OP_NAT, 0},
+  {"suc", 1, RULE_SUC, OP_NAT_ADD, OP_NAT, 0},
   {"natSub", 2, RULE_NAT2, OP_NAT_SUB, OP_NAT, 0},
   {"natMul", 2, RULE_NAT2, OP_NAT_MUL, OP_NAT, 0},
   {"natEq", 2, RULE_NAT2, OP_NAT_EQ, OP_FLAG, 0},
@@ -127,7 +141,37 @@ static const Builtin BUILTINS[] = {
 #define BUILTIN_COUNT ((uint32_t)(sizeof BUILTINS / sizeof BUILTINS[0]))
 
 /* Names that no declaration can take (rule R4). */
-static const char *const RESERVED[] = {"Bool", "Text"};
+static const char *const RESERVED[] = {"Text"};
+
+/* Core names that S1 took out. A use gives CODE: REFUSE_CELL for the
+   cons form (rule R1), REFUSE_BASE for a name outside the design (rule R2). */
+typedef struct {
+  const char *name;
+  const char *code;
+  const char *why;
+} Refused;
+
+static const Refused REFUSED[] = {
+  {"List", "REFUSE_CELL", "List is a cons-form type, and only cell monads are type constructors (rule R1)"},
+  {"cons", "REFUSE_CELL", "cons builds a cons-form List, and only cell monads are type constructors (rule R1)"},
+  {"nil", "REFUSE_CELL", "nil is the empty cons-form List, and only cell monads are type constructors (rule R1)"},
+  {"unfold", "REFUSE_CELL", "unfold builds a cons-form List, and only cell monads are type constructors (rule R1)"},
+  {"Sum", "REFUSE_BASE", "Sum is not a base type of the design (rule R2)"},
+  {"inl", "REFUSE_BASE", "inl builds a Sum, and Sum is not a base type of the design (rule R2)"},
+  {"inr", "REFUSE_BASE", "inr builds a Sum, and Sum is not a base type of the design (rule R2)"},
+  {"either", "REFUSE_BASE", "either takes a Sum apart, and Sum is not a base type of the design (rule R2)"},
+  {"filter", "REFUSE_BASE", "filter is derived, not a base operation: bind m (λ x → flagIf (p x) (just x) nothing) (rule R2)"}
+};
+
+/* The refused row for NAME, or NULL. */
+static const Refused *refused(const char *name) {
+  size_t i;
+  for (i = 0; i < sizeof REFUSED / sizeof REFUSED[0]; i++) {
+    if (strcmp(REFUSED[i].name, name) == 0)
+      return &REFUSED[i];
+  }
+  return NULL;
+}
 
 typedef enum {
   HEAD_TERM, /* a local, a definition or another term: plain application */
@@ -334,12 +378,33 @@ static const Env *env_of(Checker *c, const Value *const *vals, uint32_t n) {
 static const Core *elab(Checker *c, const Term *t, const Value *hint, const Value **type);
 static const Core *check_lam(Checker *c, const Term *t, const Value *hint, const Value **type);
 
+static const Core *check_inside(Checker *c, const Term *t, const Value *want);
+static const Core *infer_inside(Checker *c, const Term *t, const Value **type);
+
+/* check and infer make T the failure point. A failure inside T keeps the
+   innermost point. A success gives the outer point back. */
 static const Core *check(Checker *c, const Term *t, const Value *want) {
+  const Term *outer = c->at;
+  c->at = t;
+  const Core *r = check_inside(c, t, want);
+  c->at = r != NULL ? outer : c->at;
+  return r;
+}
+
+static const Core *infer(Checker *c, const Term *t, const Value **type) {
+  const Term *outer = c->at;
+  c->at = t;
+  const Core *r = infer_inside(c, t, type);
+  c->at = r != NULL ? outer : c->at;
+  return r;
+}
+
+static const Core *check_inside(Checker *c, const Term *t, const Value *want) {
   const Value *type = NULL;
   return want == NULL ? NULL : elab(c, t, want, &type);
 }
 
-static const Core *infer(Checker *c, const Term *t, const Value **type) {
+static const Core *infer_inside(Checker *c, const Term *t, const Value **type) {
   *type = NULL;
   return elab(c, t, NULL, type);
 }
@@ -452,7 +517,7 @@ static const Core *need_type(Call *k, const char *what) {
 }
 
 static const Core *not_carrier(Call *k, const Value *type) {
-  return nul(FAIL(k->c, "TYPE_MISMATCH", "%s needs a value of type Option A, List A or Sum E A, found a term of type %s", k->b->name, show(k->c, type)));
+  return nul(FAIL(k->c, "TYPE_MISMATCH", "%s needs a value of type Maybe A or List A, found a term of type %s", k->b->name, show(k->c, type)));
 }
 
 static const Core *infer_eq(Call *k, uint32_t i, const Value **type) {
@@ -508,7 +573,7 @@ static const Core *rule_inj(Call *k) {
 
 static const Core *rule_empty(Call *k) {
   if (!val_is(k->hint, k->b->result))
-    return need_type(k, k->b->result == OP_OPTION ? "Option A" : "List A");
+    return need_type(k, k->b->result == OP_OPTION ? "Maybe A" : "List A");
   k->type = k->hint;
   return op3(k->c, k->b->op, 0, 0, NULL, NULL, NULL);
 }
@@ -610,7 +675,7 @@ static const Core *rule_option(Call *k) {
   if (o == NULL)
     return NULL;
   if (!val_is(ot, OP_OPTION))
-    return nul(FAIL(c, "TYPE_MISMATCH", "option needs a value of type Option A, found a term of type %s", show(c, ot)));
+    return nul(FAIL(c, "TYPE_MISMATCH", "option needs a value of type Maybe A, found a term of type %s", show(c, ot)));
   z = res != NULL ? check(c, k->args[0], res) : infer(c, k->args[0], &res);
   f = z == NULL ? NULL : check(c, k->args[1], val_arrow(c->m, ot->args[0], res));
   k->type = res;
@@ -621,7 +686,7 @@ static const Core *rule_pure(Call *k) {
   Carrier carrier = CARRIER_OPTION;
   const Value *a = NULL;
   if (!carrier_of(k->hint, &carrier, &a))
-    return need_type(k, "Option A, List A or Sum E A");
+    return need_type(k, "Maybe A or List A");
   k->type = k->hint;
   return op3(k->c, OP_PURE, carrier, 1, check(k->c, k->args[0], a), NULL, NULL);
 }
@@ -764,10 +829,11 @@ static const Core *rule_fold(Call *k) {
     return fold_simple(k, s, st);
   }
   s = infer(c, k->args[k->argc - 1u], &st);
-  return s == NULL ? NULL : nul(FAIL(c, "TYPE_MISMATCH", "fold needs a last argument of type Nat, List A or a domain family, and one case for each constructor; found %u arguments and a last argument of type %s", k->argc, show(c, st)));
+  return s == NULL ? NULL : nul(FAIL(c, "TYPE_MISMATCH", "fold needs a last argument of type ℕ, List A or a domain family, and one case for each constructor; found %u arguments and a last argument of type %s", k->argc, show(c, st)));
 }
 
-/* unfold g limit seed, with g : S -> Option (Prod A S). */
+/* unfold g limit seed, with g : S → Maybe (A × S). S1 refuses unfold
+   (REFUSE_CELL), so no BUILTINS row reaches this rule. */
 static const Core *rule_unfold(Call *k) {
   Checker *c = k->c;
   const Value *st = NULL;
@@ -853,6 +919,15 @@ static const Core *rule_nat2(Call *k) {
   return op3(c, k->b->op, 0, 2, x, y, NULL);
 }
 
+/* suc n: natAdd n 1 */
+static const Core *rule_suc(Call *k) {
+  Checker *c = k->c;
+  const Core *x = check(c, k->args[0], nat_type(c));
+  const Core *one = x == NULL ? NULL : core_leaf(c, CORE_NAT, 1u);
+  k->type = tyop(c, k->b->result, 0, NULL, NULL, NULL);
+  return op3(c, k->b->op, 0, 2, x, one, NULL);
+}
+
 /* flagIf b yes no */
 static const Core *rule_flag_if(Call *k) {
   Checker *c = k->c;
@@ -922,6 +997,8 @@ static const Core *rule(Call *k) {
     return rule_transport(k);
   case RULE_NAT2:
     return rule_nat2(k);
+  case RULE_SUC:
+    return rule_suc(k);
   case RULE_FLAG_IF:
     return rule_flag_if(k);
   }
@@ -1031,15 +1108,21 @@ static int find_known(Checker *c, const char *name, Head *h) {
   return 0;
 }
 
+/* NAME_UNKNOWN, or the refusal when S1 took NAME out of the core. */
+static int no_name(Checker *c, const char *name) {
+  const Refused *r = refused(name);
+  return r != NULL ? FAIL_NAME(c, name, r->code, "%s", r->why) : FAIL_NAME(c, name, "NAME_UNKNOWN", "unknown name %s", name);
+}
+
 /* An unknown name. When it names this declaration or a later one, the use
    is recursion (rule R3). */
 static int unknown_name(Checker *c, const char *name) {
   size_t i;
   for (i = c->decl_index; i < c->decls->count; i++) {
     if (strcmp(c->decls->items[i].name, name) == 0)
-      return FAIL(c, "REFUSE_REC", "%s is this definition or a later one; a definition can use only earlier ones (rule R3)", name);
+      return FAIL_NAME(c, name, "REFUSE_REC", "%s is this definition or a later one; a definition can use only earlier ones (rule R3)", name);
   }
-  return FAIL(c, "NAME_UNKNOWN", "unknown name %s", name);
+  return no_name(c, name);
 }
 
 /* Name resolution order: locals (the innermost first), definitions,
@@ -1149,7 +1232,7 @@ static const Core *var_core(Checker *c, const char *name, const Value **type) {
     *type = c->m->defs[d].type;
     return core_index(c, CORE_GLOBAL, d);
   }
-  return nul(FAIL(c, "NAME_UNKNOWN", "unknown name %s", name));
+  return nul(no_name(c, name));
 }
 
 static const Core *apply_term(Checker *c, const Term *head, const Term *const *args, uint32_t argc, const Value *hint, const Value **type) {
@@ -1229,7 +1312,7 @@ static const Core *infer_lam(Checker *c, const Term *t, const Value **type) {
   const Core *body;
   const Core *quoted;
   if (t->left == NULL)
-    return nul(FAIL(c, "TYPE_INFER", "fun %s => ... needs a binder type here", t->name));
+    return nul(FAIL(c, "TYPE_INFER", "λ %s → ... needs a binder type here", t->name));
   dom = here(c, check_type(c, t->left, &level));
   if (!push(c, t->name, dom))
     return NULL;
@@ -1270,7 +1353,7 @@ static const Core *elab_inner(Checker *c, const Term *t, const Value *hint, cons
     return elab_binder(c, t, CORE_SIGMA, hint, type);
   case TERM_UNIV:
     if (t->nat >= UNIVERSE_MAX)
-      return nul(FAIL(c, "TYPE_UNIVERSE", "Type %llu is above the largest universe Type %u", (unsigned long long)t->nat, UNIVERSE_MAX - 1u));
+      return nul(FAIL(c, "TYPE_UNIVERSE", "the universe level %llu is above the largest level %u", (unsigned long long)t->nat, UNIVERSE_MAX - 1u));
     *type = val_univ(c->m, t->nat + 1u);
     return finish(c, core_leaf(c, CORE_UNIV, t->nat), hint, type);
   }
@@ -1423,11 +1506,11 @@ static int check_def(Checker *c, const Decl *d) {
 
 static int check_decl(Checker *c, const Decl *d) {
   if (d->kind == DECL_FAMILY && d->origin == ORIGIN_PROGRAM)
-    return FAIL(c, "REFUSE_DATA", "a program cannot declare a family (rule R1); only domain/domain.lang can");
+    return FAIL(c, "REFUSE_DATA", "a program cannot declare a data type (rule R1); only domain/domain.lang can");
   if (d->kind == DECL_AXIOM)
-    return FAIL(c, "REFUSE_AXIOM", "an axiom has no proof (rule R2)");
+    return FAIL(c, "REFUSE_AXIOM", "a postulate has no proof (rule R2)");
   if (d->is_rec)
-    return FAIL(c, "REFUSE_REC", "def rec is refused (rule R3); use fold or unfold");
+    return FAIL(c, "REFUSE_REC", "%s names itself, and a definition cannot recur (rule R3); use fold", d->name);
   if (!name_free(c, d->name))
     return 0;
   return d->kind == DECL_FAMILY ? check_family(c, d) : check_def(c, d);
@@ -1462,8 +1545,10 @@ int check_program(Arena *arena, const DeclList *decls, Machine *m, Diag *diag) {
     c.depth = 0;
     c.self = NO_FAMILY;
     m->def = decls->items[i].name;
+    c.at = NULL;
     if (!check_decl(&c, &decls->items[i]))
       return 0;
+    m->typed += decls->items[i].origin == ORIGIN_PROGRAM;
   }
   m->def = NULL;
   return 1;
@@ -1498,11 +1583,11 @@ static int parse_u64(const char *s, uint64_t *out) {
   return 1;
 }
 
-/* An entry argument: a Nat in decimal, or a Flag as 0 or 1. */
+/* An entry argument: a ℕ in decimal, or a Bool as 0 or 1. */
 static const Value *entry_arg(Machine *m, const char *text, int is_flag) {
   uint64_t n = 0;
   if (!parse_u64(text, &n) || (is_flag && n > 1u)) {
-    diag_fail(m->diag, "EVAL_ARGS", m->def, "'%s' is not a %s", text, is_flag ? "Flag (0 or 1)" : "Nat (0 to 2^64-1)");
+    diag_fail(m->diag, "EVAL_ARGS", m->def, "'%s' is not a %s", text, is_flag ? "Bool (0 or 1)" : "ℕ (0 to 2^64-1)");
     return NULL;
   }
   return is_flag ? val_make(m, n == 1u ? OP_FLAG_YES : OP_FLAG_NO, 0, 0, NULL, NULL, NULL) : val_nat(m, n);
@@ -1515,7 +1600,7 @@ static int print_result(Machine *m, const char *name, const Value *v, FILE *out,
     return 0;
   case VAL_TRAP:
     fputs("trap\n", out);
-    fprintf(err, "langc: EVAL_OVERFLOW: %s: a Nat operation overflowed past 2^64-1\n", name);
+    fprintf(err, "langc: EVAL_OVERFLOW: %s: a ℕ operation overflowed past 2^64-1\n", name);
     return 0;
   case VAL_OP:
     if (val_is(v, OP_FLAG_YES) || val_is(v, OP_FLAG_NO)) {

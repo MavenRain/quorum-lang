@@ -1,0 +1,2 @@
+bad : ℕ
+bad = either 1 2 3

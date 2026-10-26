@@ -1,0 +1,2 @@
+{"code":"REFUSE_CELL","span":{"file":"test/json/REFUSE_CELL.lang","line":2,"col":7,"endLine":2,"endCol":13},"expected":null,"found":null,"fix":null,"retry":false,"message":"unfold builds a cons-form List, and only cell monads are type constructors (rule R1)"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

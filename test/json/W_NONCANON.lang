@@ -1,0 +1,5 @@
+one : ℕ
+one = 1
+
+keep : ℕ -> ℕ
+keep = \ x → x

@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/json/W_NONCANON.lang","line":4,"col":10,"endLine":6,"endCol":1},"expected":"keep : ℕ → ℕ","found":"keep : ℕ -> ℕ","fix":"one : ℕ\none = 1\n\nkeep : ℕ → ℕ\nkeep x = x\n","retry":true,"message":"test/json/W_NONCANON.lang:4:10: the text is not in the canonical form; langc fmt test/json/W_NONCANON.lang prints it"}
+{"parsed":2,"typed":2,"laws":{"discharged":0,"total":0}}

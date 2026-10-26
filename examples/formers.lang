@@ -1,14 +1,15 @@
--- Formers F1 to F4: products, sums, options and lists.
-def price : Nat := 1200
-def both : Prod Nat Flag := pair price flagYes
-def left : Nat := first both
-def right : Flag := second both
-def size : (n : Nat) -> Nat := fun (n : Nat) => natAdd n 1
-def count : (n : Nat) -> Nat := fun (n : Nat) => n
-def choice : Sum Nat Nat := inr 5
-def picked : Nat := either size count choice
-def nothing : Option Nat := none
-def something : Option Nat := some 7
-def orZero : (o : Option Nat) -> Nat := fun (o : Option Nat) => option 0 (fun (n : Nat) => n) o
-def xs : List Nat := cons 1 (cons 2 (cons 3 nil))
-def empty : List Nat := nil
+-- Formers F1 and F3: products and Maybe. S1 refuses Sum (F2) and List (F4).
+price : ℕ
+price = 1200
+both : ℕ × Bool
+both = pair price true
+left : ℕ
+left = first both
+right : Bool
+right = second both
+absent : Maybe ℕ
+absent = nothing
+present : Maybe ℕ
+present = just 7
+orZero : Maybe ℕ → ℕ
+orZero o = option 0 (λ (n : ℕ) → n) o

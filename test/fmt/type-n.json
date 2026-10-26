@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/fmt/type-n.lang","line":1,"col":12,"endLine":3,"endCol":1},"expected":"Endo : Type₁","found":"Endo : Type 1","fix":"Endo : Type₁\nEndo = (A : Type) → A → A\n","retry":true,"message":"test/fmt/type-n.lang:1:12: the text is not in the canonical form; langc fmt test/fmt/type-n.lang prints it"}
+{"parsed":1,"typed":1,"laws":{"discharged":0,"total":0}}

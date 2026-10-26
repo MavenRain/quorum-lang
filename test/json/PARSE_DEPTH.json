@@ -1,0 +1,2 @@
+{"code":"PARSE_DEPTH","span":{"file":"test/json/PARSE_DEPTH.lang","line":2,"col":1008,"endLine":2,"endCol":1008},"expected":null,"found":null,"fix":null,"retry":true,"message":"test/json/PARSE_DEPTH.lang:2:1008: terms nest deeper than 1000 levels"}
+{"parsed":0,"typed":0,"laws":{"discharged":0,"total":0}}

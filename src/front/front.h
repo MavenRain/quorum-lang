@@ -13,4 +13,7 @@ extern const size_t domain_source_len;
 /* Parses the embedded domain file, then the program, into one list. */
 int front_load(Arena *arena, const char *source, const char *text, size_t len, DeclList *out, Diag *diag);
 
+/* Parses one file alone, without the domain file. `langc fmt` uses it. */
+int front_parse_one(Arena *arena, const char *source, const char *text, size_t len, TokenList *toks, DeclList *out, Diag *diag);
+
 #endif

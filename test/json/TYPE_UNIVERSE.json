@@ -1,0 +1,2 @@
+{"code":"TYPE_UNIVERSE","span":{"file":"test/json/TYPE_UNIVERSE.lang","line":1,"col":7,"endLine":1,"endCol":7},"expected":null,"found":null,"fix":null,"retry":true,"message":"the universe level 64 is above the largest level 1"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

@@ -1,0 +1,2 @@
+{"code":"TYPE_INFER","span":{"file":"test/json/TYPE_INFER.lang","line":2,"col":21,"endLine":2,"endCol":28},"expected":null,"found":null,"fix":null,"retry":true,"message":"nothing needs a declared type Maybe A here"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

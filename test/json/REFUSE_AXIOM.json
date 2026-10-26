@@ -1,0 +1,2 @@
+{"code":"REFUSE_AXIOM","span":{"file":"test/json/REFUSE_AXIOM.lang","line":1,"col":1,"endLine":1,"endCol":1},"expected":null,"found":null,"fix":null,"retry":false,"message":"a postulate has no proof (rule R2)"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}
