@@ -1,0 +1,302 @@
+-- The S4 design file (PLAN sec 9 S4 row): design/ThresholdVC/Design.agda
+-- secs 1 to 6 at the denotation, then a closed toy instance. The Claude
+-- readings (PLAN sec 10, not ruled):
+-- O57: Reach is a chain of n steps from genesis, made by a large elim on ℕ.
+-- A data type over the telescope is not a cell signature (rule R1), and S3
+-- has no fold over an indexed family (O31). Descent is a chain of the same
+-- kind.
+-- O58: the section Design has the 22 telescope parameters (secs 2 to 4).
+-- The section Authority has the 22 parameters and 5 more (secs 5 and 6).
+-- O59: a section holds no record (O35), so Step and Replica are at the top
+-- level and take only the parameters that their fields use.
+-- O60: there are no imports (O43). This file keeps a copy of the Prelude
+-- definitions that it uses, and of NatSet and FMSet from examples/bag.lang.
+-- The ℕ comparator is in the section NatSet (O55), so it is not a Wasm entry.
+-- O62: `⟦ e ⟧ᵉ` gives NAME_UNKNOWN, so the edit map is `apply` and the
+-- meaning map of a replica is `denote`.
+-- O63: there are no implicit arguments (O41). Each argument is explicit.
+sym : (A : Type) → (x : A) → (y : A) → x ≡ y → y ≡ x
+sym A x y p i = p (~ i)
+
+cong : (A : Type) → (B : Type) → (f : A → B) → (x : A) → (y : A) → x ≡ y → f x ≡ f y
+cong A B f x y p i = f (p i)
+
+_∙_ : (A : Type) → (x : A) → (y : A) → (z : A) → x ≡ y → y ≡ z → x ≡ z
+_∙_ A x y z p q i = primHComp (λ j → λ { (i = i0) → x ; (i = i1) → q j }) (p i)
+
+isProp : Type → Type
+isProp A = (x : A) → (y : A) → x ≡ y
+
+isSet : Type → Type
+isSet A = (x : A) → (y : A) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q
+
+data ∥_∥₁ (A : Type) : Type where
+  ∣_∣₁ : (a : A) → ∥_∥₁ A
+  squash₁ : (x : ∥ A ∥₁) → (y : ∥ A ∥₁) → x ≡ y
+
+rec₁ : (A : Type) → (B : Type) → isProp B → (A → B) → ∥ A ∥₁ → B
+rec₁ A B pr f x = fold f pr x
+
+∃ : (A : Type) → (A → Type) → Type
+∃ A B = ∥ Σ A (λ x → B x) ∥₁
+
+squash : (A : Type) → isProp ∥ A ∥₁
+squash A x y = squash₁ A x y
+
+absurd : false ≡ true → (C : Type) → C
+absurd p C = primTransp (λ i → elim (λ (b : Bool) → Type) C ℕ (p i)) i0 0
+
+Sound : (A : Type) → (A → A → Bool) → Type
+Sound A eq = (x : A) → (y : A) → eq x y ≡ true → x ≡ y
+
+Reflexive : (A : Type) → (A → A → Bool) → Type
+Reflexive A eq = (x : A) → eq x x ≡ true
+
+collapseAt : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → (a : A) → (x : A) → a ≡ x → (c : Bool) → eq a x ≡ c → a ≡ x
+collapseAt A eq sound rfl a x p c h = elim (λ (d : Bool) → eq a x ≡ d → a ≡ x) (λ (g : eq a x ≡ true) → sound a x g) (λ (g : eq a x ≡ false) → p) c h
+
+collapse : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → (a : A) → (x : A) → a ≡ x → a ≡ x
+collapse A eq sound rfl a x p = collapseAt A eq sound rfl a x p (eq a x) refl
+
+collapseConst : (A : Type) → (eq : A → A → Bool) → (sound : Sound A eq) → (rfl : Reflexive A eq) → (a : A) → (x : A) → (p : a ≡ x) → (q : a ≡ x) → collapse A eq sound rfl a x p ≡ collapse A eq sound rfl a x q
+collapseConst A eq sound rfl a x p q = elim (λ (c : Bool) → (h : eq a x ≡ c) → collapseAt A eq sound rfl a x p c h ≡ collapseAt A eq sound rfl a x q c h) (λ (h : eq a x ≡ true) → refl) (λ (h : eq a x ≡ false) → absurd (_∙_ Bool false (eq a x) true (sym Bool (eq a x) false h) (_∙_ Bool (eq a x) (eq a a) true (cong A Bool (λ (y : A) → eq a y) x a (sym A a x p)) (rfl a))) (p ≡ q)) (eq a x) refl
+
+discreteIsSet : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → isSet A
+discreteIsSet A eq sound rfl a b p q j i = primHComp (λ k → λ { (i = i0) → collapse A eq sound rfl a a (λ (l : I) → a) k ; (i = i1) → collapseConst A eq sound rfl a b p q j k ; (j = i0) → collapse A eq sound rfl a (p i) (λ (l : I) → p (l ∧ i)) k ; (j = i1) → collapse A eq sound rfl a (q i) (λ (l : I) → q (l ∧ i)) k }) a
+
+module NatSet (X : Type) where
+  eqℕ : ℕ → ℕ → Bool
+  eqℕ u v = elim (λ (k : ℕ) → ℕ → Bool) (λ (j : ℕ) → elim (λ (i : ℕ) → Bool) true (λ (i : ℕ) (r : Bool) → false) j) (λ (k : ℕ) (ih : ℕ → Bool) (j : ℕ) → elim (λ (i : ℕ) → Bool) false (λ (i : ℕ) (r : Bool) → ih i) j) u v
+  reflℕ : (n : ℕ) → eqℕ n n ≡ true
+  reflℕ n = elim (λ (k : ℕ) → eqℕ k k ≡ true) refl (λ (k : ℕ) (ih : eqℕ k k ≡ true) → ih) n
+  soundℕ : (u : ℕ) → (v : ℕ) → eqℕ u v ≡ true → u ≡ v
+  soundℕ u v = elim (λ (k : ℕ) → (j : ℕ) → eqℕ k j ≡ true → k ≡ j) (λ (j : ℕ) → elim (λ (i : ℕ) → eqℕ 0 i ≡ true → 0 ≡ i) (λ (h : eqℕ 0 0 ≡ true) → refl) (λ (i : ℕ) (r : eqℕ 0 i ≡ true → 0 ≡ i) (h : eqℕ 0 (suc i) ≡ true) → absurd h (0 ≡ suc i)) j) (λ (k : ℕ) (ih : (j : ℕ) → eqℕ k j ≡ true → k ≡ j) (j : ℕ) → elim (λ (i : ℕ) → eqℕ (suc k) i ≡ true → suc k ≡ i) (λ (h : eqℕ (suc k) 0 ≡ true) → absurd h (suc k ≡ 0)) (λ (i : ℕ) (r : eqℕ (suc k) i ≡ true → suc k ≡ i) (h : eqℕ (suc k) (suc i) ≡ true) → cong ℕ ℕ (λ (l : ℕ) → suc l) k i (ih i h)) j) u v
+  isSetℕ : isSet ℕ
+  isSetℕ = discreteIsSet ℕ eqℕ soundℕ reflℕ
+
+data FMSet (A : Type) : Type where
+  eta : (el : A) → FMSet A
+  [] : FMSet A
+  m : (l₁ : FMSet A) → (r₁ : FMSet A) → FMSet A
+  munit : (s₂ : FMSet A) → m A ([] A) s₂ ≡ s₂
+  massoc : (s₃ : FMSet A) → (t₃ : FMSet A) → (u₃ : FMSet A) → m A (m A s₃ t₃) u₃ ≡ m A s₃ (m A t₃ u₃)
+  mcomm : (s₄ : FMSet A) → (t₄ : FMSet A) → m A s₄ t₄ ≡ m A t₄ s₄
+  trunc : (s₅ : FMSet A) → (t₅ : FMSet A) → (p₅ : s₅ ≡ t₅) → (q₅ : s₅ ≡ t₅) → p₅ ≡ q₅
+
+-- Sec 3: one governance step (Q2: a record). The rules of the source state
+-- choose the edit from a bag of ballots. The step must keep Core.
+record Step (State : Type) (Agenda : Type) (Ballot : Type) (Edit : Type) (rules : State → Agenda → FMSet Ballot → Maybe Edit) (apply : Edit → State → State) (Core : State → Type) (σ : State) (τ : State) : Type where
+  agenda : Agenda
+  bag : FMSet Ballot
+  edit : Edit
+  chosen : rules σ agenda bag ≡ just edit
+  lands : apply edit σ ≡ τ
+  keeps : Core σ → Core τ
+
+-- Secs 2 to 4. A Policy is what a constitution means: its input is a bag, so
+-- it ignores ballot order. Reach σ is a rooted path of steps (O57), and
+-- Legit σ is its truncation: a client knows only that σ descends from
+-- genesis. The two laws reach-core and legit-core close sec 4.
+module Design (Artifact : Type) (Ballot : Type) (Agenda : Type) (Edit : Type) (Member : Type) (Committee : Type) (Quorum : Committee → Type) (_∈_ : (c : Committee) → Member → Quorum c → Type) (Circuit : Type → Type → Type) (run : (A : Type) → (B : Type) → Circuit A B → A → B) (State : Type) (isSetState : isSet State) (height : State → ℕ) (artifact : State → Artifact) (committee : State → Committee) (constitution : State → Agenda → Circuit (FMSet Ballot) (Maybe Edit)) (apply : Edit → State → State) (advance : (e : Edit) → (σ : State) → height (apply e σ) ≡ suc (height σ)) (genesis : State) (Core : State → Type) (isPropCore : (σ : State) → isProp (Core σ)) (core₀ : Core genesis) where
+  Policy : Type
+  Policy = Agenda → FMSet Ballot → Maybe Edit
+  rules : State → Policy
+  rules σ a = run (FMSet Ballot) (Maybe Edit) (constitution σ a)
+  StepD : State → State → Type
+  StepD σ τ = Step State Agenda Ballot Edit rules apply Core σ τ
+  step : (σ : State) → (τ : State) → (a : Agenda) → (b : FMSet Ballot) → (e : Edit) → rules σ a b ≡ just e → apply e σ ≡ τ → (Core σ → Core τ) → StepD σ τ
+  step σ τ a b e c l k = a , b , e , c , l , k
+  Chain : ℕ → State → Type
+  Chain n = elim (λ (k : ℕ) → State → Type) (λ (σ : State) → genesis ≡ σ) (λ (k : ℕ) (ih : State → Type) (σ : State) → Σ State (λ τ → ih τ × StepD τ σ)) n
+  Reach : State → Type
+  Reach σ = Σ ℕ (λ n → Chain n σ)
+  root : Reach genesis
+  root = 0 , refl
+  _▸_ : (σ : State) → (τ : State) → Reach σ → StepD σ τ → Reach τ
+  _▸_ σ τ h s = suc (fst h) , σ , snd h , s
+  Legit : State → Type
+  Legit σ = ∥ Reach σ ∥₁
+  chain-core : (n : ℕ) → (σ : State) → Chain n σ → Core σ
+  chain-core n = elim (λ (k : ℕ) → (σ : State) → Chain k σ → Core σ) (λ (σ : State) (p : genesis ≡ σ) → primTransp (λ i → Core (p i)) i0 core₀) (λ (k : ℕ) (ih : (σ : State) → Chain k σ → Core σ) (σ : State) (h : Chain (suc k) σ) → keeps State Agenda Ballot Edit rules apply Core (fst h) σ (snd (snd h)) (ih (fst h) (fst (snd h)))) n
+  law reach-core : (σ : State) → Reach σ → Core σ
+  reach-core σ h = chain-core (fst h) σ (snd h)
+  law legit-core : (σ : State) → Legit σ → Core σ
+  legit-core σ = rec₁ (Reach σ) (Core σ) (isPropCore σ) (reach-core σ)
+
+-- Sec 6: a replica (O59). Its meaning is a tip: a state with a certified
+-- descent from genesis. The map denote is a join-semilattice morphism, so
+-- merge means the join of tips. Le is the descent order of the section
+-- Authority.
+record Replica (State : Type) (genesis : State) (Le : State → State → Type) : Type₁ where
+  Rep : Type
+  none : Rep
+  merge : Rep → Rep → Rep
+  denote : Rep → Σ State (λ σ → Le genesis σ)
+  denote-none : fst (denote none) ≡ genesis
+  denote-mergeˡ : (r : Rep) → (s : Rep) → Le (fst (denote r)) (fst (denote (merge r s)))
+  denote-mergeʳ : (r : Rep) → (s : Rep) → Le (fst (denote s)) (fst (denote (merge r s)))
+  denote-mergeᵘ : (r : Rep) → (s : Rep) → (τ : State) → Le (fst (denote r)) τ → Le (fst (denote s)) τ → Le (fst (denote (merge r s))) τ
+
+-- Secs 5 and 6. A certificate on a step means that each member of some
+-- quorum of the source committee endorsed the step. Two quorums of one
+-- committee share an honest member (honest-meet). An honest member endorses
+-- only a real step (faithful) and at most one successor of a state (single).
+-- Descent is a chain of certified steps (O57), so signature checks alone
+-- give Legit and Core. Two tips are in the descent order, one before the other
+-- (O3, O66: tip-order). The proof is by induction on the length of one chain:
+-- no-fork joins its last step to the first step of the other chain.
+module Authority (Artifact : Type) (Ballot : Type) (Agenda : Type) (Edit : Type) (Member : Type) (Committee : Type) (Quorum : Committee → Type) (_∈_ : (c : Committee) → Member → Quorum c → Type) (Circuit : Type → Type → Type) (run : (A : Type) → (B : Type) → Circuit A B → A → B) (State : Type) (isSetState : isSet State) (height : State → ℕ) (artifact : State → Artifact) (committee : State → Committee) (constitution : State → Agenda → Circuit (FMSet Ballot) (Maybe Edit)) (apply : Edit → State → State) (advance : (e : Edit) → (σ : State) → height (apply e σ) ≡ suc (height σ)) (genesis : State) (Core : State → Type) (isPropCore : (σ : State) → isProp (Core σ)) (core₀ : Core genesis) (Honest : Member → Type) (Endorses : Member → State → State → Type) (honest-meet : (c : Committee) → (q : Quorum c) → (r : Quorum c) → ∃[ i ꞉ Member ] _∈_ c i q × _∈_ c i r × Honest i) (faithful : (i : Member) → (σ : State) → (τ : State) → Honest i → Endorses i σ τ → ∥ StepD Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀ σ τ ∥₁) (single : (i : Member) → (σ : State) → (a : State) → (b : State) → Honest i → Endorses i σ a → Endorses i σ b → a ≡ b) where
+  StepA : State → State → Type
+  StepA σ τ = StepD Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀ σ τ
+  ReachA : State → Type
+  ReachA σ = Reach Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀ σ
+  LegitA : State → Type
+  LegitA σ = Legit Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀ σ
+  rootA : ReachA genesis
+  rootA = root Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀
+  snocA : (σ : State) → (τ : State) → ReachA σ → StepA σ τ → ReachA τ
+  snocA = _▸_ Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀
+  legit-coreA : (σ : State) → LegitA σ → Core σ
+  legit-coreA = legit-core Artifact Ballot Agenda Edit Member Committee Quorum _∈_ Circuit run State isSetState height artifact committee constitution apply advance genesis Core isPropCore core₀
+  Cert : (σ : State) → State → Quorum (committee σ) → Type
+  Cert σ τ q = (i : Member) → _∈_ (committee σ) i q → Endorses i σ τ
+  Signed : State → State → Type
+  Signed σ τ = Σ (Quorum (committee σ)) (λ q → Cert σ τ q)
+  Authorized : State → State → Type
+  Authorized σ τ = ∃[ q ꞉ Quorum (committee σ) ] Cert σ τ q
+  Meet : (c : Committee) → Quorum c → Quorum c → Type
+  Meet c q r = Σ Member (λ i → _∈_ c i q × _∈_ c i r × Honest i)
+  HonestIn : (c : Committee) → Quorum c → Type
+  HonestIn c q = Σ Member (λ i → _∈_ c i q × Honest i)
+  honest-pick : (c : Committee) → (q : Quorum c) → Meet c q q → HonestIn c q
+  honest-pick c q w = fst w , fst (snd w) , snd (snd (snd w))
+  law honest-in : (c : Committee) → (q : Quorum c) → ∃[ i ꞉ Member ] _∈_ c i q × Honest i
+  honest-in c q = rec₁ (Meet c q q) (∃[ i ꞉ Member ] _∈_ c i q × Honest i) (squash (HonestIn c q)) (λ (w : Meet c q q) → ∣_∣₁ (HonestIn c q) (honest-pick c q w)) (honest-meet c q q)
+  sound-q : (σ : State) → (τ : State) → (u : Signed σ τ) → HonestIn (committee σ) (fst u) → ∥ StepA σ τ ∥₁
+  sound-q σ τ u g = faithful (fst g) σ τ (snd (snd g)) (snd u (fst g) (fst (snd g)))
+  sound-s : (σ : State) → (τ : State) → Signed σ τ → ∥ StepA σ τ ∥₁
+  sound-s σ τ u = rec₁ (HonestIn (committee σ) (fst u)) ∥ StepA σ τ ∥₁ (squash (StepA σ τ)) (sound-q σ τ u) (honest-in (committee σ) (fst u))
+  law sound : (σ : State) → (τ : State) → Authorized σ τ → ∥ StepA σ τ ∥₁
+  sound σ τ = rec₁ (Signed σ τ) ∥ StepA σ τ ∥₁ (squash (StepA σ τ)) (sound-s σ τ)
+  fork-meet : (σ : State) → (a : State) → (b : State) → (u : Signed σ a) → (v : Signed σ b) → Meet (committee σ) (fst u) (fst v) → a ≡ b
+  fork-meet σ a b u v w = single (fst w) σ a b (snd (snd (snd w))) (snd u (fst w) (fst (snd w))) (snd v (fst w) (fst (snd (snd w))))
+  fork-v : (σ : State) → (a : State) → (b : State) → (u : Signed σ a) → Signed σ b → a ≡ b
+  fork-v σ a b u v = rec₁ (Meet (committee σ) (fst u) (fst v)) (a ≡ b) (isSetState a b) (fork-meet σ a b u v) (honest-meet (committee σ) (fst u) (fst v))
+  fork-u : (σ : State) → (a : State) → (b : State) → Authorized σ b → Signed σ a → a ≡ b
+  fork-u σ a b y u = rec₁ (Signed σ b) (a ≡ b) (isSetState a b) (fork-v σ a b u) y
+  law no-fork : (σ : State) → (a : State) → (b : State) → Authorized σ a → Authorized σ b → a ≡ b
+  no-fork σ a b x y = rec₁ (Signed σ a) (a ≡ b) (isSetState a b) (fork-u σ a b y) x
+  Desc : State → ℕ → State → Type
+  Desc σ n = elim (λ (k : ℕ) → State → Type) (λ (τ : State) → σ ≡ τ) (λ (k : ℕ) (ih : State → Type) (τ : State) → Σ State (λ ρ → ih ρ × Authorized ρ τ)) n
+  _⊑_ : State → State → Type
+  _⊑_ σ τ = Σ ℕ (λ n → Desc σ n τ)
+  here : (σ : State) → _⊑_ σ σ
+  here σ = 0 , refl
+  _⊳_ : (σ : State) → (τ : State) → (ρ : State) → _⊑_ σ τ → Authorized τ ρ → _⊑_ σ ρ
+  _⊳_ σ τ ρ h a = suc (fst h) , τ , snd h , a
+  legit-snoc : (ρ : State) → (σ : State) → Authorized ρ σ → ReachA ρ → LegitA σ
+  legit-snoc ρ σ a h = rec₁ (StepA ρ σ) (LegitA σ) (squash (ReachA σ)) (λ (s : StepA ρ σ) → ∣_∣₁ (ReachA σ) (snocA ρ σ h s)) (sound ρ σ a)
+  legit-step : (ρ : State) → (σ : State) → LegitA ρ → Authorized ρ σ → LegitA σ
+  legit-step ρ σ l a = rec₁ (ReachA ρ) (LegitA σ) (squash (ReachA σ)) (legit-snoc ρ σ a) l
+  desc-legit : (n : ℕ) → (σ : State) → Desc genesis n σ → LegitA σ
+  desc-legit n = elim (λ (k : ℕ) → (σ : State) → Desc genesis k σ → LegitA σ) (λ (σ : State) (p : genesis ≡ σ) → primTransp (λ i → LegitA (p i)) i0 (∣_∣₁ (ReachA genesis) rootA)) (λ (k : ℕ) (ih : (σ : State) → Desc genesis k σ → LegitA σ) (σ : State) (h : Desc genesis (suc k) σ) → legit-step (fst h) σ (ih (fst h) (fst (snd h))) (snd (snd h))) n
+  law certified-legit : (σ : State) → _⊑_ genesis σ → LegitA σ
+  certified-legit σ c = desc-legit (fst c) σ (snd c)
+  law certified-core : (σ : State) → _⊑_ genesis σ → Core σ
+  certified-core σ c = legit-coreA σ (certified-legit σ c)
+  Tip : Type
+  Tip = Σ State (λ σ → _⊑_ genesis σ)
+  ReplicaA : Type₁
+  ReplicaA = Replica State genesis _⊑_
+  current : (R : ReplicaA) → Rep State genesis _⊑_ R → Artifact
+  current R r = artifact (fst (denote State genesis _⊑_ R r))
+  Agree : (R : ReplicaA) → Rep State genesis _⊑_ R → Rep State genesis _⊑_ R → Type
+  Agree R r s = fst (denote State genesis _⊑_ R r) ≡ fst (denote State genesis _⊑_ R s)
+  Ordered : State → State → Type
+  Ordered σ τ = Σ Bool (λ b → elim (λ (x : Bool) → Type) (_⊑_ τ σ) (_⊑_ σ τ) b)
+  auth-from : (ρ : State) → (μ : State) → (σ : State) → ρ ≡ μ → Authorized μ σ → Authorized ρ σ
+  auth-from ρ μ σ p a = primTransp (λ i → Authorized (p (~ i)) σ) i0 a
+  desc-cons : (ρ : State) → (σ : State) → (j : ℕ) → (μ : State) → Σ State (λ ν → Authorized ρ ν × Desc ν j μ) → Authorized μ σ → Σ State (λ ν → Authorized ρ ν × Desc ν (suc j) σ)
+  desc-cons ρ σ j μ w a = fst w , fst (snd w) , μ , snd (snd w) , a
+  desc-uncons : (k : ℕ) → (ρ : State) → (σ : State) → Desc ρ (suc k) σ → Σ State (λ ν → Authorized ρ ν × Desc ν k σ)
+  desc-uncons k ρ = elim (λ (j : ℕ) → (σ : State) → Desc ρ (suc j) σ → Σ State (λ ν → Authorized ρ ν × Desc ν j σ)) (λ (σ : State) (h : Desc ρ (suc 0) σ) → σ , auth-from ρ (fst h) σ (fst (snd h)) (snd (snd h)) , refl) (λ (j : ℕ) (ih : (σ : State) → Desc ρ (suc j) σ → Σ State (λ ν → Authorized ρ ν × Desc ν j σ)) (σ : State) (h : Desc ρ (suc (suc j)) σ) → desc-cons ρ σ j (fst h) (ih (fst h) (fst (snd h))) (snd (snd h))) k
+  ord-jump : (σ : State) → (ρ : State) → (τ : State) → Authorized ρ τ → (j : ℕ) → Σ State (λ ν → Authorized ρ ν × Desc ν j σ) → Ordered σ τ
+  ord-jump σ ρ τ a j u = true , j , primTransp (λ i → Desc (no-fork ρ (fst u) τ (fst (snd u)) a i) j σ) i0 (snd (snd u))
+  ord-back : (σ : State) → (ρ : State) → (τ : State) → Authorized ρ τ → (k : ℕ) → Desc ρ k σ → Ordered σ τ
+  ord-back σ ρ τ a k = elim (λ (j : ℕ) → Desc ρ j σ → Ordered σ τ) (λ (p : ρ ≡ σ) → false , _⊳_ σ σ τ (here σ) (primTransp (λ i → Authorized (p i) τ) i0 a)) (λ (j : ℕ) (ih : Desc ρ j σ → Ordered σ τ) (d : Desc ρ (suc j) σ) → ord-jump σ ρ τ a j (desc-uncons j ρ σ d)) k
+  ord-step : (σ : State) → (ρ : State) → (τ : State) → Authorized ρ τ → Ordered σ ρ → Ordered σ τ
+  ord-step σ ρ τ a o = elim (λ (b : Bool) → elim (λ (x : Bool) → Type) (_⊑_ ρ σ) (_⊑_ σ ρ) b → Ordered σ τ) (λ (w : _⊑_ ρ σ) → ord-back σ ρ τ a (fst w) (snd w)) (λ (w : _⊑_ σ ρ) → false , _⊳_ σ ρ τ w a) (fst o) (snd o)
+  desc-ord : (n : ℕ) → (τ : State) → Desc genesis n τ → (σ : State) → _⊑_ genesis σ → Ordered σ τ
+  desc-ord n = elim (λ (k : ℕ) → (τ : State) → Desc genesis k τ → (σ : State) → _⊑_ genesis σ → Ordered σ τ) (λ (τ : State) (p : genesis ≡ τ) (σ : State) (c : _⊑_ genesis σ) → true , primTransp (λ i → _⊑_ (p i) σ) i0 c) (λ (k : ℕ) (ih : (τ : State) → Desc genesis k τ → (σ : State) → _⊑_ genesis σ → Ordered σ τ) (τ : State) (h : Desc genesis (suc k) τ) (σ : State) (c : _⊑_ genesis σ) → ord-step σ (fst h) τ (snd (snd h)) (ih (fst h) (fst (snd h)) σ c)) n
+  tip-order : (t : Tip) → (u : Tip) → ∥ Ordered (fst t) (fst u) ∥₁
+  tip-order t u = ∣_∣₁ (Ordered (fst t) (fst u)) (desc-ord (fst (snd u)) (fst u) (snd (snd u)) (fst t) (snd t))
+
+-- The closed toy instance (O65). State is ℕ, each step adds 1, and Core is
+-- 0 ≡ 0. The four obligations are isSetℕ ℕ, refl, isSetℕ ℕ 0 0 and refl. Then
+-- legit-core and reach-core take the 22 toy arguments.
+toyQuorum : Bool → Type
+toyQuorum c = Bool
+
+toyIn : (c : Bool) → Bool → Bool → Type
+toyIn c i q = i ≡ i
+
+toyCircuit : Type → Type → Type
+toyCircuit A B = A → B
+
+toyRun : (A : Type) → (B : Type) → (A → B) → A → B
+toyRun A B f = f
+
+toyHeight : ℕ → ℕ
+toyHeight n = n
+
+toyArtifact : ℕ → ℕ
+toyArtifact n = n
+
+toyCommittee : ℕ → Bool
+toyCommittee n = true
+
+toyConstitution : ℕ → Bool → FMSet Bool → Maybe Bool
+toyConstitution σ a b = just true
+
+toyApply : Bool → ℕ → ℕ
+toyApply e σ = suc σ
+
+toyAdvance : (e : Bool) → (σ : ℕ) → toyHeight (toyApply e σ) ≡ suc (toyHeight σ)
+toyAdvance e σ = refl
+
+toyCore : ℕ → Type
+toyCore σ = 0 ≡ 0
+
+toyIsPropCore : (σ : ℕ) → isProp (toyCore σ)
+toyIsPropCore σ = isSetℕ ℕ 0 0
+
+toyCore₀ : toyCore 0
+toyCore₀ = refl
+
+toyLegitCore : (σ : ℕ) → Legit ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ σ → toyCore σ
+toyLegitCore = legit-core ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀
+
+toyOne : toyCore 1
+toyOne = reach-core ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ 1 (_▸_ ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ 0 1 (root ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀) (step ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ 0 1 true ([] Bool) true refl refl (λ (c : toyCore 0) → c)))
+
+-- The toy instance of the section Authority. Each member is in each quorum
+-- (toyIn) and is honest, and a member endorses only the successor of a
+-- state. So two quorums meet, each endorsed step is a real step, and no
+-- member endorses two successors of one state.
+toyHonest : Bool → Type
+toyHonest i = i ≡ i
+
+toyEndorses : Bool → ℕ → ℕ → Type
+toyEndorses i σ τ = suc σ ≡ τ
+
+toyHonestMeet : (c : Bool) → (q : Bool) → (r : Bool) → ∃[ i ꞉ Bool ] toyIn c i q × toyIn c i r × toyHonest i
+toyHonestMeet c q r = ∣_∣₁ (Σ Bool (λ i → toyIn c i q × toyIn c i r × toyHonest i)) (true , refl , refl , refl)
+
+toyFaithful : (i : Bool) → (σ : ℕ) → (τ : ℕ) → toyHonest i → toyEndorses i σ τ → ∥ StepD ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ σ τ ∥₁
+toyFaithful i σ τ h p = ∣_∣₁ (StepD ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ σ τ) (step ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ σ τ true ([] Bool) true refl p (λ (c : toyCore σ) → c))
+
+toySingle : (i : Bool) → (σ : ℕ) → (a : ℕ) → (b : ℕ) → toyHonest i → toyEndorses i σ a → toyEndorses i σ b → a ≡ b
+toySingle i σ a b h p q = _∙_ ℕ a (suc σ) b (sym ℕ (suc σ) a p) q
+
+toyCertifiedCore : (σ : ℕ) → _⊑_ ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ toyHonest toyEndorses toyHonestMeet toyFaithful toySingle 0 σ → toyCore σ
+toyCertifiedCore = certified-core ℕ Bool Bool Bool Bool Bool toyQuorum toyIn toyCircuit toyRun ℕ (isSetℕ ℕ) toyHeight toyArtifact toyCommittee toyConstitution toyApply toyAdvance 0 toyCore toyIsPropCore toyCore₀ toyHonest toyEndorses toyHonestMeet toyFaithful toySingle

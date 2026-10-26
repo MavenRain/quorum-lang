@@ -10,6 +10,8 @@
 typedef struct {
   size_t parsed; /* program declarations parsed before the first parse failure */
   size_t typed;  /* program declarations checked before the first failure */
+  size_t laws;   /* program laws parsed (S4 O64) */
+  size_t discharged; /* laws among the typed declarations */
 } Counts;
 
 /* Writes DIAG as one JSON object on one line. The keys are code, span,

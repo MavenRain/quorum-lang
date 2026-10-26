@@ -8,3 +8,4 @@ data-index.lang ok
 next.lang TYPE_MISMATCH
 cons-prefix.lang ok
 exists-lambda.lang ok
+law.lang ok

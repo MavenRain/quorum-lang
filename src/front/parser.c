@@ -202,6 +202,7 @@ static int starts_atom(const Parser *p) {
     case TOK_KW_RECORD:
     case TOK_KW_COINDUCTIVE:
     case TOK_KW_MODULE:
+    case TOK_KW_LAW:
       return 0;
   }
   return 0;
@@ -401,6 +402,7 @@ static const Term *parse_atom(Parser *p) {
     case TOK_KW_RECORD:
     case TOK_KW_COINDUCTIVE:
     case TOK_KW_MODULE:
+    case TOK_KW_LAW:
       break;
   }
   fail_at(p, tok, "a term");
@@ -905,6 +907,7 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_KW_DATA:
     case TOK_KW_RECORD:
     case TOK_KW_MODULE:
+    case TOK_KW_LAW:
       break;
     case TOK_EOF:
     case TOK_NAT:
@@ -935,17 +938,21 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_KW_LET:
     case TOK_KW_IN:
     case TOK_KW_COINDUCTIVE:
-      return fail_at(p, tok, "a name, 'postulate', 'data', 'record' or 'module'");
+      return fail_at(p, tok, "a name, 'law', 'postulate', 'data', 'record' or 'module'");
   }
-  if (p->base > 0 && (tok->kind != TOK_IDENT || tok->col != p->base + 1))
+  if (p->base > 0 && ((tok->kind != TOK_IDENT && tok->kind != TOK_KW_LAW) || tok->col != p->base + 1))
     return fail_at(p, tok, "a definition indented by 2 spaces (a module holds definitions only)");
   bump(p);
   p->layout = p->base + 1;
+  /* `law NAME : TYPE`, then the clause of NAME (S4 O64). */
+  d->is_law = tok->kind == TOK_KW_LAW;
+  const Token *name_tok = d->is_law ? cur(p) : tok;
+  if (d->is_law && !expect(p, TOK_IDENT, "a law name")) return 0;
   int ok = tok->kind == TOK_KW_DATA ? parse_data(p, d)
          : tok->kind == TOK_KW_RECORD ? parse_record(p, d)
          : tok->kind == TOK_KW_POSTULATE ? parse_postulate(p, d)
          : tok->kind == TOK_KW_MODULE ? parse_module(p, d)
-         : parse_def(p, d, tok);
+         : parse_def(p, d, name_tok);
   d->end_line = p->toks[p->pos - 1].line;
   return ok && (d->kind == DECL_MODULE || at_boundary(p) || fail_at(p, cur(p), "the end of the declaration"));
 }

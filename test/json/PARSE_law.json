@@ -1,0 +1,2 @@
+{"code":"PARSE_EXPECT","span":{"file":"test/json/PARSE_law.lang","line":7,"col":1,"endLine":7,"endCol":1},"expected":"a term","found":"end of input","fix":null,"retry":true,"message":"test/json/PARSE_law.lang:7:1: expected a term, found end of input"}
+{"parsed":2,"typed":0,"laws":{"discharged":0,"total":1}}

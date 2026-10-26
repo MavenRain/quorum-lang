@@ -361,6 +361,7 @@ static void print_def(Buf *b, const Decl *d) {
   const Term *body = d->body;
   const char *indent = d->section != 0u ? "  " : "";
   put(b, indent);
+  if (d->is_law) put(b, "law ");
   put(b, d->name);
   put(b, " : ");
   print_term(b, d->type, PREC_TERM);

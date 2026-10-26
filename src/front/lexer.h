@@ -38,6 +38,7 @@ typedef enum {
   TOK_KW_RECORD,
   TOK_KW_COINDUCTIVE,
   TOK_KW_MODULE,
+  TOK_KW_LAW,
   TOK_KW_TYPE      /* Type, Type₁, ...: the level is in nat */
 } TokKind;
 

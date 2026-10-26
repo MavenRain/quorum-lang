@@ -31,7 +31,10 @@ slice that lands it (docs/PLAN.md secs 3 and 9).
 
 `build/langc check FILE.lang` gives the same result as text: `ok`, or one
 line on stderr. The kit verbs are `langc eval FILE NAME ARGS`, `langc ir
-FILE`, `langc abi FILE` and `langc build FILE -o OUT.wasm`.
+FILE`, `langc abi FILE`, `langc build FILE -o OUT.wasm` and `langc laws
+FILE`. `langc laws` prints one line for each `law` definition (`law NAME
+discharged` or `law NAME open`), then `laws: D of T discharged`. It exits
+0 only when the file checks and D = T.
 
 S9 adds `langc mcp` and skills/quorum-lang/SKILL.md. The plan for agent
 tools is docs/PLAN.md sec 7.

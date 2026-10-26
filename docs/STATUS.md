@@ -1,12 +1,14 @@
 # quorum-lang status
 
-The build implements slices S1, S2 and S3 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S4 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
 S3 is the eliminators for ℕ, Bool, higher inductive types and bags,
-and the guest Prelude (sec 3.1). Slices S4 to S12 are not started.
-The next slice is S4.
+and the guest Prelude (sec 3.1). S4 is design secs 1 to 6 at the
+denotation in examples/threshold.lang, a closed toy instance, the `law`
+form and `langc laws`. Slices S5 to S12 are not started. The next slice
+is S5.
 
 ## Implemented
 
@@ -45,6 +47,17 @@ The next slice is S4.
   the union laws.
 - Operators (S3): infix `∷`, `++`, `∘` and `∙`, and the notations
   `∥ A ∥₁` and `∃[ x ꞉ A ] B` (O41).
+- Design (S4): examples/threshold.lang holds design secs 1 to 6:
+  `record Step`, `module Design` (secs 1 to 4), `record Replica`,
+  `module Authority` (secs 5 and 6, O58) and a closed toy instance
+  (O65). The 7 laws `reach-core`, `legit-core`, `honest-in`, `sound`,
+  `no-fork`, `certified-legit` and `certified-core` check, and
+  `tip-order` proves the tip order (O3).
+- Laws (S4): `law NAME : TYPE` marks a definition as a law (O64).
+  `langc laws FILE` prints `law NAME discharged` or `law NAME open`
+  for each law, then `laws: D of T discharged`. It exits 0 only when
+  the file checks and D = T. The last line of `check --json` has
+  `"laws":{"discharged":D,"total":T}`.
 - Refusals: `List`, `cons`, `nil` and `unfold` give `REFUSE_CELL` (R1).
   A parameterized declaration that is not a cell signature, a type
   index, a record field of a type-constructor type and a coinductive
@@ -78,12 +91,23 @@ The next slice is S4.
   shape (`bag-no-comm.lang` fails), the swap obligation not checked
   (`bag-bad-swap.lang` fails), the set truncation cell dropped from
   the bag shape (`bag-no-trunc.lang` fails).
+- Gate counts at S4: 86 files canonical under `fmt`, 24 JSON fixtures,
+  34 codes with a fixture or a row, 43 check refusals, 9 parse
+  refusals, 61 evaluations, 4074 differential cases with 0
+  mismatches, 20 Wasm modules valid, 7 of 7 laws discharged.
+- Mutants at S4 (3 of 3 killed): the `keeps` field of `Step` not
+  checked (`keeps : Core σ → Core σ`: `step` fails, 0 of 7 laws), the
+  quorum index ignored (`Authorized` at the committee of `genesis`:
+  `Authorized` fails, 2 of 7 laws), the `single` parameter dropped
+  from module `Authority` (`fork-meet` fails, so `no-fork` and
+  `tip-order` fail, 4 of 7 laws). The examples loop and the laws line
+  kill each one.
 
 ## Remaining work
 
-1. S4 to S12: see `docs/PLAN.md` sec 9. Q7 must be ruled before S6, Q14
+1. S5 to S12: see `docs/PLAN.md` sec 9. Q7 must be ruled before S6, Q14
    before S10 and Q15 before S11.
-2. The O items O14 to O56 (`docs/PLAN.md` sec 10) are Claude readings.
+2. The O items O14 to O67 (`docs/PLAN.md` sec 10) are Claude readings.
    The USER can rule each one.
 
 ## Known limits
@@ -95,7 +119,8 @@ The next slice is S4.
 - Memory: the arena limit is 1 GiB (`ARENA_LIMIT_BYTES`, src/main.c). A
   program that fills it gives `OOM`.
 - Input: a source file larger than 1 MiB gives `IO_SIZE`.
-- Laws: the `laws` counts in `check --json` stay 0 of 0 until S4.
+- Laws: `langc laws` counts only the `law` definitions of the program
+  file. A law is discharged when its definition checks.
 - Data: closed data (no parameters and no indices) comes only from
   `domain/domain.lang` (`REFUSE_DATA`).
 - Levels: closed levels only. S2 has no level variables (O18).
@@ -107,6 +132,10 @@ The next slice is S4.
   stuck (O52). In a Wasm entry, an `elim` over a run-time `ℕ` or a
   `foldᴮ` over a bag of run-time shape gives `REFUSE_RUNTIME_TREE`
   (O46, O50).
+- Chains (S4): `Reach` and `_⊑_` are chains of ℕ length by `elim` on
+  the length, not data types (O57). A section holds no `data`, `record`
+  or `module` (O35), so `Step` and `Replica` are top-level records
+  (O59).
 - Names: S2 has no qualified names. A module name is not a global name
   (O35).
 

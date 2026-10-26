@@ -126,6 +126,7 @@ typedef struct {
   const Field *fields; /* the fields of a record */
   size_t field_count;
   int coinductive;     /* the record has the line `coinductive` */
+  int is_law;          /* the definition starts with `law` (S4 O64) */
   size_t section;      /* 1 + the list index of the module that holds the definition; 0 outside a module (D3) */
 } Decl;
 

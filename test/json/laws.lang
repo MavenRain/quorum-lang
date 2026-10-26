@@ -1,0 +1,6 @@
+-- S4 O64: a law that checks is discharged. A law after the first failure is open.
+law one-law : ℕ
+one-law = 1
+
+law bad-law : Bool
+bad-law = one-law

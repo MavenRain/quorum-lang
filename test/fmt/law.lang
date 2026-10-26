@@ -1,0 +1,2 @@
+law  same : ℕ -> ℕ
+same n = n

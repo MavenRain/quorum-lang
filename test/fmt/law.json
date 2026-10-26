@@ -1,0 +1,2 @@
+{"code":"W_NONCANON","span":{"file":"test/fmt/law.lang","line":1,"col":5,"endLine":3,"endCol":1},"expected":"law same : ℕ → ℕ","found":"law  same : ℕ -> ℕ","fix":"law same : ℕ → ℕ\nsame n = n\n","retry":true,"message":"test/fmt/law.lang:1:5: the text is not in the canonical form; langc fmt test/fmt/law.lang prints it"}
+{"parsed":1,"typed":1,"laws":{"discharged":1,"total":1}}

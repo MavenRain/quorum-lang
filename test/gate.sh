@@ -152,6 +152,23 @@ done
 echo "json: $jsons fixtures"
 [ "$(tail -n 1 test/json/partial.json)" = '{"parsed":3,"typed":2,"laws":{"discharged":0,"total":0}}' ] ||
   { echo "FAIL partial.json: want parsed 3 typed 2"; fail=$((fail + 1)); }
+[ "$(tail -n 1 test/json/laws.json)" = '{"parsed":2,"typed":1,"laws":{"discharged":1,"total":2}}' ] ||
+  { echo "FAIL laws.json: want 1 of 2 laws discharged"; fail=$((fail + 1)); }
+
+# S4 O64: `langc laws` and the `check --json` law counts agree on the 7 laws.
+build/langc laws examples/threshold.lang >"$tmp/laws" 2>&1 || { echo "FAIL laws examples/threshold.lang: exit $?"; fail=$((fail + 1)); }
+[ "$(tail -n 1 "$tmp/laws")" = 'laws: 7 of 7 discharged' ] || { echo "FAIL laws: want 7 of 7 discharged"; fail=$((fail + 1)); }
+build/langc check --json examples/threshold.lang 2>/dev/null | rg -q -F '"laws":{"discharged":7,"total":7}' ||
+  { echo "FAIL check --json examples/threshold.lang: want laws 7 of 7"; fail=$((fail + 1)); }
+build/langc laws test/json/laws.lang >/dev/null 2>&1 && { echo "FAIL laws test/json/laws.lang: want exit 1"; fail=$((fail + 1)); }
+# A parse failure keeps the parsed laws open, with the same counts as JSON.
+law_status=0
+build/langc laws test/json/PARSE_law.lang >"$tmp/laws-partial" 2>"$tmp/err" || law_status=$?
+[ "$law_status" -eq 1 ] || { echo "FAIL laws partial parse: want exit 1, got $law_status"; fail=$((fail + 1)); }
+printf 'law identity open\nlaws: 0 of 1 discharged\n' >"$tmp/laws-want"
+cmp -s "$tmp/laws-want" "$tmp/laws-partial" || { echo "FAIL laws partial parse: want the open law and summary"; fail=$((fail + 1)); }
+rg -q '^langc: PARSE_EXPECT: ' "$tmp/err" || { echo "FAIL laws partial parse: want PARSE_EXPECT"; fail=$((fail + 1)); }
+echo "$(tail -n 1 "$tmp/laws")"
 
 # Each code in docs/DIAGNOSTICS.md has a fixture: test/json/CODE.lang or a
 # line of this file or test/review.sh that wants `langc: CODE:`. Each code in

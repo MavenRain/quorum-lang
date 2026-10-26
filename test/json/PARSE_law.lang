@@ -1,0 +1,6 @@
+module LawScope (A : Type) where
+  law identity : A → A
+  identity x = x
+
+broken : ℕ
+broken =

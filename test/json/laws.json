@@ -1,0 +1,2 @@
+{"code":"TYPE_MISMATCH","span":{"file":"test/json/laws.lang","line":6,"col":11,"endLine":6,"endCol":18},"expected":null,"found":null,"fix":null,"retry":true,"message":"expected a term of type Bool, found a term of type ℕ"}
+{"parsed":2,"typed":1,"laws":{"discharged":1,"total":2}}

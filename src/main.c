@@ -18,7 +18,8 @@ typedef enum {
   CMD_IR,
   CMD_ABI,
   CMD_BUILD,
-  CMD_FMT
+  CMD_FMT,
+  CMD_LAWS
 } Command;
 
 typedef struct {
@@ -42,6 +43,7 @@ static const struct {
   {"abi", CMD_ABI},
   {"build", CMD_BUILD},
   {"fmt", CMD_FMT},
+  {"laws", CMD_LAWS},
 };
 
 static int usage(FILE *err) {
@@ -50,7 +52,8 @@ static int usage(FILE *err) {
         "       langc ir PROG\n"
         "       langc abi PROG\n"
         "       langc build PROG -o OUT [--runtime]\n"
-        "       langc fmt PROG\n", err);
+        "       langc fmt PROG\n"
+        "       langc laws PROG\n", err);
   return 2;
 }
 
@@ -92,6 +95,7 @@ static int parse_options(int argc, char **argv, Options *opt, Diag *diag) {
     case CMD_IR:
     case CMD_ABI:
     case CMD_FMT:
+    case CMD_LAWS:
       return argc == 3 ? 1 : diag_fail(diag, "USAGE", NULL, "too many arguments");
     case CMD_EVAL:
       if (argc < 4) return diag_fail(diag, "USAGE", NULL, "eval needs a definition name");
@@ -138,6 +142,7 @@ static int run_target(const Options *opt, Machine *machine, Diag *diag) {
     case CMD_EVAL:
     case CMD_BUILD:
     case CMD_FMT:
+    case CMD_LAWS:
       break;
   }
   out = fopen(opt->out_path, "wb");
@@ -222,6 +227,36 @@ static size_t program_decls(const DeclList *decls) {
   return count;
 }
 
+/* S4 O64: the program laws, and the laws among the first TYPED program
+   declarations. Each of those declarations checks, and R2 refuses a
+   postulate, so each of those laws has a proof. */
+static void count_laws(const DeclList *decls, Counts *counts) {
+  size_t k = 0;
+  counts->laws = 0;
+  counts->discharged = 0;
+  for (size_t i = 0; i < decls->count; i++) {
+    const Decl *d = &decls->items[i];
+    int law = d->origin == ORIGIN_PROGRAM && d->is_law;
+    counts->laws += law;
+    counts->discharged += law && k < counts->typed;
+    k += d->origin == ORIGIN_PROGRAM;
+  }
+}
+
+/* `langc laws`: one line for each program law in source order, then the
+   counts. Exit 0 only when the program checks and each law is discharged. */
+static int print_laws(const DeclList *decls, const Counts *counts, int checked) {
+  size_t k = 0;
+  for (size_t i = 0; i < decls->count; i++) {
+    const Decl *d = &decls->items[i];
+    if (d->origin == ORIGIN_PROGRAM && d->is_law)
+      printf("law %s %s\n", d->name, k < counts->typed ? "discharged" : "open");
+    k += d->origin == ORIGIN_PROGRAM;
+  }
+  printf("laws: %zu of %zu discharged\n", counts->discharged, counts->laws);
+  return checked && counts->discharged == counts->laws ? 0 : 1;
+}
+
 static int run(const Options *opt, Arena *arena, Diag *diag, Report *rep) {
   char *text = NULL;
   size_t len = 0;
@@ -230,11 +265,15 @@ static int run(const Options *opt, Arena *arena, Diag *diag, Report *rep) {
   DeclList decls;
   int loaded = front_load(arena, opt->prog_path, text, len, &decls, diag);
   rep->counts.parsed = program_decls(&decls);
-  if (!loaded) return 1;
+  count_laws(&decls, &rep->counts);
+  if (!loaded)
+    return opt->command == CMD_LAWS ? print_laws(&decls, &rep->counts, 0) : 1;
   if (opt->command == CMD_CHECK) check_canonical(opt, arena, text, len, &rep->warn);
   Machine machine;
   int checked = check_program(arena, &decls, &machine, diag);
   rep->counts.typed = machine.typed;
+  count_laws(&decls, &rep->counts);
+  if (opt->command == CMD_LAWS) return print_laws(&decls, &rep->counts, checked);
   if (!checked) return 1;
   switch (opt->command) {
     case CMD_CHECK:
@@ -243,6 +282,7 @@ static int run(const Options *opt, Arena *arena, Diag *diag, Report *rep) {
     case CMD_EVAL:
       return eval_command(&machine, opt->entry, opt->args, opt->arg_count, stdout, stderr);
     case CMD_FMT:
+    case CMD_LAWS:
     case CMD_IR:
     case CMD_ABI:
     case CMD_BUILD:

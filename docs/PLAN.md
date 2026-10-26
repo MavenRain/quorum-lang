@@ -253,6 +253,19 @@ eliminator (O40). `∃[ x ꞉ A ] B` is a notation for
 | `Legit` | defined | S4 |
 | `reach→core`, `legit→core` | law | S4 |
 
+S4 status (Claude reading, NOT ruled; O57 to O66). examples/threshold.lang
+holds secs 1 to 4 in `module Design` (the 22 slot and obligation params,
+O58): `Policy`, `rules`, `StepD`, `step`, `Chain`, `Reach`, `root`,
+`_▸_`, `Legit`, `chain-core` and the laws `reach-core` and `legit-core`
+(`→` is reserved, O62). `Step` is a top-level record with 9 params and
+the 6 fields of Q2 (O59). `Reach` is a chain of ℕ length by `elim` on
+ℕ, not a data type (O57). The slot `⟦_⟧ᵉ` is the param `apply` (O62).
+The closed toy instance (O65) proves `isSetState`, `advance`,
+`isPropCore` and `core₀`, and applies `reach-core` (`toyOne`) and
+`legit-core`. The toy fills `Circuit` and `run` with
+`Circuit A B = A → B` and `run A B f = f`. S5 fills them with the
+language (Q3).
+
 ### 3.3 Design.agda, secs 5 and 6 (module `Authority`)
 
 | Design name | Kind | Slice |
@@ -268,6 +281,21 @@ eliminator (O40). `∃[ x ꞉ A ] B` is a notation for
 | `Replica`: `Rep`, `none`, `merge`, `⟦_⟧` | rep interface | S4 (denotational instance), S8 (Wasm) |
 | `⟦none⟧`, `⟦merge⟧ˡ`, `⟦merge⟧ʳ`, `⟦merge⟧ᵘ` | obligation | S4, S8 |
 | `current`, `Agree` | defined | S4 |
+
+S4 status (Claude reading, NOT ruled; O57 to O66). examples/threshold.lang
+holds secs 5 and 6 in `module Authority` (the 22 params of `Design` and
+`Honest`, `Endorses`, `honest-meet`, `faithful`, `single`, O58).
+`Authorized`, `Desc`, `_⊑_`, `here`, `_⊳_`, `Tip`, `ReplicaA`,
+`current` and `Agree` are definitions. `_⊑_` is a chain of ℕ length
+(O57). The laws `honest-in`, `sound`, `no-fork`, `certified-legit` and
+`certified-core` check. `Replica` is a top-level record (O59) with the
+fields `Rep`, `none`, `merge`, `denote`, `denote-none`,
+`denote-mergeˡ`, `denote-mergeʳ` and `denote-mergeᵘ` (O62). It takes
+the order `Le` as a param, and `ReplicaA` gives it `_⊑_`. `tip-order`
+proves the tip order (O3). The toy instance applies `certified-core`
+(`toyCertifiedCore`). Each of the 7 laws of secs 1 to 6 has the `law`
+mark (O64), and `langc laws examples/threshold.lang` prints
+`laws: 7 of 7 discharged`. S8 gives the Wasm instance of `Replica`.
 
 ### 3.4 Design.agda, secs 7 to 10
 
@@ -547,7 +575,7 @@ commit message file and the next prompt file. The USER commits.
 | S1 | surface: Agda-like Unicode grammar (Q13 (b)); `langc fmt`; `W_NONCANON`; `check --json`; progress counts (parsed, typed); kit formers under R1 and R2 (O7) | GREEN (A1, A2, A6, A15): make check EXIT 0, gate: 0 failures, 19-line log; fmt: 56 files canonical; json: 19 fixtures; diagnostics: 30 codes, 0 without a fixture or a row; refusals: 26 check, 9 parse; differential: 745 cases, 0 mismatches; wasm: 13 modules valid | 3: `fmt` not idempotent, a JSON key dropped, a count off by one; 3 of 3 KILLED | docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S2 | kernel: Path, PathP, I, transp, hcomp, Sigma, Pi, U and levels (port zkpolicy-lang); `REFUSE_CELL` for CMs only (Q1 (b); port the CM branch of intent-lang, resolve-lang); indexed families; records as named Sigma (Q2); parameter sections (O8) | GREEN: each sec 2.4 refuse fixture gives `REFUSE_CELL` (6 files in test/check, sec 2.4 note); `Maybe₀`, `Trunc₀`, `Bag₀` check (examples/cells.lang); `sym`, `cong`, `trans` type check (examples/paths.lang); make check EXIT 0, gate: 0 failures (serial log); fmt: 74 files canonical; json: 22 fixtures; diagnostics: 33 codes, 0 without a fixture or a row; refusals: 38 check, 9 parse; evals: 41; differential: 767 cases, 0 mismatches; wasm: 16 modules valid | 3: generator test skipped (`cell-ghost.lang` fails), CC refusal skipped (`cell-cc.lang` fails), family index check skipped (`cell-type-index.lang` fails); 3 of 3 KILLED | sec 2 notes; sec 10 O14 to O36; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S3 | HITs: `∥_∥₁`, `FMSet` in generator form with its eliminator (O1), union, the truncation recursor, `∃`: the sec 3.1 Prelude in the guest | GREEN: lib/prelude.lang checks (the guest Prelude, with `isSetℕ` and `isSetBool` by a guest Hedberg proof, Q16 (b)); in examples/bag.lang the `_++_` equation (`consApp`, `appUnitL`) and the union unit, associativity and commutativity laws (`appUnitL`, `appUnitR`, `appAssoc`, `appComm`) check; make check EXIT 0, gate: 0 failures (serial log); fmt: 83 files canonical; json: 23 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 56; differential: 4007 cases, 0 mismatches (bag entries `count3`, `countUnion`, `countFlags`, `scale`); wasm: 18 modules valid | 3: comm path dropped (`bag-no-comm.lang` fails), swap obligation not checked (`bag-bad-swap.lang` fails), set truncation dropped (`bag-no-trunc.lang` fails); 3 of 3 KILLED | sec 1.2 Q16; sec 2.2 and 3.1 status; sec 10 O37 to O56; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
-| S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | 7 of 7 sec 1 to 6 laws discharged; the toy instance proves each obligation; O3 result recorded | 3: `keeps` not checked, quorum index ignored, `single` dropped | sec 3.2, 3.3 status |
+| S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | GREEN: examples/threshold.lang checks; 7 of 7 sec 1 to 6 laws discharged (`reach-core`, `legit-core`, `honest-in`, `sound`, `no-fork`, `certified-legit`, `certified-core`); the toy instance proves each obligation (`isSetState`, `advance`, `isPropCore`, `core₀`); O3 PROVED (`tip-order`); `langc laws`: `laws: 7 of 7 discharged`; `check --json`: `"laws":{"discharged":7,"total":7}`; make check EXIT 0, gate: 0 failures (serial log); fmt: 86 files canonical; json: 24 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 61; differential: 4074 cases, 0 mismatches; wasm: 20 modules valid | 3: `keeps` not checked (`step` fails, `laws: 0 of 7`), quorum index ignored (`Authorized` fails, `laws: 2 of 7`, O67), `single` dropped (`fork-meet` fails, so `no-fork` and `tip-order` fail, `laws: 4 of 7`); the examples loop and the laws line kill each one; 3 of 3 KILLED | sec 3.2 and 3.3 status; sec 10 O3, O57 to O67; docs/GRAMMAR.md, docs/STATUS.md, AGENTS.md |
 | S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | 12 of 12 design laws discharged; `run` agrees with direct evaluation on each fixture (Wasm differential) | 3: fragment admits a higher-order value, `⟦_⟧` escapes the seal, `factors` not checked | sec 3.4, sec 6 |
 | S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | decrypt of the sum of casts = the bag counts, N cases, 0 mismatches; known-answer vectors equal; each invalid-proof fixture refused; each DKG fixture (good dealing, bad share, bad proof of knowledge) gives its result | 3: one slot of `⊕` skipped, DLEQ check skipped, Lagrange sign flipped | sec 4.2 |
 | S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | FIPS 180-4, RFC 9380 and RFC 9591 Appendix E vectors byte-equal (signing); each DKG fixture gives its result; old and new committees sign under one group key after reshare | 3: binding factor dropped, one SHA-256 round skipped, reshare coefficient wrong | sec 4.3, 4.4 |
@@ -570,7 +598,13 @@ commit message file and the next prompt file. The USER commits.
   operation. The USER can rule otherwise.
 - O3. Tip order (design "Not covered", item 3). S4 tries a guest proof
   by induction on height from `advance` and `no-fork`. If it fails, the
-  replica laws take the order as an explicit parameter.
+  replica laws take the order as an explicit parameter. S4 result:
+  PROVED. `tip-order : (t : Tip) → (u : Tip) → ∥ Ordered (fst t)
+  (fst u) ∥₁` (examples/threshold.lang, `module Authority`): two tips
+  are in the descent order, one before the other. The proof uses
+  `no-fork` only, by induction on the length of one chain (O66).
+  `Replica` keeps the order `Le` as a param (O59), and `ReplicaA`
+  gives it `_⊑_`.
 - O4. Crypto test vectors as guest tests. Each vector calls a kit
   primitive from a guest test and compares bytes (ruling 2; tests in the
   development language).
@@ -864,6 +898,119 @@ commit message file and the next prompt file. The USER commits.
   `++-unitˡ`, `++-unitʳ`, `++-assoc` and `++-comm` are `appUnitL`,
   `appUnitR`, `appAssoc` and `appComm`. The Prelude equation is
   `consApp`. A name that starts with `+` or holds `ˡ` was not tried.
+- O57. Chains (Claude reading, NOT ruled). `Reach` and `_⊑_` are
+  chains of ℕ length, made by a large `elim` on ℕ.
+  `Chain : ℕ → State → Type`, `Chain 0 σ = genesis ≡ σ`,
+  `Chain (suc k) σ = Σ State (λ τ → Chain k τ × Step τ σ)` and
+  `Reach σ = Σ ℕ (λ n → Chain n σ)`. `Desc σ n τ` is the same with
+  `σ ≡ τ` and `Authorized`, and `_⊑_ σ τ = Σ ℕ (λ n → Desc σ n τ)`.
+  The constructors are definitions: `root = 0 , refl`,
+  `_▸_ σ σ' h s = suc (fst h) , σ , snd h , s`, `here` and `_⊳_`.
+  Reason: a `Reach` data type over the telescope has the type
+  parameter `State` and value parameters (`REFUSE_CELL`, rule R1); a
+  `fold` over an indexed family gives `DOMAIN_FAMILY` (O31); a section
+  holds no data (O35). A chain of length n is a rooted path of n
+  steps, so the meaning is the same. The laws by recursion use `elim`
+  on the length. S4 adds no eliminator, and O31 stays open.
+- O58. Two parameter sections (Claude reading, NOT ruled).
+  `module Design` has the 22 telescope params (secs 2 to 4).
+  `module Authority` has the 22 params and `Honest`, `Endorses`,
+  `honest-meet`, `faithful` and `single` (secs 5 and 6). A section
+  holds no section (O35), so `Authority` repeats the 22 params and
+  calls the `Design` definitions with the 22 arguments. `Authority`
+  starts with short local names (`StepA`, `ReachA`, `LegitA`, `rootA`,
+  `snocA`, `legit-coreA`), so each long application occurs one time.
+  The type of `faithful` writes the `Step` application in full.
+- O59. Top-level records (Claude reading, NOT ruled). `Step` and
+  `Replica` are top-level records with only the params that their
+  fields use (a section holds no record, O35). `record Step` has 9
+  params (`State`, `Agenda`, `Ballot`, `Edit`, `rules`, `apply`,
+  `Core`, `σ`, `σ'`) and the 6 fields of Q2 (`agenda`, `bag`, `edit`,
+  `chosen`, `lands`, `keeps`). A projection takes the record params
+  first, then the value. `record Replica (State : Type)
+  (genesis : State) (Le : State → State → Type) : Type₁` has `Rep`,
+  `none`, `merge`, the meaning map `denote` and its 4 laws. `Design`
+  defines `StepD σ σ'` and `step` (the tuple). `Authority` defines
+  `ReplicaA`. A later slice can let a `module` hold a record.
+- O60. Prelude copy (Claude reading, NOT ruled). The design file
+  copies the Prelude definitions that it uses (`sym`, `cong`, `_∙_`,
+  `isProp`, `isSet`, `∥_∥₁`, `rec₁`, `∃`, `absurd` and the Hedberg
+  chain) and `FMSet` from examples/bag.lang. O43 stays: S4 adds no
+  preload and no import form. `squash A : isProp ∥ A ∥₁` is an eta
+  wrapper for `squash₁ A`, so no constructor is applied to its type
+  parameter only. `eqℕ`, `reflℕ`, `soundℕ` and `isSetℕ` are in
+  `module NatSet (X : Type)`, as in examples/bag.lang (O55). Reason: a
+  top-level `eqℕ : ℕ → ℕ → Bool` is a Wasm entry, and the `ir` and
+  `wasm` gate lines gave `REFUSE_RUNTIME_CLOSURE` on it.
+- O61. File (Claude reading, NOT ruled). examples/threshold.lang holds
+  secs 1 to 6 and then the toy instance. The gate loop over each
+  committed `.lang` file checks it and does its `fmt` round trip.
+- O62. Names (Claude reading, NOT ruled). `→` is reserved (O54) and
+  `-` is a name character. The 7 laws are `reach-core`, `legit-core`,
+  `honest-in`, `sound`, `no-fork`, `certified-legit` and
+  `certified-core`. `⟦` gives `NAME_UNKNOWN`, so the slot `⟦_⟧ᵉ` is
+  `apply` and the `Replica` fields are `denote`, `denote-none`,
+  `denote-mergeˡ`, `denote-mergeʳ` and `denote-mergeᵘ`. These names
+  show that a name can hold `ˡ` (O56).
+- O63. Explicit arguments (Claude reading, NOT ruled). There are no
+  implicit arguments (O41): each `{σ σ'}`, `{c}`, `{i}` and `{A B}` is
+  explicit. `∃[ i ꞉ M ] B` is `∃ M (λ i → B)`. A pattern λ is a bare
+  λ with `fst` and `snd`. A bare `λ x →` occurs only under `Σ`; each
+  other binder has a type.
+- O64. Laws (Claude reading, NOT ruled). The keyword `law` comes
+  before a signature, at the top level or in a section:
+  `law reach-core : (σ : State) → Reach σ → Core σ`. In
+  `check --json`, `total` is the number of parsed law signatures and
+  `discharged` is the number of laws whose definition checks (R2
+  refuses postulates, so a law that checks has a proof).
+  `langc laws PROG` prints one line `law NAME discharged` (or `open`)
+  for each law in source order, then `laws: D of T discharged`. It
+  exits 0 only when the file checks and D = T, and 1 otherwise.
+  src/main.c counts the laws (`count_laws`, `print_laws`), so check.c
+  has no change. There is no new diagnostic code: a `law` at an
+  incorrect position gives `PARSE_EXPECT`, and the text of that
+  diagnostic at the start of a declaration names `law`.
+  test/fmt/law.lang and test/json/laws.lang are the fixtures.
+- O65. Toy instance (Claude reading, NOT ruled). The closed toy
+  instance in examples/threshold.lang has Artifact, Ballot, Agenda,
+  Edit, Member and Committee = `Bool` or `ℕ`; `Quorum c = Bool`;
+  `_∈_ c i q = i ≡ i`; `Circuit A B = A → B`; `run A B f = f`;
+  `constitution σ a = λ b → just true`; `State = ℕ`;
+  `height = λ n → n`; `apply e σ = suc σ`; `genesis = 0`;
+  `Core σ = 0 ≡ 0`. The obligations are `isSetState = isSetℕ ℕ`,
+  `advance = refl`, `isPropCore = isSetℕ ℕ 0 0` and `core₀ = refl`.
+  Two S4 changes from the first plan: `constitution` gives `just true`
+  (not `nothing`), so a real step exists, and `toyOne` proves
+  `toyCore 1` by `reach-core` on a chain of one step; `_∈_` is
+  `i ≡ i` (not `i ≡ q`), so each member is in each quorum and two
+  quorums meet (`toyHonestMeet`). The toy also gives `toyHonest`,
+  `toyEndorses` (`suc σ ≡ τ`), `toyFaithful` and `toySingle`, and
+  `toyCertifiedCore` applies `certified-core` to the 27 toy
+  arguments.
+- O66. Tip order proof (Claude reading, NOT ruled). For two tips t
+  and u, `tip-order` gives `∥ Ordered (fst t) (fst u) ∥₁`, with
+  `Ordered σ τ = Σ Bool (λ b → elim (λ (x : Bool) → Type) (_⊑_ τ σ)
+  (_⊑_ σ τ) b)` (`Sum` gives `REFUSE_BASE`, O7; the Bool `elim` takes
+  the `true` case first). The helpers are `auth-from`, `desc-cons`,
+  `desc-uncons`, `ord-jump`, `ord-back`, `ord-step` and `desc-ord`. In
+  `ord-jump`, `no-fork` makes the first step of the longer chain equal
+  to the new tip. `desc-ord` is by induction on the length of one tip
+  chain and gives the untruncated `Σ`, and `tip-order` is `∣_∣₁` of
+  it. The first plan (a height lemma from `sound`, `lands` and
+  `advance`, then a prefix by length) was not necessary: the proof has
+  no ℕ arithmetic. `tip-order` is not a law, so the laws stay 7 of 7.
+  O3 has the result.
+- O67. Quorum index mutant (Claude reading, NOT ruled). S4 mutant 2
+  is a guest edit in examples/threshold.lang: `Authorized σ τ` takes
+  its quorum at the fixed committee of `genesis` (`Quorum (committee
+  genesis)`), and `Cert σ τ q` keeps `Quorum (committee σ)`. `langc
+  check` refuses `Authorized` with `TYPE_MISMATCH` (`Quorum (committee
+  σ)` against `Quorum (committee genesis)`), so the examples loop and
+  the laws line fail (`laws: 2 of 7`). The reason for the guest edit:
+  two gate lines that exist kill it, with no new fixture, so the
+  refusal counts stay 43 check and 9 parse. The kill comes from the
+  checker: it compares the index of the family `Quorum`. A checker
+  that ignored the index would let the edit check.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 

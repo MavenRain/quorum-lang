@@ -77,6 +77,6 @@ void json_diag(const Diag *diag, FILE *out) {
 }
 
 void json_summary(const Counts *counts, FILE *out) {
-  fprintf(out, "{\"parsed\":%zu,\"typed\":%zu,\"laws\":{\"discharged\":0,\"total\":0}}\n",
-          counts->parsed, counts->typed);
+  fprintf(out, "{\"parsed\":%zu,\"typed\":%zu,\"laws\":{\"discharged\":%zu,\"total\":%zu}}\n",
+          counts->parsed, counts->typed, counts->discharged, counts->laws);
 }

@@ -20,7 +20,7 @@ spellings, and gives the warning W_NONCANON with the canonical text as
   name characters. Thus `ℕ` and `ℓ` are names.
 - A ℕ literal is decimal, from 0 to 2^64 - 1. A letter directly after a
   literal gives LEX_CHAR.
-- Keywords: `data`, `record`, `coinductive`, `module`, `where`,
+- Keywords: `data`, `record`, `coinductive`, `module`, `law`, `where`,
   `postulate`, `let`, `in`, `Type`. `Type` with subscript digits
   (`Type₁`) is the universe at that level. `Type` is level 0.
 - Symbols: `:` `=` `(` `)` `→` `λ` `×` `Σ` `≡` `~` `∧` `∨` `,` `{` `}`
@@ -42,7 +42,7 @@ decl   := def
         | 'record' NAME group* ':' TYPE 'where' NL ('  ' 'coinductive' NL)?
             ('  ' NAME ':' term NL)+
         | 'module' NAME group* 'where' NL def+
-def    := NAME ':' term NL NAME NAME* '=' term
+def    := 'law'? NAME ':' term NL NAME NAME* '=' term
 ctor   := NAME ':' (group '→')* result
 result := NAME NAME* atom*
         | term
@@ -141,6 +141,15 @@ section that gives the parameters.
   general mixfix. Only the fixed S3 operators `∷`, `++`, `∘` and `∙`
   are infix (O41). Write `_∈_ b bs`.
 - A `postulate` gives REFUSE_AXIOM.
+- Laws (S4 O64). The keyword `law` before a signature marks the
+  definition as a law, at the top level or in a module:
+  `law reach-core : (σ : State) → Reach σ → Core σ`. The clause has no
+  `law`. A law is discharged when its definition checks: R2 refuses a
+  `postulate`, so a checked law has a proof. `langc laws PROG` prints
+  `law NAME discharged` (or `open`) for each law in source order, then
+  `laws: D of T discharged`. The exit is 0 only when the program
+  checks and D = T. The summary of `langc check --json` has
+  `"laws":{"discharged":D,"total":T}`. `fmt` prints `law NAME : TYPE`.
 
 ## Canonical form
 
