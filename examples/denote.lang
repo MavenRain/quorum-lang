@@ -249,3 +249,17 @@ denCount2 j b1 b2 = countB j (_++_ Bool (_∷_ Bool b1 ([] Bool)) (_∷_ Bool b2
 
 denCount3 : Bool → Bool → Bool → Bool → ℕ
 denCount3 j b1 b2 b3 = countB j (_++_ Bool (_++_ Bool (_∷_ Bool b1 ([] Bool)) (_∷_ Bool b2 ([] Bool))) (_∷_ Bool b3 ([] Bool)))
+
+-- The representation map of `Authorized` (O98): 1 when the flags hold the
+-- threshold quorum of the toy instance, else 0. The flag bi is true when the
+-- member i signs. denAuth3 is the DKG t 2 of n 3, and denAuth4 is its
+-- reshare t 3 of n 4. The count of the flags is an elim on each flag.
+-- `build/frosttool rep` gives the same values from the FROST signatures.
+flagN : Bool → ℕ → ℕ
+flagN b n = elim (λ (c : Bool) → ℕ) (suc n) n b
+
+denAuth3 : Bool → Bool → Bool → ℕ
+denAuth3 b1 b2 b3 = flagIf (natLe 2 (flagN b1 (flagN b2 (flagN b3 0)))) 1 0
+
+denAuth4 : Bool → Bool → Bool → Bool → ℕ
+denAuth4 b1 b2 b3 b4 = flagIf (natLe 3 (flagN b1 (flagN b2 (flagN b3 (flagN b4 0))))) 1 0

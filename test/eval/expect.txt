@@ -73,3 +73,5 @@ hit-fold readPoint => 7
 denote denCount1 1 1 => 1
 denote denCount2 1 1 0 => 1
 denote denCount3 1 1 0 1 => 2
+denote denAuth3 1 0 1 => 1
+denote denAuth4 0 1 1 0 => 0

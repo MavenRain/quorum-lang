@@ -167,10 +167,10 @@ static int open_row(const char *name, const Keys *keys, uint32_t a, uint32_t b, 
 static int keys_of(const char *name, Keys *out, const DkgDealing *dealings, const U256 *table, uint32_t qual) {
   uint32_t j;
   int ok = 1;
-  dkg_public(&out->pk, qual, dealings, DKG_N);
+  dkg_public(&DKG_BN254, &out->pk, qual, dealings, DKG_N);
   for (j = 1u; j <= DKG_N; j++) {
-    ok &= code_row(name, dkg_share(&out->share[j - 1u], qual, table, j, DKG_N), DKG_OK);
-    ok &= code_row(name, dkg_key(&out->keys[j - 1u], qual, dealings, DKG_T, j, DKG_N), DKG_OK);
+    ok &= code_row(name, dkg_share(&DKG_BN254, &out->share[j - 1u], qual, table, j, DKG_N), DKG_OK);
+    ok &= code_row(name, dkg_key(&DKG_BN254, &out->keys[j - 1u], qual, dealings, DKG_T, j, DKG_N), DKG_OK);
     ok &= same_row(name, &out->keys[j - 1u], &out->share[j - 1u].key);
   }
   return ok;
@@ -191,16 +191,59 @@ static int deal_good(Keys *keys, DkgDealing *dealings, U256 *table, U256 *ctx, F
   fe_from_u64(sum, 0u);
   for (i = 1u; i <= DKG_N; i++) {
     u256_from_u64(&seed, 100u + i);
-    ok &= code_row("dkg deal", dkg_deal(&dealings[i - 1u], &table[(i - 1u) * DKG_N], &seed, i, DKG_T, DKG_N, ctx), DKG_OK);
-    ok &= code_row("dkg proof", dkg_check_proof(&dealings[i - 1u], i, DKG_T, ctx), 1);
+    ok &= code_row("dkg deal", dkg_deal(&DKG_BN254, &dealings[i - 1u], &table[(i - 1u) * DKG_N], &seed, i, DKG_T, DKG_N, ctx), DKG_OK);
+    ok &= code_row("dkg proof", dkg_check_proof(&DKG_BN254, &dealings[i - 1u], i, DKG_T, ctx), 1);
     thr_nonce(&w, &seed, 0u);
     fe_from_u256(&a0, &w, &BN254_FR);
     fe_add(&tmp, sum, &a0, &BN254_FR);
     *sum = tmp;
   }
-  ok &= code_row("dkg good", dkg_qual(&qual, dealings, table, DKG_T, DKG_N, ctx), DKG_OK);
+  ok &= code_row("dkg good", dkg_qual(&DKG_BN254, &qual, dealings, table, DKG_T, DKG_N, ctx), DKG_OK);
   ok &= code_row("dkg good QUAL", (int)qual, 14);
   ok &= keys_of("dkg good keys", keys, dealings, table, qual);
+  return ok;
+}
+
+/* The BN254 reshare row (O97): Q = {1, 3} of the good dealing deals the
+   key again to the new t 3 of n 4 under the context 8 (the dealer i with
+   the seed 200 + i), and the new members {2, 3, 4} open the cast CT under
+   the old PK. KEYS has the keys of the good dealing. */
+static int reshare_open(const Keys *keys, const ElgCipher *ct) {
+  static const uint32_t quorum[2] = {1u, 3u};
+  DkgDealing dealings[2];
+  U256 table[2u * 4u];
+  G1 old[2];
+  ThrShare fresh[4];
+  G1 fresh_keys[4];
+  ThrPart parts[3];
+  U256 ctx;
+  U256 seed;
+  uint64_t m = 0;
+  uint32_t qual = 0;
+  uint32_t k;
+  int ok = 1;
+  u256_from_u64(&ctx, 8u);
+  for (k = 0; k < 2u; k++) {
+    old[k] = keys->keys[quorum[k] - 1u];
+    u256_from_u64(&seed, 200u + quorum[k]);
+    ok &= code_row("reshare deal",
+                   dkg_reshare_deal(&DKG_BN254, &dealings[k], &table[k * 4u], &seed, &keys->share[quorum[k] - 1u],
+                                    quorum, 2u, 3u, 4u, &ctx),
+                   DKG_OK);
+  }
+  ok &= code_row("reshare good",
+                 dkg_reshare_qual(&DKG_BN254, &qual, dealings, table, old, quorum, 2u, DKG_T, 3u, 4u, &ctx), DKG_OK);
+  for (k = 1u; k <= 4u; k++) {
+    ok &= code_row("reshare share", dkg_reshare_share(&DKG_BN254, &fresh[k - 1u], qual, table, quorum, 2u, k, 4u),
+                   DKG_OK);
+    ok &= code_row("reshare key",
+                   dkg_reshare_key(&DKG_BN254, &fresh_keys[k - 1u], qual, dealings, quorum, 2u, 3u, k, 4u), DKG_OK);
+    ok &= same_row("reshare PK'_j = sk'_j G", &fresh_keys[k - 1u], &fresh[k - 1u].key);
+  }
+  for (k = 0; k < 3u; k++)
+    thr_partial(&parts[k], &fresh[k + 1u], ct);
+  ok &= code_row("reshare open {2, 3, 4}", thr_open(&m, parts, 3u, fresh_keys, 3u, 4u, ct, OPEN_BITS), THR_FOUND);
+  ok &= code_row("reshare open m", (int)m, 5);
   return ok;
 }
 
@@ -229,11 +272,12 @@ static int dkg_rows(Keys *keys) {
   ok &= open_row("dkg open {1, 2}", keys, 1u, 2u, &ct, 5u);
   ok &= open_row("dkg open {1, 3}", keys, 1u, 3u, &ct, 5u);
   ok &= open_row("dkg open {2, 3}", keys, 2u, 3u, &ct, 5u);
+  ok &= reshare_open(keys, &ct);
   /* (2) The dealer 2 sends f_2(3) + 1 to the member 3: QUAL = {1, 3}, and
      the key of QUAL decrypts. */
   memcpy(forged, table, sizeof forged);
   plus_one(&forged[DKG_N + 2u]);
-  ok &= code_row("dkg bad share", dkg_qual(&qual, dealings, forged, DKG_T, DKG_N, &ctx), DKG_BAD_SHARE);
+  ok &= code_row("dkg bad share", dkg_qual(&DKG_BN254, &qual, dealings, forged, DKG_T, DKG_N, &ctx), DKG_BAD_SHARE);
   ok &= code_row("dkg bad share QUAL", (int)qual, 10);
   ok &= keys_of("dkg bad share keys", &quorum, dealings, forged, qual);
   cast(&ct, &quorum.pk, 6u, 2u);
@@ -241,15 +285,15 @@ static int dkg_rows(Keys *keys) {
   /* (3) The dealer 1 with z + 1: QUAL = {2, 3}. */
   memcpy(bad, dealings, sizeof bad);
   plus_one(&bad[0].z);
-  ok &= code_row("dkg bad proof", dkg_qual(&qual, bad, table, DKG_T, DKG_N, &ctx), DKG_BAD_PROOF);
+  ok &= code_row("dkg bad proof", dkg_qual(&DKG_BN254, &qual, bad, table, DKG_T, DKG_N, &ctx), DKG_BAD_PROOF);
   ok &= code_row("dkg bad proof QUAL", (int)qual, 12);
   /* The member 0 and the member n + 1. */
-  ok &= code_row("dkg member 0", dkg_share(&share, 14u, table, 0u, DKG_N), DKG_BAD_INDEX);
-  ok &= code_row("dkg member n + 1", dkg_share(&share, 14u, table, DKG_N + 1u, DKG_N), DKG_BAD_INDEX);
+  ok &= code_row("dkg member 0", dkg_share(&DKG_BN254, &share, 14u, table, 0u, DKG_N), DKG_BAD_INDEX);
+  ok &= code_row("dkg member n + 1", dkg_share(&DKG_BN254, &share, 14u, table, DKG_N + 1u, DKG_N), DKG_BAD_INDEX);
   /* Each dealing is bad: QUAL is empty. */
   plus_one(&bad[1].z);
   plus_one(&bad[2].z);
-  ok &= code_row("dkg too few", dkg_qual(&qual, bad, table, DKG_T, DKG_N, &ctx), DKG_TOO_FEW);
+  ok &= code_row("dkg too few", dkg_qual(&DKG_BN254, &qual, bad, table, DKG_T, DKG_N, &ctx), DKG_TOO_FEW);
   ok &= code_row("dkg too few QUAL", (int)qual, 0);
   return ok;
 }

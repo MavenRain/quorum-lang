@@ -463,6 +463,23 @@ cases, 28 counts, 0 mismatches.
   unforgeability (DL, random oracle model), `honest-meet`, `faithful`,
   `single`.
 
+S7 status (Claude reading, NOT ruled; O90 to O95, O98 to O102).
+src/crypto adds sha256.c (a port of cairn-lang 6748510 src/sha256.c),
+xmd.c (expand_message_xmd and hash_to_field, RFC 9380, new C),
+secp256k1.c (the curve on the bn254.h field and point code; the
+constants come from intent-lang 79e1898) and frost.c (RFC 9591, new C).
+langc does not link src/crypto: the host import ABI comes in S8 (Q9
+(a)). Thus the RFC 9591 vectors are C rows, not guest tests. The C tool
+test/frosttool.c (build/frosttool) has the SHA-256 rows (FIPS 180-4),
+the xmd rows (RFC 9380 App. K.1), the secp256k1 rows and the RFC 9591
+App. E.5 rows, byte-equal (`frost regressions: passed`). Its `rep` mode
+is the representation map of `Authorized` (O98): one secp256k1 DKG (t 2,
+n 3), a FROST signature by each of the 8 signer sets, and one eval line
+`denote denAuth3 B1 B2 B3 => V` for each set (V is 1 when the aggregate
+verifies). Then the same for the 16 signer sets of the reshared
+committee (t' 3, n' 4) on denAuth4. The gate gives each line to `langc
+eval` on examples/denote.lang: 24 cases, 0 mismatches.
+
 ### 4.4 Resharing (`Sharing`)
 
 - `Secret` = the group signing key and the ElGamal key. `Shares c` = the
@@ -473,6 +490,24 @@ cases, 28 counts, 0 mismatches.
   change, so clients keep the key that they pin.
 - Exact: `⟦reshare⟧` (Lagrange). Assumed: honest dealing. Feldman
   commitments make each dealing checkable.
+
+S7 status (Claude reading, NOT ruled; O96, O97). One DKG serves both
+curves: dkg.c takes a curve descriptor (`DKG_BN254` keeps the S6 keccak
+challenge, `DKG_SECP256K1` uses xmd_to_scalar), and the S6 DKG rows pass
+unchanged. The secp256k1 DKG rows are the five S6 fixtures (good
+dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad
+proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX;
+DKG_TOO_FEW) and FROST by {1, 2} and by {2, 3} under the DKG key. In the
+reshare (new C, `dkg_reshare_deal`), member i of the signing quorum Q
+deals g_i with g_i(0) = λ_{i,Q} s_i. The new check C'_{i,0} = λ_{i,Q}
+PK_i refuses a bad dealing with DKG_BAD_RESHARE. The rows reshare the (t
+2, n 3) key over Q = {1, 3} to (t' 3, n' 4). The new group key is the
+old key. The old {1, 2} and the new {2, 3, 4} sign under it. The new
+shares {1, 2, 3} interpolate to the old secret. The new {1, 2} gives a
+signature that does not verify. A dealing without λ gives
+DKG_BAD_RESHARE. The BN254 reshare row (O97) is in build/tallytool:
+Q = {1, 3} of the S6 good dealing reshares the ElGamal key to (t' 3,
+n' 4), and the new {2, 3, 4} open an S6 cast under the old PK.
 
 ### 4.5 Summary
 
@@ -621,6 +656,14 @@ waits for S7. thr_deal (the Shamir deal) and elg_scale (weighted
 ballots; Q7 (a) has unit weight) are not ported. The DKG
 (src/crypto/dkg.c) is new C (O79).
 
+S7 note: src/crypto/sha256.c ports cairn-lang 6748510 src/sha256.c
+(sha256_words cut). The secp256k1 constants and the parity lift_x come
+from intent-lang 79e1898 src/front/secp256k1.c (secp_recover and keccak
+cut), on the bn254.h field and point code. xmd.c, frost.c, the SEC1
+encodings and the reshare in dkg.c are new C (O90). The S7 survey found
+SHA-256 in C in cairn-lang, so the NEW line above and the sec 4.3 text
+"No *-lang repo has SHA-256 in C" are out of date.
+
 ## 9. Slices
 
 One session for each slice. Each slice closes with the gate GREEN, its
@@ -636,7 +679,7 @@ commit message file and the next prompt file. The USER commits.
 | S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | GREEN: examples/threshold.lang checks; 7 of 7 sec 1 to 6 laws discharged (`reach-core`, `legit-core`, `honest-in`, `sound`, `no-fork`, `certified-legit`, `certified-core`); the toy instance proves each obligation (`isSetState`, `advance`, `isPropCore`, `core₀`); O3 PROVED (`tip-order`); `langc laws`: `laws: 7 of 7 discharged`; `check --json`: `"laws":{"discharged":7,"total":7}`; make check EXIT 0, gate: 0 failures (serial log); fmt: 86 files canonical; json: 24 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 61; differential: 4074 cases, 0 mismatches; wasm: 20 modules valid | 3: `keeps` not checked (`step` fails, `laws: 0 of 7`), quorum index ignored (`Authorized` fails, `laws: 2 of 7`, O67), `single` dropped (`fork-meet` fails, so `no-fork` and `tip-order` fail, `laws: 4 of 7`); the examples loop and the laws line kill each one; 3 of 3 KILLED | sec 3.2 and 3.3 status; sec 10 O3, O57 to O67; docs/GRAMMAR.md, docs/STATUS.md, AGENTS.md |
 | S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | GREEN: examples/threshold.lang checks; 12 of 12 design laws discharged (the 7 S4 laws, `app-cons`, `ivc-prove`, `tallyᴹ-correct`, `tallyᶠ-correct`, `mpc≼fhe`); `langc laws`: `laws: 12 of 12 discharged`; `check --json`: `"laws":{"discharged":12,"total":12}`; examples/denote.lang: `laws: 1 of 1 discharged` (`den-private`); `run` agrees with direct evaluation (`agree` gives 1 on each eval row; the circuit.lang and denote.lang entries are in the Wasm differential); make check EXIT 0, gate: 0 failures (serial log); fmt: 95 files canonical; json: 27 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 48 check, 9 parse; evals: 72; differential: 5246 cases, 0 mismatches; wasm: 22 modules valid | 3: fragment admits a higher-order value (O71 check off: `circuit-ho.lang` and the `REFUSE_CIRCUIT` json fixture fail), `⟦_⟧` escapes the seal (`REFUSE_LAW` off: `seal-fold.lang`, `seal-unseal.lang`, `seal-relay.lang` and the `REFUSE_LAW` json fixture fail), `factors` not checked (its right side becomes its left side: `tallyᶠ-correct` fails with `TYPE_MISMATCH`, `check --json` gives 10 of 12 laws); 3 of 3 KILLED | sec 3.4 and sec 6 status; sec 10 O68 to O77; sec 11 Q7; docs/GRAMMAR.md, docs/STATUS.md |
 | S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | GREEN: decrypt of the sum of casts = the bag counts (`build/tallytool rep` against `langc eval` on denCount1 to denCount3): `tally: 14 cases, 28 counts, 0 mismatches`; known-answer vectors equal (O82); each invalid-proof fixture refused (9 rows, O83); each DKG fixture gives its result (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW); `tally regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 75; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5274 cases, 0 mismatches; wasm: 22 modules valid | 3: one slot of `⊕` skipped (`tally_add` bound `j + 1u < k`: 10 of the 28 rep lines differ, the row `tally k 2 slot 1` fails), DLEQ check skipped (the `thr_open` refusal off: the rows `part D + G` and `part z + 1` fail), Lagrange sign flipped (each rep line gives `open-1`, 8 open rows fail); 3 of 3 KILLED | sec 4.2 status; sec 8 note; sec 10 O78 to O89; docs/STATUS.md, README.md |
-| S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | FIPS 180-4, RFC 9380 and RFC 9591 Appendix E vectors byte-equal (signing); each DKG fixture gives its result; old and new committees sign under one group key after reshare | 3: binding factor dropped, one SHA-256 round skipped, reshare coefficient wrong | sec 4.3, 4.4 |
+| S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | GREEN: FIPS 180-4, RFC 9380 App. K.1 and RFC 9591 App. E.5 vectors byte-equal (signing); the secp256k1 rows pass; each DKG fixture gives its result on secp256k1 (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW) and the DKG key signs; old and new committees sign under one group key after reshare (Q = {1, 3}, (t 2, n 3) to (t' 3, n' 4); a dealing without λ gives DKG_BAD_RESHARE); `frost regressions: passed`; `build/frosttool rep` against `langc eval` on denAuth3 and denAuth4: `auth: 24 cases, 0 mismatches`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: binding factor dropped (`frost_group_commitment` R_i = D_i: none of the 9 V-1 rep lines gives 1; 7 FAIL lines, `e5 P1 sig_share`, `e5 P3 sig_share`, `e5 sig`), one SHA-256 round skipped (round bound `SHA256_ROUNDS - 1u`: 36 FAIL lines, the FIPS, xmd and E.5 rows), reshare coefficient wrong (g_i(0) = (λ + 1) s_i: the 5 V-1 denAuth4 rep lines give 0; 22 FAIL lines, `reshare good` gives DKG_BAD_RESHARE); 3 of 3 KILLED | sec 4.3 and 4.4 status; sec 8 note; sec 10 O90 to O103; docs/STATUS.md, README.md |
 | S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | a scripted history of k certified steps; two replicas merge to one tip; refuse fixtures (bad signature, fork, ill-typed constitution, `Core` break) each give their code; the accept fixture is accepted | 3: fork check skipped, `Core` check skipped, fragment check skipped | sec 5, sec 6 |
 | S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | A3, A4, A5, A8, A13, A16, A17, A19 gates | 3: MCP tool drops a field, a SKILL.md copy drifts, `list-base` misses a name | sec 7 status |
 | S10 | general MPC tally route (Q6 (b)) under the protocol that Q14 rules; the replica runs `tallyᴹ` | `tallyᴹ` = `tallyᶠ` on each fixture, N cases, 0 mismatches; `tallyᴹ-correct` checks | 3: one share dropped from the sum, a reconstruction coefficient wrong, MPC output not checked | sec 5 |
@@ -1311,6 +1354,182 @@ commit message file and the next prompt file. The USER commits.
   are the USER commit counts (54 check refusals, 29 JSON fixtures). H2a
   STEP 0 ran the serial gate once (W/S6-step0-gate.log) and recorded the
   exact lines before any edit.
+- O90. Port set and layout (Claude reading, NOT ruled). All in
+  src/crypto; langc does not link it (Q9 (a)). New files: (1)
+  sha256.{c,h}: cairn-lang 6748510 src/sha256.c as is, with sha256_words
+  and the front/u256.h include cut (the FROST inputs are byte strings).
+  Head comment `Source: cairn-lang 6748510 src/sha256.c (sha256_words
+  cut)`. (2) xmd.{c,h}: NEW C, expand_message_xmd and hash_to_field
+  (O92). (3) secp256k1.{c,h}: constants and the parity lift_x from
+  intent-lang 79e1898 src/front/secp256k1.c:6 to :49 (secp_recover and
+  keccak cut), on R bn254.h fe_* and ec0_*; NEW C for SEC1 and scalar
+  bytes (O93). (4) frost.{c,h}: NEW C, RFC 9591 (O94). (5) dkg.{c,h}:
+  changed, not new: one DKG for both curves (O96), plus reshare (O97).
+- O91. SHA-256 input (Claude reading, NOT ruled). SHA-256 is a one-shot
+  function. Callers build each input in a fixed buffer (the largest: an
+  RFC 9380 msg of 517 bytes plus 64 + 3 + DST; the FROST commitment list
+  of THR_N_MAX x 98 bytes). XMD_MSG_MAX 1024 bytes; a longer input is
+  refused (return 0), not cut.
+- O92. expand_message_xmd (Claude reading, NOT ruled). xmd.c (NEW C, RFC
+  9380 sec 5.3.1): `int xmd_expand(unsigned char *out, size_t len, const
+  unsigned char *msg, size_t msg_len, const unsigned char *dst, size_t
+  dst_len)`: b_in_bytes 32, s_in_bytes 64; refuse len > 255 x 32, len 0,
+  dst_len > 255 (no long-DST hash: the FROST DSTs are short) and msg_len
+  > XMD_MSG_MAX. `int xmd_to_scalar(Fe *out, const unsigned char *msg,
+  size_t msg_len, const unsigned char *dst, size_t dst_len, const
+  Modulus *n)`: hash_to_field with count 1 and L = 48 (RFC 9591 sec
+  6.5): the 48 bytes are hi (16 bytes) and lo (32 bytes); out = hi x
+  (2^256 mod n) + (lo mod n), with 2^256 mod n = 2^256 - n (n < 2^256 <
+  2n) and lo mod n by one subtraction (scalar_of). Exact, no bias
+  argument needed in the code.
+- O93. secp256k1 (Claude reading, NOT ruled). secp256k1.c on R fe_* and
+  ec0_* (one point type G1, so the DKG of O96 takes both curves):
+  SECP_P, SECP_N, secp_b (7), secp_gen, secp_on_curve, secp_add,
+  secp_mul (ec0_mul), secp_neg, secp_eq; `int secp_encode(unsigned char
+  out[33], const G1 *p)` (SEC1 compressed, 02 for even y, 03 for odd y;
+  the identity is refused, RFC 9591 SerializeElement); `int
+  secp_decode(G1 *out, const unsigned char in[33])` (prefix 02 or 03, x
+  < p, lift_x by parity, refuse a non-square); `int scalar_decode(Fe
+  *out, const unsigned char in[32])` (big endian, refuse >= n),
+  `scalar_encode`. cairn-lang group.h is not the base: it has a
+  fixed-curve API, the smaller-y lift and no SEC1.
+- O94. FROST (Claude reading, NOT ruled). frost.c (NEW C, RFC 9591,
+  FROST(secp256k1, SHA-256), context "FROST-secp256k1-SHA256-v1"): H1 =
+  xmd_to_scalar(m, ctx || "rho"), H2 ctx || "chal", H3 ctx || "nonce",
+  H4 = SHA-256(ctx || "msg" || m), H5 = SHA-256(ctx || "com" || m).
+  Functions after RFC 9591 secs 4 and 5: frost_nonce (nonce_generate
+  from 32 random bytes and the secret, sec 4.1), frost_commit (round
+  one, sec 5.1), frost_binding_factors (sec 4.4: rho_input = enc(PK) ||
+  H4(msg) || H5(enc commitment list) || enc(identifier)),
+  frost_group_commitment (sec 4.5: R = sum of D_i + rho_i E_i),
+  frost_challenge (sec 4.6), frost_lagrange (sec 4.2,
+  derive_interpolating_value over the signer identifiers), frost_sign
+  (round two, sec 5.2: z_i = d_i + e_i rho_i + λ_i s_i c),
+  frost_verify_share (sec 5.4), frost_aggregate (sec 5.3: (R, z), 65
+  bytes), frost_verify (zG = R + cPK, cofactor 1). FrostResult:
+  FROST_OK, FROST_BAD_SHARE, FROST_BAD_INDEX (0, above THR_N_MAX,
+  repeated, not sorted), FROST_BAD_POINT (decode or identity),
+  FROST_BAD_SIG. frost_aggregate does not check t: the coordinator
+  checks MIN_PARTICIPANTS. So the rep mode (O98) can show that a set
+  below t gives a signature that does not verify.
+- O95. Vector sources (Claude reading, NOT ruled). Each row has its
+  source in a C comment; each source has a second source, checked once
+  in W: (1) SHA-256: FIPS 180-4 (App. B.1 to B.3 of FIPS 180-2, the same
+  values): "abc", the 448-bit message, 1M 'a', plus "" (CAVP ShortMsg
+  Len 0). Second source: cairn-lang 6748510 test/shatool.c:36 to :43 and
+  `shasum -a 256` on the host (H2a, recorded in W/S7-PROGRESS.md). (2)
+  expand_message_xmd: RFC 9380 App. K.1 (SHA-256, DST
+  "QUUX-V01-CS02-with-expander-SHA256-128", len_in_bytes 0x20 and 0x80,
+  msgs "", "abc", "abcdef0123456789", "q128_" + 128 'q', "a512_" + 512
+  'a': 10 rows). Second source: W/s7-xmd-check.py (Python hashlib, from
+  the sec 5.3.1 text, run with `python3 -I`), and the CFRG hash-to-curve
+  repo vector file if WebFetch reaches it. Copies:
+  W/vectors/rfc9380-k1.txt. (3) FROST: RFC 9591 App. E.5
+  FROST(secp256k1, SHA-256): group secret and public key, message, share
+  polynomial coefficient, the 3 shares, signer set {1, 3}, nonce
+  randomness, nonces, commitments, binding factor inputs and binding
+  factors, the signature shares, the final signature. Each is a
+  byte-equal row. Second source: the CFRG frost repo poc vector file for
+  secp256k1 (or the ZF frost-secp256k1 vectors.json) and
+  W/s7-frost-check.py (Python big integers, `-I`, from the RFC inputs).
+  Copies: W/vectors/rfc9591-e5.txt. (4) secp256k1: G on the curve, n G =
+  infinity, (n - 1) G = -G, 2 G (SEC 2 and a Python check), enc(G) = 02
+  79BE667E... (SEC 2 compressed G).
+- O96. One DKG for both curves (Claude reading, NOT ruled). Reading: sec
+  4.4 reshares BOTH keys, so one DKG and one reshare serve BN254 and
+  secp256k1. dkg.c gets a curve descriptor `DkgCurve` (the field, the
+  order, b, the generator and the PoK challenge function); `DKG_BN254`
+  keeps the S6 dkg_challenge (keccak chain) and `DKG_SECP256K1` uses
+  xmd_to_scalar with DST ctx || "dkg" over (i, enc C_{i,0}, enc R). Each
+  dkg_* function takes `const DkgCurve *` first; tallytool call sites
+  change to `&DKG_BN254` and nothing else. The S6 rows (DKG fixtures, 28
+  rep counts, KATs) pin the BN254 path: they must pass unchanged.
+  Alternative (rejected): a second copy of dkg.c for secp256k1 (two QUAL
+  rules, two reshares). secp256k1 DKG fixtures: the S6 five on secp256k1
+  (good dealing QUAL {1, 2, 3}; bad share DKG_BAD_SHARE QUAL {1, 3}; bad
+  proof DKG_BAD_PROOF QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW), plus
+  "the DKG key signs": FROST by {1, 2} and by {2, 3} verifies under the
+  DKG PK.
+- O97. Reshare (Claude reading, NOT ruled). NEW in dkg.c: old committee
+  (t, n), signing quorum Q (|Q| >= t), new committee (t', n'). Member i
+  of Q deals g_i of degree t' - 1 with g_i(0) = λ_{i,Q} s_i (λ over Q at
+  0, the frost_lagrange rule): Feldman commitments C'_{i,k} and a PoK of
+  g_i(0), as a DKG dealing. New check: C'_{i,0} = λ_{i,Q} PK_i, with
+  PK_i the old verification share of i (dkg_key). A failed check gives
+  the new code DKG_BAD_RESHARE (the dealer leaves QUAL'). New member j:
+  s'_j = sum over QUAL' of g_i(j). The new group key = sum of C'_{i,0} =
+  PK when QUAL' = Q (a smaller QUAL' gives DKG_TOO_FEW: λ is over Q).
+  Second source for the formula: cairn-lang 6748510 src/front/dkg.h:79,
+  :87. Fixture (secp256k1): old (t 2, n 3) from the good DKG; Q = {1,
+  3}; new (t' 3, n' 4). Rows: (1) new PK = old PK; (2) old {1, 2} signs
+  and verifies under PK; (3) new {2, 3, 4} signs and verifies under PK;
+  (4) Lagrange of the new shares {1, 2, 3} = the old secret (the tool
+  knows the dealers' constant terms); (5) new {1, 2} gives a signature
+  that does not verify (t' = 3); (6) a dealing with g_i(0) = s_i (no λ)
+  gives DKG_BAD_RESHARE. Plus one BN254 row: the new committee opens an
+  S6 cast (Secret includes the ElGamal key).
+- O98. Representation map of `Authorized` (Q5 (a), S7; Claude reading,
+  NOT ruled). `build/frosttool rep`: one secp256k1 DKG (t 2, n 3); for
+  each set S of {1, 2, 3} (8 sets) sign msg with S (S empty: no signer,
+  print 0), aggregate, verify under PK, print `denote denAuth3 B1 B2 B3
+  => V` (V = 1 when the signature verifies); then the O97 reshare to (t'
+  3, n' 4) and the 16 sets: `denote denAuth4 B1 B2 B3 B4 => V`. Guest
+  (examples/denote.lang): `denAuth3 b1 b2 b3` = 1 when at least 2 flags
+  are true, else 0; `denAuth4` with 3 of 4 (the threshold quorum of the
+  toy instance, a count with `elim` on each flag, the O60 copy rule). 24
+  cases, 0 mismatches. The kit value (verify of the aggregate) meets the
+  guest quorum decision line by line.
+- O99. C tool (Claude reading, NOT ruled). A NEW test/frosttool.c
+  (build/frosttool), not a tallytool mode: it keeps the S6 tool, its
+  52.7 s and its mutant killers as they are. No argument: the rows (O95,
+  O96, O97), `frost regressions: passed`. `rep`: O98. Makefile: CRYPTO
+  adds sha256.c, xmd.c, secp256k1.c, frost.c; FROST_TOOL =
+  test/frosttool.c $(CRYPTO); build/frosttool in `build`; check runs
+  build/frosttool after build/tallytool; check-clang adds FROST_TOOL.
+- O100. Speed (Claude reading, NOT ruled). ec0_mul is Jacobian already;
+  at the S6 rate (about 60 ms per multiplication) the rows need about
+  300 multiplications and `rep` about 180, so about 30 s for both modes.
+  Budget 60 s for frosttool; above 120 s, profile before any change.
+  Each run stays under 4 GB. Result: the rows 12.5 s and `rep` 32.0 s
+  (user time), 44.5 s for both, so no change.
+- O101. S7 mutants (Claude reading, NOT ruled). W/mut-s7.py is a copy of
+  W/mut-s6.py with a new MUTANTS table and killers. (1) binding factor
+  dropped: frost_group_commitment R_i = D_i (no rho_i E_i). Killers: the
+  E.5 group commitment and signature rows, the share verify rows, every
+  rep line with a quorum (V 1 to 0). (2) one SHA-256 round skipped:
+  sha256.c round loop (cairn :43) bound `SHA256_ROUNDS - 1u`. Killers:
+  the FIPS rows, the xmd rows, each FROST row. (3) reshare coefficient
+  wrong: the dealer uses λ + 1 for g_i(0). Killers: reshare rows (1),
+  (3), (4) (DKG_BAD_RESHARE), the denAuth4 rep lines. Result: 3 of 3
+  KILLED (W/S7-mutants.log). Mutant 1: none of the 9 V-1 rep lines gives
+  1 (9 mismatches), and the rows give 7 FAIL lines (`e5 P1 sig_share`,
+  `e5 P3 sig_share`, `e5 sig`). The `e5 verify` rows pass: they check
+  the fixed RFC 9591 signature, not the group commitment. Mutant 2: the
+  rows give 36 FAIL lines (the FIPS, xmd and E.5 rows). Mutant 3: the 5
+  V-1 denAuth4 rep lines give 0 (5 mismatches), and the rows give 22
+  FAIL lines (`reshare good` gives DKG_BAD_RESHARE; `reshare new PK =
+  old PK`, `reshare new FROST {2, 3, 4}` and `reshare Lagrange {1, 2, 3}
+  = secret` fail).
+- O102. Gate lines and docs (Claude reading, NOT ruled). test/gate.sh
+  after the tally block: the same loop over `build/frosttool rep`, the
+  line `auth: 24 cases, 0 mismatches`. test/eval/expect.txt: one row
+  each for denAuth3 and denAuth4 (evals 75 to 77). The Wasm differential
+  covers the new denote.lang entries by its glob (5274 to 5318 cases).
+  fmt stays 103 files. Docs by one exact-count Python script
+  (W/s7-docs.py, W/s6-h4-docs.py the model): PLAN sec 4.3 and 4.4
+  status, sec 8 note (SHA-256 is a port of cairn-lang 6748510; secp256k1
+  constants from intent-lang 79e1898; xmd and FROST NEW), sec 9 S7 row
+  at Close, sec 10 O90 to O103; STATUS (S7 sentence, counts, mutants,
+  Crypto known limits: not constant time, the tool nonces use fixed
+  randomness, n at most 8); README build files (the new src/crypto
+  files, test/frosttool.c). Result: the gate gives `auth: 24 cases, 0
+  mismatches`, 77 evals and 5318 differential cases with 0 mismatches;
+  fmt stays 103 files. W/s7-docs.py makes the docs edits.
+- O103. S6 baseline (Claude reading, NOT ruled). The S6 counts at
+  09f7f59 (gate 0 failures, tally 14/28/0, evals 75, fmt 103, json 29,
+  laws 12/12 and 1/1, check refusals 54, parse 9, 36 codes, ir 19, wasm
+  22, differential 5274/0). H2a STEP 0 runs the serial gate once
+  (W/S7-step0-gate.log) before any edit.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 

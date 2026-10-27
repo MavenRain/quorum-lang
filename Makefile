@@ -7,13 +7,14 @@ FRONT = src/front/base.c src/front/lexer.c src/front/parser.c src/front/front.c 
 TARGET = src/wasm.c
 SRC = src/main.c $(FRONT) $(TARGET)
 FRONT_TOOL = test/fronttool.c $(filter-out src/front/front.c src/front/lower.c,$(FRONT))
-CRYPTO = src/crypto/keccak.c src/crypto/u256.c src/crypto/bn254.c src/crypto/elgamal.c src/crypto/threshold.c src/crypto/sigma.c src/crypto/dkg.c
+CRYPTO = src/crypto/keccak.c src/crypto/u256.c src/crypto/bn254.c src/crypto/elgamal.c src/crypto/threshold.c src/crypto/sigma.c src/crypto/dkg.c src/crypto/sha256.c src/crypto/xmd.c src/crypto/secp256k1.c src/crypto/frost.c
 TALLY_TOOL = test/tallytool.c $(CRYPTO)
+FROST_TOOL = test/frosttool.c $(CRYPTO)
 HEADERS = $(wildcard src/*.h src/front/*.h src/crypto/*.h)
 
 .PHONY: build check check-clang clean
 
-build: build/langc build/fronttool build/tallytool
+build: build/langc build/fronttool build/tallytool build/frosttool
 
 build/domain.c: domain/domain.lang gen/embed.c
 	mkdir -p build
@@ -30,16 +31,22 @@ build/tallytool: $(TALLY_TOOL) $(HEADERS)
 	mkdir -p build
 	$(TCC) $(CFLAGS) -o build/tallytool $(TALLY_TOOL)
 
+build/frosttool: $(FROST_TOOL) $(HEADERS)
+	mkdir -p build
+	$(TCC) $(CFLAGS) -o build/frosttool $(FROST_TOOL)
+
 check-clang: build/domain.c
 	$(CC) $(CLANG_FLAGS) $(SRC) build/domain.c
 	$(CC) $(CLANG_FLAGS) $(FRONT_TOOL)
 	$(CC) $(CLANG_FLAGS) $(TALLY_TOOL)
+	$(CC) $(CLANG_FLAGS) $(FROST_TOOL)
 
-check: build/langc build/fronttool build/tallytool check-clang
+check: build/langc build/fronttool build/tallytool build/frosttool check-clang
 	sh test/gate.sh
 	sh test/review.sh
 	build/fronttool
 	build/tallytool
+	build/frosttool
 
 clean:
 	rm -rf build

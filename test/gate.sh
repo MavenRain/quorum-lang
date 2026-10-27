@@ -94,6 +94,30 @@ fail=$((fail + rep_bad))
 [ "$rep_cases|$counts" = "14|28" ] || { echo "FAIL tally: want 14 cases and 28 counts"; fail=$((fail + 1)); }
 echo "tally: $rep_cases cases, $counts counts, $rep_bad mismatches"
 
+# The representation map of `Authorized` (O98): `build/frosttool rep` prints an
+# eval line for each signer set of the secp256k1 DKG (t 2 of n 3, denAuth3) and
+# of its reshare (t 3 of n 4, denAuth4) of examples/denote.lang, with 1 when
+# the FROST signature verifies. `langc eval` must print the same value.
+status=0
+build/frosttool rep >"$tmp/auth" 2>"$tmp/auth.err" || status=$?
+[ "$status" -eq 0 ] || { echo "FAIL frosttool rep: exit $status: $(head -n 1 "$tmp/auth.err")"; fail=$((fail + 1)); }
+auth=0
+auth_bad=0
+while IFS= read -r line; do
+  want=${line#* => }
+  set -- ${line%% => *}
+  file=$1
+  name=$2
+  shift 2
+  status=0
+  got=$(build/langc eval "examples/$file.lang" "$name" "$@" 2>"$tmp/err") || status=$?
+  auth=$((auth + 1))
+  [ "$status|$got" = "0|$want" ] || { echo "FAIL auth $name $*: want $want, got exit $status: $got $(head -n 1 "$tmp/err")"; auth_bad=$((auth_bad + 1)); }
+done <"$tmp/auth"
+fail=$((fail + auth_bad))
+[ "$auth" -eq 24 ] || { echo "FAIL auth: want 24 cases"; fail=$((fail + 1)); }
+echo "auth: $auth cases, $auth_bad mismatches"
+
 # eval_refused STATUS CODE NAME [ARGS]: `langc eval examples/entries.lang NAME
 # ARGS` must exit STATUS and print `langc: CODE: NAME: ...` on stderr.
 eval_refused() {

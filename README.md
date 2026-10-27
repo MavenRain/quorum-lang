@@ -54,6 +54,7 @@ The gate needs tcc, clang, node, wasm-validate and wasm-objdump.
   docs/DIAGNOSTICS.md: the diagnostic codes.
 - src/front/: lexer, parser, checker, evaluator and lowering. src/wasm.c: the Wasm emitter.
 - src/crypto/: BN254 G1, ElGamal, the ballot proofs, threshold decryption and the DKG (S6). test/tallytool.c: their C rows and the `rep` mode.
+- src/crypto/sha256.c, xmd.c, secp256k1.c and frost.c: SHA-256, expand_message_xmd, secp256k1 and FROST(secp256k1, SHA-256) (S7); dkg.c also reshares. test/frosttool.c: their C rows and the `rep` mode.
 - examples/, test/: guest programs and gate fixtures.
 
 ## License
