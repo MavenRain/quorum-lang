@@ -1,6 +1,6 @@
 # quorum-lang status
 
-The build implements slices S1 to S5 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S6 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
@@ -9,8 +9,10 @@ and the guest Prelude (sec 3.1). S4 is design secs 1 to 6 at the
 denotation in examples/threshold.lang, a closed toy instance, the `law`
 form and `langc laws`. S5 is the `Circuit` fragment with its guest
 evaluator `run`, the seal (`Hidden`), design secs 7 to 10 at the
-denotation and the denotational instances. Slices S6 to S12 are not
-started. The next slice is S6.
+denotation and the denotational instances. S6 is the cryptography of sec
+4.2 in src/crypto (BN254 ElGamal, the Pedersen DKG, the ballot proofs
+and threshold decryption) and the C tool test/tallytool.c. Slices S7 to
+S12 are not started. The next slice is S7.
 
 ## Implemented
 
@@ -77,6 +79,14 @@ started. The next slice is S6.
   the 5 new laws `app-cons`, `ivc-prove`, `tallyᴹ-correct`,
   `tallyᶠ-correct` and `mpc≼fhe` (O73). examples/denote.lang holds the
   denotational instances and `law den-private` (O75).
+- Cryptography (S6): src/crypto holds BN254 G1, exponential ElGamal, the
+  ballot proofs (`sig_or_*`, `sig_onehot_*`), threshold decryption with
+  DLEQ proofs (`thr_open`) and the Pedersen DKG (`dkg_*`, new C, O79).
+  build/tallytool runs the known-answer, invalid-proof and DKG rows
+  (`tally regressions: passed`). `build/tallytool rep` casts, adds
+  (`tally_add`) and opens the ballot lists of the entries denCount1 to
+  denCount3 (examples/denote.lang), and the gate compares each count
+  with `langc eval` (O80, O81, O87).
 - Refusals: `List`, `cons`, `nil` and `unfold` give `REFUSE_CELL` (R1).
   A parameterized declaration that is not a cell signature, a type
   index, a record field of a type-constructor type and a coinductive
@@ -133,12 +143,24 @@ started. The next slice is S6.
   not checked (its right side becomes its left side: `tallyᶠ-correct`
   fails, 10 of 12 laws). The fixtures, the examples loop and the laws
   line kill them.
+- Gate counts at S6: 103 files canonical under `fmt`, 29 JSON fixtures,
+  36 codes with a fixture or a row, 54 check refusals, 9 parse refusals,
+  75 evaluations, 14 tally cases with 28 counts and 0 mismatches, 5274
+  differential cases with 0 mismatches, 22 Wasm modules valid, 12 of 12
+  laws discharged (examples/threshold.lang) and 1 of 1
+  (examples/denote.lang).
+- Mutants at S6 (3 of 3 killed): one slot of `⊕` skipped (`tally_add`
+  stops before the last slot: 10 of the 28 `rep` counts differ and the
+  row `tally k 2 slot 1` fails), the DLEQ check skipped (`thr_open`
+  takes a bad partial: the rows `part D + G` and `part z + 1` fail), the
+  Lagrange sign flipped (each `rep` slot gives `open-1` and 8 open rows
+  fail). The `rep` lines and the tallytool rows kill them.
 
 ## Remaining work
 
-1. S6 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
+1. S7 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
    Q14 must be ruled before S10 and Q15 before S11.
-2. The O items O14 to O77 (`docs/PLAN.md` sec 10) are Claude readings.
+2. The O items O14 to O89 (`docs/PLAN.md` sec 10) are Claude readings.
    The USER can rule each one.
 
 ## Known limits
@@ -175,6 +197,12 @@ started. The next slice is S6.
 - S5 review regressions cover seal extraction through Path endpoints
   (including local and record proofs), safe resealing, and refusal of
   `foldᴵ` when later types depend on a recursive field's original value.
+- Crypto (S6): langc does not link src/crypto. The host import ABI comes
+  in S8 (Q9 (a)). The field and curve code is not constant time.
+  `thr_open` gets a count by baby-step giant-step below 2^bits
+  (`OPEN_BITS` 8 in build/tallytool, so a count below 256); a larger
+  count gives THR_NOT_FOUND (`open-1`). The DKG is t of n with n at most
+  8 (`THR_N_MAX`).
 - Names: S2 has no qualified names. A module name is not a global name
   (O35).
 

@@ -425,6 +425,19 @@ theorems.
 - Exact: Lagrange interpolation and `⟦reveal⟧` for an honest combine.
   Assumed: DDH (privacy) and DLEQ soundness in the random oracle model.
 
+S6 status (Claude reading, NOT ruled; O78 to O87). src/crypto holds the
+port of intent-lang 79e1898 (keccak, u256, bn254, elgamal, threshold and
+sigma; thr_deal and elg_scale are not ported) and the new C file dkg.c
+(the Pedersen DKG of O79). langc does not link src/crypto: the host
+import ABI comes in S8 (Q9 (a)). The C tool test/tallytool.c
+(build/tallytool) has the known-answer rows (O82), the invalid-proof
+rows (O83) and the DKG rows (O84). Its `rep` mode is the tally route
+(O80): one DKG (t 2, n 3), a cast for each ballot (k 2), `tally_add`
+slot by slot, `thr_open` of each slot over the quorum {1, 2}, and one
+eval line for each count. The gate gives each line to `langc eval` on
+the entries denCount1 to denCount3 of examples/denote.lang (O81): 14
+cases, 28 counts, 0 mismatches.
+
 ### 4.3 Certificates: FROST(secp256k1, SHA-256)
 
 - RFC 9591, context string "FROST-secp256k1-SHA256-v1".
@@ -602,6 +615,12 @@ NEW (no precedent in any *-lang repo): SHA-256, expand_message_xmd,
 FROST, the `langc fmt` printer, the `check --json` printer, the
 `langc mcp` server (O5).
 
+S6 note: src/crypto ports intent-lang 79e1898
+src/front/{keccak,u256,bn254,elgamal,threshold,sigma}.c. secp256k1.c
+waits for S7. thr_deal (the Shamir deal) and elg_scale (weighted
+ballots; Q7 (a) has unit weight) are not ported. The DKG
+(src/crypto/dkg.c) is new C (O79).
+
 ## 9. Slices
 
 One session for each slice. Each slice closes with the gate GREEN, its
@@ -616,7 +635,7 @@ commit message file and the next prompt file. The USER commits.
 | S3 | HITs: `∥_∥₁`, `FMSet` in generator form with its eliminator (O1), union, the truncation recursor, `∃`: the sec 3.1 Prelude in the guest | GREEN: lib/prelude.lang checks (the guest Prelude, with `isSetℕ` and `isSetBool` by a guest Hedberg proof, Q16 (b)); in examples/bag.lang the `_++_` equation (`consApp`, `appUnitL`) and the union unit, associativity and commutativity laws (`appUnitL`, `appUnitR`, `appAssoc`, `appComm`) check; make check EXIT 0, gate: 0 failures (serial log); fmt: 83 files canonical; json: 23 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 56; differential: 4007 cases, 0 mismatches (bag entries `count3`, `countUnion`, `countFlags`, `scale`); wasm: 18 modules valid | 3: comm path dropped (`bag-no-comm.lang` fails), swap obligation not checked (`bag-bad-swap.lang` fails), set truncation dropped (`bag-no-trunc.lang` fails); 3 of 3 KILLED | sec 1.2 Q16; sec 2.2 and 3.1 status; sec 10 O37 to O56; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | GREEN: examples/threshold.lang checks; 7 of 7 sec 1 to 6 laws discharged (`reach-core`, `legit-core`, `honest-in`, `sound`, `no-fork`, `certified-legit`, `certified-core`); the toy instance proves each obligation (`isSetState`, `advance`, `isPropCore`, `core₀`); O3 PROVED (`tip-order`); `langc laws`: `laws: 7 of 7 discharged`; `check --json`: `"laws":{"discharged":7,"total":7}`; make check EXIT 0, gate: 0 failures (serial log); fmt: 86 files canonical; json: 24 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 61; differential: 4074 cases, 0 mismatches; wasm: 20 modules valid | 3: `keeps` not checked (`step` fails, `laws: 0 of 7`), quorum index ignored (`Authorized` fails, `laws: 2 of 7`, O67), `single` dropped (`fork-meet` fails, so `no-fork` and `tip-order` fail, `laws: 4 of 7`); the examples loop and the laws line kill each one; 3 of 3 KILLED | sec 3.2 and 3.3 status; sec 10 O3, O57 to O67; docs/GRAMMAR.md, docs/STATUS.md, AGENTS.md |
 | S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | GREEN: examples/threshold.lang checks; 12 of 12 design laws discharged (the 7 S4 laws, `app-cons`, `ivc-prove`, `tallyᴹ-correct`, `tallyᶠ-correct`, `mpc≼fhe`); `langc laws`: `laws: 12 of 12 discharged`; `check --json`: `"laws":{"discharged":12,"total":12}`; examples/denote.lang: `laws: 1 of 1 discharged` (`den-private`); `run` agrees with direct evaluation (`agree` gives 1 on each eval row; the circuit.lang and denote.lang entries are in the Wasm differential); make check EXIT 0, gate: 0 failures (serial log); fmt: 95 files canonical; json: 27 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 48 check, 9 parse; evals: 72; differential: 5246 cases, 0 mismatches; wasm: 22 modules valid | 3: fragment admits a higher-order value (O71 check off: `circuit-ho.lang` and the `REFUSE_CIRCUIT` json fixture fail), `⟦_⟧` escapes the seal (`REFUSE_LAW` off: `seal-fold.lang`, `seal-unseal.lang`, `seal-relay.lang` and the `REFUSE_LAW` json fixture fail), `factors` not checked (its right side becomes its left side: `tallyᶠ-correct` fails with `TYPE_MISMATCH`, `check --json` gives 10 of 12 laws); 3 of 3 KILLED | sec 3.4 and sec 6 status; sec 10 O68 to O77; sec 11 Q7; docs/GRAMMAR.md, docs/STATUS.md |
-| S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | decrypt of the sum of casts = the bag counts, N cases, 0 mismatches; known-answer vectors equal; each invalid-proof fixture refused; each DKG fixture (good dealing, bad share, bad proof of knowledge) gives its result | 3: one slot of `⊕` skipped, DLEQ check skipped, Lagrange sign flipped | sec 4.2 |
+| S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | GREEN: decrypt of the sum of casts = the bag counts (`build/tallytool rep` against `langc eval` on denCount1 to denCount3): `tally: 14 cases, 28 counts, 0 mismatches`; known-answer vectors equal (O82); each invalid-proof fixture refused (9 rows, O83); each DKG fixture gives its result (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW); `tally regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 75; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5274 cases, 0 mismatches; wasm: 22 modules valid | 3: one slot of `⊕` skipped (`tally_add` bound `j + 1u < k`: 10 of the 28 rep lines differ, the row `tally k 2 slot 1` fails), DLEQ check skipped (the `thr_open` refusal off: the rows `part D + G` and `part z + 1` fail), Lagrange sign flipped (each rep line gives `open-1`, 8 open rows fail); 3 of 3 KILLED | sec 4.2 status; sec 8 note; sec 10 O78 to O89; docs/STATUS.md, README.md |
 | S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | FIPS 180-4, RFC 9380 and RFC 9591 Appendix E vectors byte-equal (signing); each DKG fixture gives its result; old and new committees sign under one group key after reshare | 3: binding factor dropped, one SHA-256 round skipped, reshare coefficient wrong | sec 4.3, 4.4 |
 | S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | a scripted history of k certified steps; two replicas merge to one tip; refuse fixtures (bad signature, fork, ill-typed constitution, `Core` break) each give their code; the accept fixture is accepted | 3: fork check skipped, `Core` check skipped, fragment check skipped | sec 5, sec 6 |
 | S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | A3, A4, A5, A8, A13, A16, A17, A19 gates | 3: MCP tool drops a field, a SKILL.md copy drifts, `list-base` misses a name | sec 7 status |
@@ -1165,6 +1184,133 @@ commit message file and the next prompt file. The USER commits.
   open, and `check --json` gives 10 of 12 laws. The examples loop and
   the laws line kill it. The three mutants: 3 of 3 KILLED
   (W/mut-s5.py).
+- O78. Port set and layout (Claude reading, NOT ruled). New directory
+  src/crypto (the code is not front end). Files: keccak.{c,h} (as is),
+  u256.{c,h} (cut word_text and the WORD_* enum), bn254.{c,h} (as is;
+  ec0_* stay, g1_* wrap them; add `scalar_reduce` = blsag_reduce with
+  its modulus words), elgamal.{c,h} (drop elg_scale: Q7 (a) has unit
+  weight), threshold.{c,h} (drop thr_deal; keep thr_hash, thr_challenge,
+  thr_nonce, thr_partial, thr_verify, thr_lagrange, thr_open),
+  sigma.{c,h} (as is). Include paths change from "front/X.h" to
+  "crypto/X.h"; blsag.h and the blsag_* calls change to bn254.h and
+  scalar_reduce. Each file gets a one-line head comment with its source
+  (`intent-lang 79e1898 src/front/X.c`). langc does NOT link src/crypto
+  in S6 (Q9 (a): the host-import ABI is S8).
+- O79. Pedersen DKG (Claude reading, NOT ruled). New C
+  (src/crypto/dkg.{c,h}): the FROST paper Figure 1 over BN254 G1, t of n
+  with n <= THR_N_MAX. Dealer i: coefficients a_{i,k} =
+  thr_nonce(seed_i, k) for k < t; Feldman commitments C_{i,k} = a_{i,k}
+  G; Schnorr proof of knowledge of a_{i,0}: nonce w = thr_nonce(seed_i,
+  t), R = w G, c = H chain (DKG_TAG, ctx, i, C_{i,0}, R), z = w + c
+  a_{i,0} mod r; share f_i(j) by Horner (the threshold.c:83-87 loop).
+  Checks: proof zG = R + c C_{i,0}; share f_i(j) G = sum over k of j^k
+  C_{i,k}. QUAL = the dealers with a valid proof and a valid share for
+  each member (a complaint against one share removes the dealer for all
+  members, so QUAL is the same at each member). sk_j = sum over QUAL of
+  f_i(j); PK_j = sk_j G; PK = sum over QUAL of C_{i,0}. The output is
+  ThrShare rows, so thr_partial and thr_open take DKG shares. DkgResult:
+  DKG_OK, DKG_BAD_SHARE, DKG_BAD_PROOF, DKG_BAD_INDEX, DKG_TOO_FEW (QUAL
+  smaller than t).
+- O80. Host form of the representation map (Claude reading, NOT ruled).
+  Kit entries, not a langc verb. A C tool test/tallytool.c
+  (build/tallytool, linked with src/crypto only) has two modes. No
+  argument: the C fixture rows (O82 to O84), `tally regressions:
+  passed`. `rep`: one DKG (t 2, n 3), then for each case of O81 it casts
+  each ballot (k = 2 slots, Enc(1) at the slot of b, Enc(0) at the
+  other), adds the ballots slot by slot (`tally_add`, new, in
+  src/crypto/elgamal.c), reveals each slot by thr_open over the quorum
+  {1, 2}, and prints the eval line `denote NAME J B1 .. Bm => COUNT`.
+  The gate runs the O87 loop over these lines with `langc eval`. So the
+  kit value of cast, ⊕ and reveal meets the guest denotation line by
+  line.
+- O81. Guest side and N (Claude reading, NOT ruled).
+  examples/denote.lang gets entries over the denotation of den-private
+  (the right sides of ⟦cast⟧ and ⟦⊕⟧: a cast is `_∷_ Bool b ([] Bool)`,
+  ⊕ is `_++_ Bool`): `denCount1 j b1`, `denCount2 j b1 b2`, `denCount3 j
+  b1 b2 b3`, each the count of the choice j in the union of the cast
+  bags (a count with a Bool test per element, a copy of bag.lang `count`
+  with `elim` on the element, the O60 copy rule). The entries do not
+  unseal (no REFUSE_LAW). N = 14 cases: each ballot list over Bool of
+  length 1 to 3 (2 + 4 + 8), each with the 2 slots, so 28 count lines.
+  Reading: the 14 cases need about 530 G1 multiplications at the
+  measured speed, under 60 s. Result: the 3 entries check, the file
+  stays canonical under `fmt`, and the gate gives 14 cases, 28 counts, 0
+  mismatches.
+- O82. Known-answer vectors (Claude reading, NOT ruled). C rows in
+  tallytool, hex constants in the C file, each with its source in a
+  comment: (1) keccak256("") =
+  c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470 and
+  keccak256("abc") (Ethereum Keccak, not SHA3; H2a confirmed each row
+  against a second source: `cast keccak` and a Python big-integer check,
+  W/s6-kat-check.py); (2) G on the curve, 2G = intent-lang
+  test/eval/expect.txt:53 (decimal), cross-checked with
+  precompile.sh:51-52; (3) r G = the point at infinity and (r - 1) G =
+  (1, p - 2) (exact by the group order); (4) C1 = elg_nonce(1) G =
+  precompile.sh:110-111 (port fidelity of keccak, scalar_reduce and
+  g1_mul).
+- O83. Invalid-proof fixtures (Claude reading, NOT ruled). C rows, each
+  refused with its code: (1) a slot with plaintext 2 and a simulated OR
+  proof (SIG_BAD_SLOT); (2) a two-hot ballot, each OR proof valid
+  (SIG_BAD_SUM); (3) an all-zero ballot (SIG_BAD_SUM); (4) a forged
+  split e0 + e1 != e (SIG_BAD_SLOT); (5) a slot proof moved to another
+  slot index j (SIG_BAD_SLOT); (6) a valid ballot checked under another
+  ctx (the port gives SIG_BAD_SLOT); (7) a partial decryption with D + G
+  (THR_BAD_PROOF); (8) a partial with z + 1 (THR_BAD_PROOF); (9) an
+  off-curve C1 (THR_REFUSED). Plus the good rows: one-hot k 2 and k 4
+  verify, open = the count.
+- O84. DKG fixtures (Claude reading, NOT ruled). C rows: (1) good
+  dealing: n 3, t 2, each dealing verifies, PK = sum of C_{i,0}, PK_j =
+  sum over k of j^k C_{i,k} summed over QUAL, and a cast then threshold
+  open over {1, 2}, {1, 3} and {2, 3} gives the plaintext (DKG_OK); (2)
+  bad share: dealer 2 gives member 3 the share f_2(3) + 1, the check
+  gives DKG_BAD_SHARE and QUAL = {1, 3}; the key of QUAL still decrypts;
+  (3) bad proof of knowledge: dealer 1 with z + 1 gives DKG_BAD_PROOF,
+  QUAL = {2, 3}. Plus DKG_BAD_INDEX rows for member 0 and member n + 1,
+  and DKG_TOO_FEW when QUAL is empty (each dealing bad). A QUAL of one
+  dealer is still a t of n sharing (a sum of degree t - 1 polynomials),
+  so DKG_TOO_FEW is for an empty QUAL only.
+- O85. S6 mutants (Claude reading, NOT ruled). W/mut-s6.py is a copy of
+  W/mut-s5.py with the MUTANTS table and the killers changed (scratch
+  copy, restore, cmp; `make -B`). (1) one slot of ⊕ skipped: the
+  `tally_add` loop bound `j < k` becomes `j + 1u < k`; killer: the O87
+  rep loop (the slot 1 counts differ) and the tallytool open rows. (2)
+  DLEQ check skipped: the thr_open refusal condition becomes `if (0 &&
+  !thr_verify(...))`; killer: O83 rows 7 and 8. (3) Lagrange sign
+  flipped: `fe_sub(&den, &xj, &xi, ...)` becomes `fe_sub(&den, &xi, &xj,
+  ...)`; killer: the rep loop and the open rows (M is wrong, so BSGS
+  gives NOT_FOUND). Result: 3 of 3 KILLED (W/S6-mutants.log). Mutant 1:
+  10 of the 28 rep lines differ and the row `tally k 2 slot 1` fails.
+  Mutant 2: the rows `part D + G` and `part z + 1` fail. Mutant 3: each
+  of the 28 rep lines gives `open-1` (THR_NOT_FOUND) and 8 open rows
+  fail.
+- O86. Speed (Claude reading, NOT ruled). Port bn254 as is first (KATs
+  pin it). If `build/tallytool` (both modes) takes more than 120 s, add
+  Jacobian coordinates inside g1_mul only (no inverse per add, one
+  inverse at the end), keep the affine API, and the KAT rows check it.
+  Each long run stays under 4 GB (BSGS at 8 bits). Result: `rep` 31.80 s
+  and the rows 20.93 s, 52.7 s for both, so no Jacobian change.
+- O87. Gate lines (Claude reading, NOT ruled). test/gate.sh, after the
+  evals loop: `build/tallytool rep > "$tmp/rep"`, then the evals loop
+  body over "$tmp/rep" (same compare), and the line `tally: 14 cases, 28
+  counts, 0 mismatches`. Makefile: CRYPTO = src/crypto/*.c (an explicit
+  list), TALLY_TOOL = test/tallytool.c $(CRYPTO); build/tallytool in
+  `build`; check runs build/tallytool after build/fronttool; check-clang
+  adds TALLY_TOOL; HEADERS adds src/crypto/*.h. The Wasm differential
+  covers the new denote.lang entries by its glob (5246 to 5274 cases).
+  New eval rows in test/eval/expect.txt: one row for each denCount entry
+  (evals 72 to 75).
+- O88. Docs (Claude reading, NOT ruled). H4, one exact-count Python
+  script (W/s6-h4-docs.py; W/s5-h4-docs.py is the model): PLAN sec 4.2
+  "S6 status" (port set, DKG, tally route), sec 8 note (thr_deal not
+  ported; DKG new C), sec 10 O78 to O89, sec 9 S6 row at Close; STATUS
+  (S6 line, known limits: crypto not in langc until S8, not constant
+  time, BSGS bound); README.md lists the build files, so it gets
+  src/crypto/ and test/tallytool.c. AGENTS.md does not list them. No new
+  langc code, so no DIAGNOSTICS row.
+- O89. S5 baseline (Claude reading, NOT ruled). The S5 baseline counts
+  are the USER commit counts (54 check refusals, 29 JSON fixtures). H2a
+  STEP 0 ran the serial gate once (W/S6-step0-gate.log) and recorded the
+  exact lines before any edit.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 

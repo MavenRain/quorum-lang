@@ -69,6 +69,31 @@ while IFS= read -r line; do
 done <test/eval/expect.txt
 echo "evals: $evals checked"
 
+# The representation map (O80): `build/tallytool rep` prints an eval line for
+# each ballot list of the entries denCount1 to denCount3 of examples/denote.lang
+# and each choice, with the count from the ciphertexts. `langc eval` must
+# print the same count.
+status=0
+build/tallytool rep >"$tmp/rep" 2>"$tmp/rep.err" || status=$?
+[ "$status" -eq 0 ] || { echo "FAIL tallytool rep: exit $status: $(head -n 1 "$tmp/rep.err")"; fail=$((fail + 1)); }
+counts=0
+rep_bad=0
+while IFS= read -r line; do
+  want=${line#* => }
+  set -- ${line%% => *}
+  file=$1
+  name=$2
+  shift 2
+  status=0
+  got=$(build/langc eval "examples/$file.lang" "$name" "$@" 2>"$tmp/err") || status=$?
+  counts=$((counts + 1))
+  [ "$status|$got" = "0|$want" ] || { echo "FAIL tally $name $*: want $want, got exit $status: $got $(head -n 1 "$tmp/err")"; rep_bad=$((rep_bad + 1)); }
+done <"$tmp/rep"
+rep_cases=$(rg -c '^denote denCount[0-9] 0 ' "$tmp/rep" || echo 0)
+fail=$((fail + rep_bad))
+[ "$rep_cases|$counts" = "14|28" ] || { echo "FAIL tally: want 14 cases and 28 counts"; fail=$((fail + 1)); }
+echo "tally: $rep_cases cases, $counts counts, $rep_bad mismatches"
+
 # eval_refused STATUS CODE NAME [ARGS]: `langc eval examples/entries.lang NAME
 # ARGS` must exit STATUS and print `langc: CODE: NAME: ...` on stderr.
 eval_refused() {
