@@ -395,6 +395,7 @@ static void print_field(Buf *b, const Field *f) {
 }
 
 static void print_data(Buf *b, const Decl *d) {
+  if (d->is_sealed) put(b, "sealed ");
   put(b, "data ");
   put(b, d->name);
   for (size_t i = 0; i < d->param_count; i++) {

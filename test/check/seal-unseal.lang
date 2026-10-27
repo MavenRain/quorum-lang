@@ -1,0 +1,2 @@
+leak : Hidden ℕ → ℕ
+leak h = unseal ℕ h

@@ -203,6 +203,7 @@ static int starts_atom(const Parser *p) {
     case TOK_KW_COINDUCTIVE:
     case TOK_KW_MODULE:
     case TOK_KW_LAW:
+    case TOK_KW_SEALED:
       return 0;
   }
   return 0;
@@ -403,6 +404,7 @@ static const Term *parse_atom(Parser *p) {
     case TOK_KW_COINDUCTIVE:
     case TOK_KW_MODULE:
     case TOK_KW_LAW:
+    case TOK_KW_SEALED:
       break;
   }
   fail_at(p, tok, "a term");
@@ -908,6 +910,7 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_KW_RECORD:
     case TOK_KW_MODULE:
     case TOK_KW_LAW:
+    case TOK_KW_SEALED:
       break;
     case TOK_EOF:
     case TOK_NAT:
@@ -944,11 +947,14 @@ static int parse_decl(Parser *p, Decl *d) {
     return fail_at(p, tok, "a definition indented by 2 spaces (a module holds definitions only)");
   bump(p);
   p->layout = p->base + 1;
+  /* `sealed data ...` (O72): the check refuses it outside the domain. */
+  d->is_sealed = tok->kind == TOK_KW_SEALED;
+  if (d->is_sealed && !expect(p, TOK_KW_DATA, "'data'")) return 0;
   /* `law NAME : TYPE`, then the clause of NAME (S4 O64). */
   d->is_law = tok->kind == TOK_KW_LAW;
   const Token *name_tok = d->is_law ? cur(p) : tok;
   if (d->is_law && !expect(p, TOK_IDENT, "a law name")) return 0;
-  int ok = tok->kind == TOK_KW_DATA ? parse_data(p, d)
+  int ok = tok->kind == TOK_KW_DATA || d->is_sealed ? parse_data(p, d)
          : tok->kind == TOK_KW_RECORD ? parse_record(p, d)
          : tok->kind == TOK_KW_POSTULATE ? parse_postulate(p, d)
          : tok->kind == TOK_KW_MODULE ? parse_module(p, d)

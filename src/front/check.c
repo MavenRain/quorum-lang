@@ -40,6 +40,7 @@ typedef struct {
   uint32_t self;      /* the family whose fields are checked, or NO_FAMILY */
   uint32_t self_uses; /* the uses of that family in the current field */
   const Term *at;     /* the term being checked, for the span of a failure */
+  int opens;          /* O72: the body opens a sealed family */
 } Checker;
 
 /* The span of a failure: the term being checked, else the declaration.
@@ -84,6 +85,7 @@ typedef enum {
   RULE_FOLD,
   RULE_ELIM,
   RULE_FOLDB,
+  RULE_FOLDI,
   RULE_UNFOLD,
   RULE_NAT2,
   RULE_SUC,
@@ -127,6 +129,7 @@ static const Builtin BUILTINS[] = {
   {"fold", 2, RULE_FOLD, OP_FOLD_NAT, OP_NAT, 0},
   {"elim", 4, RULE_ELIM, OP_ELIM_NAT, OP_NAT, 0},
   {"foldᴮ", 5, RULE_FOLDB, OP_FOLD_BAG, OP_NAT, 0},
+  {"foldᴵ", 2, RULE_FOLDI, OP_FOLD_FAMILY, OP_NAT, 0},
   {"natAdd", 2, RULE_NAT2, OP_NAT_ADD, OP_NAT, 0},
   {"suc", 1, RULE_SUC, OP_NAT_ADD, OP_NAT, 0},
   {"natSub", 2, RULE_NAT2, OP_NAT_SUB, OP_NAT, 0},
@@ -1358,6 +1361,25 @@ static int family_has_path(const Machine *m, uint32_t fam) {
   return 0;
 }
 
+/* O72: a fold or a projection R of the sealed family FAM into a type
+   that is not a sealed family opens the seal. */
+static const Core *seal_open(Call *k, uint32_t fam, const Core *r) {
+  const FamilyInfo *fs = k->c->m->families;
+  Core *sealed;
+  if (r == NULL || !fs[fam].sealed)
+    return r;
+  if (!(val_is(k->type, OP_FAMILY) && fs[k->type->inst].sealed)) {
+    k->c->opens = 1;
+    return r;
+  }
+  sealed = new_core(k->c, r->kind);
+  if (sealed != NULL) {
+    *sealed = *r;
+    sealed->sealed_result = 1;
+  }
+  return sealed;
+}
+
 static const Core *rule_fold(Call *k) {
   Checker *c = k->c;
   const Value *st = NULL;
@@ -1367,7 +1389,7 @@ static const Core *rule_fold(Call *k) {
     return nul(FAIL(c, "DOMAIN_FAMILY", "fold over %s is not in S2: a fold over an indexed family needs a dependent eliminator (S3)", c->m->families[fam].name));
   if (s != NULL && fam != NO_FAMILY && c->m->families[fam].ctor_count + 1u == k->argc) {
     k->hint = k->outer;
-    return fold_family(k, s, st);
+    return seal_open(k, fam, fold_family(k, s, st));
   }
   if (s != NULL && k->argc == 3u && simple_scrutinee(st)) {
     k->hint = k->outer;
@@ -1384,17 +1406,172 @@ static const Core *rule_fold(Call *k) {
 
 /* The motive of elim over D: P : D → Type₁ (large elimination), else
    P : D → Type. A failed first try leaves no diagnostic. */
-static const Core *elim_motive(Checker *c, const Term *t, const Value *d) {
+static const Core *motive_check(Checker *c, const Term *t, const Value *big, const Value *small) {
   Diag saved = *c->m->diag;
   const Term *at = c->at;
   const Env *env = c->env;
-  const Core *p = check(c, t, val_arrow(c->m, d, val_univ(c->m, 1u)));
+  const Core *p = check(c, t, big);
   if (p != NULL)
     return p;
   *c->m->diag = saved;
   c->at = at;
   c->env = env;
-  return check(c, t, val_arrow(c->m, d, val_univ(c->m, 0u)));
+  return check(c, t, small);
+}
+
+static const Core *elim_motive(Checker *c, const Term *t, const Value *d) {
+  return motive_check(c, t, val_arrow(c->m, d, val_univ(c->m, 1u)), val_arrow(c->m, d, val_univ(c->m, 0u)));
+}
+
+/* I₁ → … → Iₖ → Type at LVL over the index types of F (O70). F has no
+   parameters, so the index types see no variable. */
+static const Value *index_arrows(Checker *c, const FamilyInfo *f, uint32_t lvl) {
+  const Value *t = val_univ(c->m, lvl);
+  uint32_t j = f->index_count;
+  while (j > 0u && t != NULL) {
+    j--;
+    t = val_arrow(c->m, eval_core(c->m, NULL, f->index_types[j]), t);
+  }
+  return t;
+}
+
+/* PV applied to the N index cores IX, each evaluated in ENV. */
+static const Value *motive_at(Checker *c, const Value *pv, const Env *env, const Core *const *ix, uint32_t n) {
+  uint32_t j;
+  for (j = 0; j < n && pv != NULL; j++)
+    pv = apply_value(c->m, pv, eval_core(c->m, env, ix[j]));
+  return pv;
+}
+
+/* Whether T refers to the free variable INDEX, under any local binders. */
+static int core_uses_var(const Core *t, uint32_t index) {
+  uint32_t j;
+  if (t == NULL)
+    return 0;
+  switch (t->kind) {
+  case CORE_VAR:
+    return t->index == index;
+  case CORE_GLOBAL:
+  case CORE_NAT:
+  case CORE_TRAP:
+  case CORE_UNIV:
+    return 0;
+  case CORE_LAM:
+  case CORE_PI:
+  case CORE_SIGMA:
+    return core_uses_var(t->a, index) || core_uses_var(t->b, index + 1u);
+  case CORE_APP:
+    return core_uses_var(t->a, index) || core_uses_var(t->b, index);
+  case CORE_OP:
+    break;
+  }
+  for (j = 0; j < t->argc; j++)
+    if (core_uses_var(t->args[j], index))
+      return 1;
+  return 0;
+}
+
+/* A fold replaces recursive fields with their results. Later types and
+   result indices must not refer to the original recursive values. */
+static int index_case_ok(Checker *c, const FamilyInfo *f, const CtorInfo *ctor) {
+  const Env *env = NULL;
+  const Core *t;
+  uint32_t j;
+  uint32_t i;
+  for (i = 0; i < ctor->field_count; i++) {
+    t = quote_value(c->m, c->level + i, eval_core(c->m, env, ctor->fields[i].type));
+    if (t == NULL)
+      return 0;
+    for (j = 0; j < i; j++)
+      if (ctor->fields[j].recursive && core_uses_var(t, i - j - 1u))
+        return FAIL(c, "DOMAIN_FAMILY", "foldᴵ over %s cannot replace the recursive field %s of %s: the later field %s depends on its original value", f->name, ctor->fields[j].name, ctor->name, ctor->fields[i].name);
+    env = env_push(c->m, env, val_var(c->m, c->level + i));
+    if (env == NULL)
+      return 0;
+  }
+  for (i = 0; i < f->index_count; i++) {
+    t = quote_value(c->m, c->level + ctor->field_count, eval_core(c->m, env, ctor->indices[i]));
+    if (t == NULL)
+      return 0;
+    for (j = 0; j < ctor->field_count; j++)
+      if (ctor->fields[j].recursive && core_uses_var(t, ctor->field_count - j - 1u))
+        return FAIL(c, "DOMAIN_FAMILY", "foldᴵ over %s cannot replace the recursive field %s of %s: a result index depends on its original value", f->name, ctor->fields[j].name, ctor->name);
+  }
+  return 1;
+}
+
+/* The type of the foldᴵ case of CTOR (O70): a Pi over the fields into PV
+   at the result indices. A recursive field at the indices u has the type
+   PV u. A field type sees the earlier fields, so each field is a fresh
+   variable in ENV. */
+static const Value *index_case_type(Checker *c, const FamilyInfo *f, const CtorInfo *ctor, const Value *pv) {
+  Machine *m = c->m;
+  const Core **doms = arena_alloc(m->arena, ((size_t)ctor->field_count + 1u) * sizeof *doms);
+  const Env *env = NULL;
+  uint32_t n = ctor->field_count;
+  const Value *dom;
+  const Core *k;
+  uint32_t i;
+  if (doms == NULL) {
+    FAIL(c, "OOM", "out of memory");
+    return NULL;
+  }
+  for (i = 0; i < n; i++) {
+    const Core *t = ctor->fields[i].type;
+    dom = ctor->fields[i].recursive ? motive_at(c, pv, env, t->args + f->param_count, f->index_count) : eval_core(m, env, t);
+    doms[i] = dom == NULL ? NULL : quote_value(m, c->level + i, dom);
+    env = env_push(m, env, val_var(m, c->level + i));
+    if (doms[i] == NULL || env == NULL)
+      return NULL;
+  }
+  dom = motive_at(c, pv, env, ctor->indices, f->index_count);
+  k = dom == NULL ? NULL : quote_value(m, c->level + n, dom);
+  for (i = n; i > 0u && k != NULL; i--)
+    k = core_bind(c, CORE_PI, ctor->fields[i - 1u].name, doms[i - 1u], k);
+  return here(c, k);
+}
+
+/* foldᴵ P c₁ … cₙ x over an indexed family with no parameters (O70). P
+   is a motive over the indices only (not over x): P : I₁ → … → Iₖ → Type₁,
+   else into Type. The result is P at the indices of x. The core drops P
+   and is the family fold, so eval and lower are the ones of fold. */
+static const Core *rule_foldi(Call *k) {
+  Checker *c = k->c;
+  Machine *m = c->m;
+  const Value *st = NULL;
+  const Core *s = infer(c, k->args[k->argc - 1u], &st);
+  const FamilyInfo *f = s != NULL && val_is(st, OP_FAMILY) ? &m->families[st->inst] : NULL;
+  const Core **cores;
+  const Core *p;
+  const Value *pv;
+  uint32_t j;
+  if (s == NULL)
+    return NULL;
+  if (f == NULL || f->index_count == 0u || f->param_count != 0u || f->ctor_count + 2u != k->argc)
+    return nul(FAIL(c, "TYPE_MISMATCH", "foldᴵ needs a motive, one case for each constructor and a last argument in an indexed family with no parameters; found %u arguments and a last argument of type %s", k->argc, show(c, st)));
+  cores = arena_alloc(m->arena, ((size_t)f->ctor_count + 2u) * sizeof *cores);
+  if (cores == NULL)
+    return nul(FAIL(c, "OOM", "out of memory"));
+  p = motive_check(c, k->args[0], index_arrows(c, f, 1u), index_arrows(c, f, 0u));
+  pv = p == NULL ? NULL : eval_core(m, c->env, p);
+  if (pv == NULL)
+    return NULL;
+  for (j = 0; j < f->ctor_count; j++) {
+    const CtorInfo *ctor = &m->ctors[f->first_ctor + j];
+    const Value *want;
+    if (!index_case_ok(c, f, ctor))
+      return NULL;
+    want = index_case_type(c, f, ctor, pv);
+    cores[j] = want == NULL ? NULL : check(c, k->args[j + 1u], want);
+    if (cores[j] == NULL)
+      return NULL;
+  }
+  for (j = 0; j < f->index_count && pv != NULL; j++)
+    pv = apply_value(m, pv, st->args[j]);
+  cores[f->ctor_count] = s;
+  k->used = f->ctor_count + 2u;
+  k->type = pv;
+  return pv == NULL ? NULL : core_op(c, OP_FOLD_FAMILY, st->inst, 0, cores, f->ctor_count + 1u);
 }
 
 /* (n : ℕ) → P n → P (suc n), with PV the value of the motive P. */
@@ -1678,6 +1855,8 @@ static const Core *rule(Call *k) {
     return rule_elim(k);
   case RULE_FOLDB:
     return rule_foldb(k);
+  case RULE_FOLDI:
+    return rule_foldi(k);
   case RULE_UNFOLD:
     return rule_unfold(k);
   case RULE_NAT2:
@@ -1814,7 +1993,7 @@ static const Core *proj_app(Call *k, uint32_t ctor, uint32_t field) {
   for (e = 0; e < n; e++)
     vals[e] = e < p ? xt->args[e] : here(c, core_op(c, OP_PROJ, ctor, e - p, &x, 1));
   k->type = eval_core(c->m, env_of(c, vals, n), ci->fields[field].type);
-  return core_op(c, OP_PROJ, ctor, field, &x, 1);
+  return seal_open(k, ci->family, core_op(c, OP_PROJ, ctor, field, &x, 1));
 }
 
 static int find_known(Checker *c, const char *name, Head *h) {
@@ -1965,6 +2144,37 @@ static const Core *fn_app(Checker *c, const Core *f, const Value **ty, const Ter
   return core_app(c, f, a);
 }
 
+/* Quoted path endpoints can contain sealed eliminations from the declared
+   type, even when the proof body is just refl or a local variable. */
+static int sealed_endpoint(const Machine *m, const Core *t) {
+  uint32_t j;
+  if (t == NULL || t->sealed_result)
+    return 0;
+  switch (t->kind) {
+  case CORE_GLOBAL:
+    return m->defs[t->index].law_only;
+  case CORE_VAR:
+  case CORE_NAT:
+  case CORE_TRAP:
+  case CORE_UNIV:
+    return 0;
+  case CORE_LAM:
+  case CORE_PI:
+  case CORE_SIGMA:
+  case CORE_APP:
+    return sealed_endpoint(m, t->a) || sealed_endpoint(m, t->b);
+  case CORE_OP:
+    break;
+  }
+  if ((t->op == OP_FOLD_FAMILY && m->families[t->inst].sealed) ||
+      (t->op == OP_PROJ && m->families[m->ctors[t->inst].family].sealed))
+    return 1;
+  for (j = 0; j < t->argc; j++)
+    if (sealed_endpoint(m, t->args[j]))
+      return 1;
+  return 0;
+}
+
 /* The path P of type *TY = PathP L a b at the point ARG of I (former C2).
    The core keeps the ends a and b, so p i0 and p i1 reduce. */
 static const Core *path_app(Checker *c, const Core *p, const Value **ty, const Term *arg) {
@@ -1978,6 +2188,9 @@ static const Core *path_app(Checker *c, const Core *p, const Value **ty, const T
   args[2] = quote_value(c->m, c->level, path->args[1]);
   args[3] = quote_value(c->m, c->level, path->args[2]);
   *ty = apply_value(c->m, path->args[0], here(c, r));
+  if (!(val_is(*ty, OP_FAMILY) && c->m->families[(*ty)->inst].sealed) &&
+      (sealed_endpoint(c->m, args[2]) || sealed_endpoint(c->m, args[3])))
+    c->opens = 1;
   return core_op(c, OP_PAPP, 0, 0, args, 4);
 }
 
@@ -1999,6 +2212,7 @@ static const Core *var_core(Checker *c, const char *name, const Value **type) {
   }
   if (d != NO_DEF) {
     *type = c->m->defs[d].type;
+    c->opens |= c->m->defs[d].law_only;
     return core_index(c, CORE_GLOBAL, d);
   }
   return nul(no_name(c, name));
@@ -2521,6 +2735,48 @@ static int check_ctor(Checker *c, uint32_t fam, const Ctor *ctor) {
   return 1;
 }
 
+/* T is the type former OP with no arguments. */
+static int is_op_core(const Core *t, Op op) {
+  return t != NULL && t->kind == CORE_OP && t->op == op && t->argc == 0u;
+}
+
+/* T is the domain base type Code (O68). */
+static int is_code_core(const Machine *m, const Core *t) {
+  return is_op_core(t, OP_FAMILY) && t->inst < m->family_count && m->families[t->inst].r1 == FAMILY_BASE && strcmp(m->families[t->inst].name, "Code") == 0;
+}
+
+/* An indexed family whose indices are all Code is a circuit family (O71).
+   Each field is a Code, a ℕ, a Bool or the family itself, so a circuit is
+   first order. */
+static int circuit_fields(Checker *c, uint32_t fam) {
+  const Machine *m = c->m;
+  const FamilyInfo *f = &m->families[fam];
+  uint32_t j;
+  uint32_t i;
+  c->at = NULL;
+  if (f->index_count == 0u)
+    return 1;
+  for (i = 0; i < f->index_count; i++)
+    if (!is_code_core(m, f->index_types[i]))
+      return 1;
+  for (j = 0; j < f->ctor_count; j++) {
+    const CtorInfo *ci = &m->ctors[f->first_ctor + j];
+    for (i = 0; i < ci->field_count; i++) {
+      const Core *t = ci->fields[i].type;
+      if (!ci->fields[i].recursive && !is_code_core(m, t) && !is_op_core(t, OP_NAT) && !is_op_core(t, OP_FLAG))
+        return FAIL(c, "REFUSE_CIRCUIT", "%s is a circuit family: the field %s of %s must be a Code, a ℕ, a Bool or %s itself, so that a circuit is first order (O71)", f->name, ci->fields[i].name, ci->name, f->name);
+    }
+  }
+  return 1;
+}
+
+/* O72: a sealed family is a cell monad with one generator: one type
+   parameter, no index and one point constructor with one field. */
+static int sealed_shape(const Machine *m, const FamilyInfo *f) {
+  const CtorInfo *ci = &m->ctors[f->first_ctor];
+  return f->param_count == 1u && has_type_param(f) && f->index_count == 0u && f->ctor_count == 1u && ci->field_count == 1u && ci->depth == 0u;
+}
+
 /* A family is in scope in its own fields, so a field can be recursive. A
    program family with a type parameter must be a cell signature. */
 static int check_family(Checker *c, const Decl *d) {
@@ -2554,6 +2810,7 @@ static int check_family(Checker *c, const Decl *d) {
   f->first_ctor = m->ctor_count;
   f->ctor_count = (uint32_t)d->ctor_count;
   f->r1 = family_class(d, f);
+  f->sealed = d->is_sealed;
   m->family_count++;
   if (!type_index(c, f))
     return 0;
@@ -2564,7 +2821,19 @@ static int check_family(Checker *c, const Decl *d) {
     if (!check_ctor(c, fam, &d->ctors[i]))
       return 0;
   }
-  return f->r1 != FAMILY_CM || cell_generators(c, d, fam);
+  if (f->sealed && !sealed_shape(m, f)) {
+    c->at = NULL;
+    return FAIL(c, "REFUSE_CELL", "%s is sealed but is not a cell monad with one generator: a sealed family has one type parameter and one constructor with one field (O72)", d->name);
+  }
+  return f->r1 == FAMILY_CM ? cell_generators(c, d, fam) : f->r1 != FAMILY_INDEXED || circuit_fields(c, fam);
+}
+
+/* O72: a law type is, after the Pis, a Path type or a universe. */
+static int law_type(Checker *c, const Value *t) {
+  uint32_t n = c->level;
+  while (t != NULL && t->kind == VAL_PI)
+    t = closure_apply(c->m, t, val_var(c->m, n++));
+  return t != NULL && (t->kind == VAL_UNIV || val_is(t, OP_PATHP));
 }
 
 static int check_def(Checker *c, const Decl *d) {
@@ -2572,15 +2841,26 @@ static int check_def(Checker *c, const Decl *d) {
   uint64_t level = 0;
   const Core *t = check_type(c, d->type, &level);
   const Value *tv = here(c, t);
-  const Core *body = check(c, d->body, tv);
+  const Core *body;
   DefInfo *info = &m->defs[m->def_count];
+  int law_only;
+  /* O72: the seal flag looks at the body only, so a type (a record field
+     type too) can name unseal. */
+  c->opens = 0;
+  body = check(c, d->body, tv);
   if (body == NULL)
     return 0;
+  law_only = c->opens && !law_type(c, tv);
+  if (law_only && !d->is_law) {
+    c->at = NULL;
+    return FAIL(c, "REFUSE_LAW", "%s opens the seal (a fold or a projection of a sealed family, or a law-only name such as unseal), but it is not a law and its type does not end in a Path or a universe (O72)", d->name);
+  }
   info->name = d->name;
   info->origin = d->origin;
   info->body = body;
   info->type = tv;
   info->value = NULL;
+  info->law_only = law_only;
   m->def_count++;
   return 1;
 }
@@ -2648,6 +2928,7 @@ static int rec_def(Checker *c, const Decl *d, const char *name, const Term *type
   def.name = name;
   def.type = type;
   def.body = body;
+  def.is_law = d->is_law;
   return check_def(c, &def);
 }
 
@@ -2851,6 +3132,8 @@ static int check_section(Checker *c, const Decl *d) {
 static int check_decl(Checker *c, const Decl *d) {
   if (d->kind == DECL_MODULE)
     return 1;
+  if (d->is_sealed && d->origin == ORIGIN_PROGRAM)
+    return FAIL(c, "REFUSE_DATA", "a program cannot declare a sealed family; a sealed family comes only from domain/domain.lang (O72)");
   if (d->kind == DECL_FAMILY && d->origin == ORIGIN_PROGRAM && d->param_count == 0u && d->index_count == 0u)
     return FAIL(c, "REFUSE_DATA", "a program cannot declare closed data; a base type comes only from domain/domain.lang (rule R2)");
   if (d->kind == DECL_AXIOM)

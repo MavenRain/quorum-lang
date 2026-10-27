@@ -1,0 +1,8 @@
+mapH : Hidden ℕ → Hidden ℕ
+mapH h = fold (λ (x : ℕ) → seal ℕ (suc x)) h
+
+exposed : (h : Hidden ℕ) → sealOf (mapH h) ≡ sealOf (mapH h)
+exposed h = refl
+
+leak : Hidden ℕ → ℕ
+leak h = exposed h i1

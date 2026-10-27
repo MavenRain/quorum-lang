@@ -1,0 +1,234 @@
+-- The denotational instances (PLAN sec 9 S5 row, O75). Each design record of
+-- examples/threshold.lang has an instance at its denotation: Private with
+-- Hidden as the domain seal, ZK with a truncated witness as the proof, IVC
+-- with Legit as the proof, and Sharing with resharing as the identity. Then
+-- the aggregate of the FHE route (sec 8) and its factors proof. There are no
+-- imports (O43). This file keeps a copy of the Prelude definitions that it
+-- uses, of NatSet, FMSet, El, Circuit and run (examples/circuit.lang), and of
+-- the four records (O60).
+
+sym : (A : Type) → (x : A) → (y : A) → x ≡ y → y ≡ x
+sym A x y p i = p (~ i)
+
+cong : (A : Type) → (B : Type) → (f : A → B) → (x : A) → (y : A) → x ≡ y → f x ≡ f y
+cong A B f x y p i = f (p i)
+
+_∙_ : (A : Type) → (x : A) → (y : A) → (z : A) → x ≡ y → y ≡ z → x ≡ z
+_∙_ A x y z p q i = primHComp (λ j → λ { (i = i0) → x ; (i = i1) → q j }) (p i)
+
+isSet : Type → Type
+isSet A = (x : A) → (y : A) → (p : x ≡ y) → (q : x ≡ y) → p ≡ q
+
+absurd : false ≡ true → (C : Type) → C
+absurd p C = primTransp (λ i → elim (λ (b : Bool) → Type) C ℕ (p i)) i0 0
+
+Sound : (A : Type) → (A → A → Bool) → Type
+Sound A eq = (x : A) → (y : A) → eq x y ≡ true → x ≡ y
+
+Reflexive : (A : Type) → (A → A → Bool) → Type
+Reflexive A eq = (x : A) → eq x x ≡ true
+
+collapseAt : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → (a : A) → (x : A) → a ≡ x → (c : Bool) → eq a x ≡ c → a ≡ x
+collapseAt A eq sound rfl a x p c h = elim (λ (d : Bool) → eq a x ≡ d → a ≡ x) (λ (g : eq a x ≡ true) → sound a x g) (λ (g : eq a x ≡ false) → p) c h
+
+collapse : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → (a : A) → (x : A) → a ≡ x → a ≡ x
+collapse A eq sound rfl a x p = collapseAt A eq sound rfl a x p (eq a x) refl
+
+collapseConst : (A : Type) → (eq : A → A → Bool) → (sound : Sound A eq) → (rfl : Reflexive A eq) → (a : A) → (x : A) → (p : a ≡ x) → (q : a ≡ x) → collapse A eq sound rfl a x p ≡ collapse A eq sound rfl a x q
+collapseConst A eq sound rfl a x p q = elim (λ (c : Bool) → (h : eq a x ≡ c) → collapseAt A eq sound rfl a x p c h ≡ collapseAt A eq sound rfl a x q c h) (λ (h : eq a x ≡ true) → refl) (λ (h : eq a x ≡ false) → absurd (_∙_ Bool false (eq a x) true (sym Bool (eq a x) false h) (_∙_ Bool (eq a x) (eq a a) true (cong A Bool (λ (y : A) → eq a y) x a (sym A a x p)) (rfl a))) (p ≡ q)) (eq a x) refl
+
+discreteIsSet : (A : Type) → (eq : A → A → Bool) → Sound A eq → Reflexive A eq → isSet A
+discreteIsSet A eq sound rfl a b p q j i = primHComp (λ k → λ { (i = i0) → collapse A eq sound rfl a a (λ (l : I) → a) k ; (i = i1) → collapseConst A eq sound rfl a b p q j k ; (j = i0) → collapse A eq sound rfl a (p i) (λ (l : I) → p (l ∧ i)) k ; (j = i1) → collapse A eq sound rfl a (q i) (λ (l : I) → q (l ∧ i)) k }) a
+
+module NatSet (X : Type) where
+  eqℕ : ℕ → ℕ → Bool
+  eqℕ u v = elim (λ (k : ℕ) → ℕ → Bool) (λ (j : ℕ) → elim (λ (i : ℕ) → Bool) true (λ (i : ℕ) (r : Bool) → false) j) (λ (k : ℕ) (ih : ℕ → Bool) (j : ℕ) → elim (λ (i : ℕ) → Bool) false (λ (i : ℕ) (r : Bool) → ih i) j) u v
+  reflℕ : (n : ℕ) → eqℕ n n ≡ true
+  reflℕ n = elim (λ (k : ℕ) → eqℕ k k ≡ true) refl (λ (k : ℕ) (ih : eqℕ k k ≡ true) → ih) n
+  soundℕ : (u : ℕ) → (v : ℕ) → eqℕ u v ≡ true → u ≡ v
+  soundℕ u v = elim (λ (k : ℕ) → (j : ℕ) → eqℕ k j ≡ true → k ≡ j) (λ (j : ℕ) → elim (λ (i : ℕ) → eqℕ 0 i ≡ true → 0 ≡ i) (λ (h : eqℕ 0 0 ≡ true) → refl) (λ (i : ℕ) (r : eqℕ 0 i ≡ true → 0 ≡ i) (h : eqℕ 0 (suc i) ≡ true) → absurd h (0 ≡ suc i)) j) (λ (k : ℕ) (ih : (j : ℕ) → eqℕ k j ≡ true → k ≡ j) (j : ℕ) → elim (λ (i : ℕ) → eqℕ (suc k) i ≡ true → suc k ≡ i) (λ (h : eqℕ (suc k) 0 ≡ true) → absurd h (suc k ≡ 0)) (λ (i : ℕ) (r : eqℕ (suc k) i ≡ true → suc k ≡ i) (h : eqℕ (suc k) (suc i) ≡ true) → cong ℕ ℕ (λ (l : ℕ) → suc l) k i (ih i h)) j) u v
+  isSetℕ : isSet ℕ
+  isSetℕ = discreteIsSet ℕ eqℕ soundℕ reflℕ
+
+data FMSet (A : Type) : Type where
+  eta : (el : A) → FMSet A
+  [] : FMSet A
+  m : (l₁ : FMSet A) → (r₁ : FMSet A) → FMSet A
+  munit : (s₂ : FMSet A) → m A ([] A) s₂ ≡ s₂
+  massoc : (s₃ : FMSet A) → (t₃ : FMSet A) → (u₃ : FMSet A) → m A (m A s₃ t₃) u₃ ≡ m A s₃ (m A t₃ u₃)
+  mcomm : (s₄ : FMSet A) → (t₄ : FMSet A) → m A s₄ t₄ ≡ m A t₄ s₄
+  trunc : (s₅ : FMSet A) → (t₅ : FMSet A) → (p₅ : s₅ ≡ t₅) → (q₅ : s₅ ≡ t₅) → p₅ ≡ q₅
+
+-- The type of each code (O68): a fold into Type over the domain `Code`.
+El : Code → Type
+El c = fold Bool ℕ (λ (t : Type) → Maybe t) (λ (s : Type) (t : Type) → s × t) (λ (t : Type) → FMSet t) c
+
+-- The count step and its swap proof (by Bool elim cases, O69).
+stepN : Bool → ℕ → ℕ
+stepN b n = flagIf b (suc n) n
+
+swapN : (u : Bool) → (v : Bool) → (n : ℕ) → stepN u (stepN v n) ≡ stepN v (stepN u n)
+swapN u v n = elim (λ (b : Bool) → stepN b (stepN v n) ≡ stepN v (stepN b n)) (elim (λ (d : Bool) → stepN true (stepN d n) ≡ stepN d (stepN true n)) refl refl v) (elim (λ (d : Bool) → stepN false (stepN d n) ≡ stepN d (stepN false n)) refl refl v) u
+
+-- The circuit fragment (O69): first-order constructors only (O71).
+data Circuit : Code → Code → Type where
+  idC : (idA : Code) → Circuit idA idA
+  seqC : (seqA : Code) → (seqB : Code) → (seqD : Code) → (seqF : Circuit seqA seqB) → (seqG : Circuit seqB seqD) → Circuit seqA seqD
+  fanC : (fanA : Code) → (fanB : Code) → (fanD : Code) → (fanF : Circuit fanA fanB) → (fanG : Circuit fanA fanD) → Circuit fanA (pairC fanB fanD)
+  zeroC : (zeroA : Code) → Circuit zeroA natC
+  sucC : Circuit natC natC
+  addC : Circuit (pairC natC natC) natC
+  leC : Circuit (pairC natC natC) bitC
+  guardC : (grdA : Code) → (grdB : Code) → (grdP : Circuit grdA bitC) → (grdF : Circuit grdA grdB) → Circuit grdA (optC grdB)
+  countC : (cntA : Code) → (cntP : Circuit cntA bitC) → Circuit (bagC cntA) natC
+
+-- The guest evaluator (sec 6): one case for each constructor, by foldᴵ.
+run : (a : Code) → (b : Code) → Circuit a b → El a → El b
+run a b c = foldᴵ (λ (x : Code) (y : Code) → El x → El y) (λ (p : Code) (v : El p) → v) (λ (p : Code) (q : Code) (r : Code) (f : El p → El q) (g : El q → El r) (v : El p) → g (f v)) (λ (p : Code) (q : Code) (r : Code) (f : El p → El q) (g : El p → El r) (v : El p) → f v , g v) (λ (p : Code) (v : El p) → 0) (λ (v : ℕ) → suc v) (λ (v : ℕ × ℕ) → natAdd (fst v) (snd v)) (λ (v : ℕ × ℕ) → natLe (fst v) (snd v)) (λ (p : Code) (q : Code) (g : El p → Bool) (f : El p → El q) (v : El p) → flagIf (g v) (just (f v)) nothing) (λ (p : Code) (g : El p → Bool) (xs : FMSet (El p)) → foldᴮ (λ (x : El p) (n : ℕ) → stepN (g x) n) (λ (x : El p) (y : El p) (n : ℕ) → swapN (g x) (g y) n) (isSetℕ (El p)) 0 xs) c
+
+-- Closed circuits. `atLeast k` is `k ≤ x` for the input x.
+one : Circuit natC natC
+one = seqC natC natC natC (zeroC natC) sucC
+
+two : Circuit natC natC
+two = seqC natC natC natC one sucC
+
+atLeast : Circuit natC natC → Circuit natC bitC
+atLeast k = seqC natC (pairC natC natC) bitC (fanC natC natC natC k (idC natC)) leC
+
+-- The majority constitution: the tally of a bag of ballots if it is 2 or
+-- more, else nothing.
+tally : Circuit (bagC bitC) natC
+tally = countC bitC (idC bitC)
+
+majority : Circuit (bagC bitC) (optC natC)
+majority = guardC (bagC bitC) natC (seqC (bagC bitC) natC bitC tally (atLeast two)) tally
+
+bag3 : (A : Type) → A → A → A → FMSet A
+bag3 A x y z = m A (eta A x) (m A (eta A y) (m A (eta A z) ([] A)))
+
+isProp : Type → Type
+isProp A = (x : A) → (y : A) → x ≡ y
+
+data ∥_∥₁ (A : Type) : Type where
+  ∣_∣₁ : (a : A) → ∥_∥₁ A
+  squash₁ : (x : ∥ A ∥₁) → (y : ∥ A ∥₁) → x ≡ y
+
+rec₁ : (A : Type) → (B : Type) → isProp B → (A → B) → ∥ A ∥₁ → B
+rec₁ A B pr f x = fold f pr x
+
+squash : (A : Type) → isProp ∥ A ∥₁
+squash A x y = squash₁ A x y
+
+_∷_ : (A : Type) → A → FMSet A → FMSet A
+_∷_ A x xs = m A (eta A x) xs
+
+_++_ : (A : Type) → FMSet A → FMSet A → FMSet A
+_++_ A xs ys = m A xs ys
+
+-- The four design records, a copy of examples/threshold.lang (O74).
+record IVC (State : Type) (genesis : State) (Move : State → State → Type) (Valid : State → Type) : Type₁ where
+  ProofI : State → Type
+  verifyI : (σ : State) → ProofI σ → Bool
+  start : ProofI genesis
+  extend : (σ : State) → (τ : State) → ProofI σ → Move σ τ → ProofI τ
+  start✓ : verifyI genesis start ≡ true
+  extend✓ : (σ : State) → (τ : State) → (π : ProofI σ) → (s : Move σ τ) → verifyI σ π ≡ true → verifyI τ (extend σ τ π s) ≡ true
+  ⟦_⟧ᴵ : (σ : State) → (π : ProofI σ) → verifyI σ π ≡ true → Valid σ
+
+record Private (Ballot : Type) (Committee : Type) (Quorum : Committee → Type) (Circuit : Type → Type → Type) (run : (A : Type) → (B : Type) → Circuit A B → A → B) (c : Committee) : Type₁ where
+  cast : Ballot → Hidden (FMSet Ballot)
+  ∅ : Hidden (FMSet Ballot)
+  _⊕_ : Hidden (FMSet Ballot) → Hidden (FMSet Ballot) → Hidden (FMSet Ballot)
+  eval : (A : Type) → (B : Type) → Circuit A B → Hidden A → Hidden B
+  reveal : (A : Type) → Quorum c → Hidden A → A
+  ⟦cast⟧ : (b : Ballot) → unseal (FMSet Ballot) (cast b) ≡ _∷_ Ballot b ([] Ballot)
+  ⟦∅⟧ : unseal (FMSet Ballot) ∅ ≡ [] Ballot
+  ⟦⊕⟧ : (x : Hidden (FMSet Ballot)) → (y : Hidden (FMSet Ballot)) → unseal (FMSet Ballot) (_⊕_ x y) ≡ _++_ Ballot (unseal (FMSet Ballot) x) (unseal (FMSet Ballot) y)
+  ⟦eval⟧ : (A : Type) → (B : Type) → (f : Circuit A B) → (x : Hidden A) → unseal B (eval A B f x) ≡ run A B f (unseal A x)
+  ⟦reveal⟧ : (A : Type) → (q : Quorum c) → (x : Hidden A) → reveal A q x ≡ unseal A x
+
+record ZK (X : Type) (Witness : X → Type) : Type₁ where
+  ProofZ : X → Type
+  verifyZ : (x : X) → ProofZ x → Bool
+  prove : (x : X) → Witness x → ProofZ x
+  complete : (x : X) → (w : Witness x) → verifyZ x (prove x w) ≡ true
+  ⟦_⟧ᶻ : (x : X) → (π : ProofZ x) → verifyZ x π ≡ true → ∥ Witness x ∥₁
+
+record Sharing (Committee : Type) (Quorum : Committee → Type) : Type₁ where
+  Secret : Type
+  Shares : Committee → Type
+  ⟦_⟧ˢ : (c : Committee) → Shares c → Secret
+  reshare : (c : Committee) → Quorum c → (d : Committee) → Shares c → Shares d
+  ⟦reshare⟧ : (c : Committee) → (q : Quorum c) → (d : Committee) → (s : Shares c) → PathP (λ (i : I) → Secret) (⟦_⟧ˢ d (reshare c q d s)) (⟦_⟧ˢ c s)
+
+-- The toy parameters: a quorum is a Bool, and a circuit is a function.
+toyQuorum : Bool → Type
+toyQuorum c = Bool
+
+toyCircuit : Type → Type → Type
+toyCircuit A B = A → B
+
+toyRun : (A : Type) → (B : Type) → (A → B) → A → B
+toyRun A B f = f
+
+-- Sec 7 at the denotation. cast and ∅ seal a bag, and they do not open the
+-- seal. ⊕ and eval open the seal and seal the result again: an elim over
+-- Hidden is not available (elim is for ℕ and Bool), so a fold of a free x does
+-- not reduce, and the four proofs are refl only on this form (O75a). reveal is
+-- unseal. Thus the instance opens the seal, and it is a law (O72).
+hCast : Bool → Hidden (FMSet Bool)
+hCast b = seal (FMSet Bool) (_∷_ Bool b ([] Bool))
+
+hEmpty : Hidden (FMSet Bool)
+hEmpty = seal (FMSet Bool) ([] Bool)
+
+law den-private : (c : Bool) → Private Bool Bool toyQuorum toyCircuit toyRun c
+den-private c = hCast , hEmpty , (λ (x : Hidden (FMSet Bool)) (y : Hidden (FMSet Bool)) → seal (FMSet Bool) (_++_ Bool (unseal (FMSet Bool) x) (unseal (FMSet Bool) y))) , (λ (A : Type) (B : Type) (f : A → B) (x : Hidden A) → seal B (f (unseal A x))) , (λ (A : Type) (q : Bool) (x : Hidden A) → unseal A x) , (λ (b : Bool) → refl) , refl , (λ (x : Hidden (FMSet Bool)) (y : Hidden (FMSet Bool)) → refl) , (λ (A : Type) (B : Type) (f : A → B) (x : Hidden A) → refl) , λ (A : Type) (q : Bool) (x : Hidden A) → refl
+
+-- Sec 9 at the denotation: a proof is a truncated witness, and each proof
+-- verifies.
+denZK : (X : Type) → (W : X → Type) → ZK X W
+denZK X W = (λ (x : X) → ∥ W x ∥₁) , (λ (x : X) (π : ∥ W x ∥₁) → true) , (λ (x : X) (w : W x) → ∣_∣₁ (W x) w) , (λ (x : X) (w : W x) → refl) , λ (x : X) (π : ∥ W x ∥₁) (h : true ≡ true) → π
+
+-- The IVC instance: a proof of σ is Legit σ. ChainM, ReachM and LegitM are
+-- the Design bodies over a free Move, at the top level.
+ChainM : (State : Type) → (genesis : State) → (Move : State → State → Type) → ℕ → State → Type
+ChainM State genesis Move n = elim (λ (k : ℕ) → State → Type) (λ (σ : State) → genesis ≡ σ) (λ (k : ℕ) (ih : State → Type) (σ : State) → Σ State (λ τ → ih τ × Move τ σ)) n
+
+ReachM : (State : Type) → (genesis : State) → (Move : State → State → Type) → State → Type
+ReachM State genesis Move σ = Σ ℕ (λ n → ChainM State genesis Move n σ)
+
+LegitM : (State : Type) → (genesis : State) → (Move : State → State → Type) → State → Type
+LegitM State genesis Move σ = ∥ ReachM State genesis Move σ ∥₁
+
+snocM : (State : Type) → (genesis : State) → (Move : State → State → Type) → (σ : State) → (τ : State) → ReachM State genesis Move σ → Move σ τ → ReachM State genesis Move τ
+snocM State genesis Move σ τ h s = suc (fst h) , σ , snd h , s
+
+denIVC : (State : Type) → (genesis : State) → (Move : State → State → Type) → IVC State genesis Move (LegitM State genesis Move)
+denIVC State genesis Move = LegitM State genesis Move , (λ (σ : State) (π : LegitM State genesis Move σ) → true) , ∣_∣₁ (ReachM State genesis Move genesis) (0 , refl) , (λ (σ : State) (τ : State) (π : LegitM State genesis Move σ) (s : Move σ τ) → rec₁ (ReachM State genesis Move σ) (LegitM State genesis Move τ) (squash (ReachM State genesis Move τ)) (λ (r : ReachM State genesis Move σ) → ∣_∣₁ (ReachM State genesis Move τ) (snocM State genesis Move σ τ r s)) π) , refl , (λ (σ : State) (τ : State) (π : LegitM State genesis Move σ) (s : Move σ τ) (h : true ≡ true) → refl) , λ (σ : State) (π : LegitM State genesis Move σ) (h : true ≡ true) → π
+
+-- Sec 10 at the denotation: the shares are the secret, and resharing is the
+-- identity.
+denSharing : (Committee : Type) → (Quorum : Committee → Type) → (S : Type) → Sharing Committee Quorum
+denSharing Committee Quorum S = S , (λ (c : Committee) → S) , (λ (c : Committee) (s : S) → s) , (λ (c : Committee) (q : Quorum c) (d : Committee) (s : S) → s) , λ (c : Committee) (q : Quorum c) (d : Committee) (s : S) → refl
+
+-- Sec 8 FHE at the denotation: the aggregate is the tally circuit, and the
+-- constitution decides on the aggregate. Thus it factors through the
+-- aggregate (the Aggregate parameter factors, with rulesR written out).
+denAgg : FMSet Bool → ℕ
+denAgg b = run (bagC bitC) natC tally b
+
+denDecide : ℕ → Bool → ℕ → Maybe Bool
+denDecide σ a n = flagIf (natLe 2 n) (just a) nothing
+
+denConstitution : ℕ → Bool → FMSet Bool → Maybe Bool
+denConstitution σ a b = denDecide σ a (denAgg b)
+
+denFactors : (σ : ℕ) → (a : Bool) → (b : FMSet Bool) → toyRun (FMSet Bool) (Maybe Bool) (denConstitution σ a) b ≡ denDecide σ a (toyRun (FMSet Bool) ℕ denAgg b)
+denFactors σ a b = refl
+
+-- The Wasm entry: the FHE route on a bag of 3 ballots, 1 for an edit and 0
+-- for no edit. It does not touch the seal.
+denMaj : Bool → Bool → Bool → ℕ
+denMaj a b c = option 0 (λ (e : Bool) → 1) (denConstitution 0 true (bag3 Bool a b c))

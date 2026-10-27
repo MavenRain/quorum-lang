@@ -33,7 +33,8 @@ types and operations. 4 Cryptography. 5 Wasm replica. 6 Self-amendment.
 
 USER rulings on the sec 11 Q items, 2026-10-25 (after S0), verbatim:
 "Rulings: Q1=b, Q2=a, Q3=a, Q4=a, Q5=a, Q6=b, Q8=b, Q9=a, Q10=a, Q11=b, Q12=a, Q13=b."
-Q7 is not ruled. It blocks S6 only. Claude asks it at the S5 close.
+USER ruling on Q7, 2026-10-26 (S5 close, AskUserQuestion), verbatim:
+"(a) Unit weight (Recommended)".
 
 | Q | Ruling | Effect |
 |---|---|---|
@@ -43,6 +44,7 @@ Q7 is not ruled. It blocks S6 only. Claude asks it at the S5 close.
 | Q4 | (a) | `Hidden` is the sealed identity CM. `⟦_⟧` is law-only (sec 2.3, S5). |
 | Q5 | (a) | The guest checks each law at the denotation. Kit differential tests check the representation map (S6, S7). |
 | Q6 | (b) | The MPC route stays law-only until the MPC slice S10 (sec 5, Q14). |
+| Q7 | (a) | A ballot is one of k choices with unit weight (sec 4.2, S6). |
 | Q8 | (b) | A Pedersen DKG makes the FROST key and the ElGamal key (secs 4.2 to 4.4, S6, S7). |
 | Q9 | (a) | Cryptography in Wasm uses a fixed host-import ABI (sec 5, S8). |
 | Q10 | (a) | The module carries the fragment checker (sec 6, S8). |
@@ -327,6 +329,25 @@ Law count for the design file: 12 (`_++_` equation, `reach→core`,
 `certified→core`, `tallyᴹ-correct`, `tallyᶠ-correct`, `mpc≼fhe`,
 `IVC.prove`). The S5 gate requires 12 of 12.
 
+S5 status (Claude reading, NOT ruled; O72 to O75). examples/threshold.lang
+holds secs 7 to 10. `Hidden` and `unseal` are the domain ones (O72), so
+`⟦_⟧` is the law-only `unseal`. `Private` is a top-level record (O59)
+with the fields `cast`, `∅`, `_⊕_`, `eval`, `reveal`, `⟦cast⟧`, `⟦∅⟧`,
+`⟦⊕⟧`, `⟦eval⟧` and `⟦reveal⟧`. `_≼_` is a top-level definition. `Round`
+and `Aggregate` are top-level modules (O74a). Each takes the 11
+parameters that it uses (the last is `P`), and `Aggregate` then takes
+`M`, `agg`, `decide` and `factors`. `ZK`, `IVC` and `Sharing` are
+top-level records. `IVC.prove` is the law `ivc-prove` in `module Design`,
+by ℕ `elim` on the chain length (O57). The `_++_` equation is the law
+`app-cons`. Each of the 12 laws has the `law` mark, and `langc laws
+examples/threshold.lang` prints `laws: 12 of 12 discharged`.
+examples/denote.lang holds the denotational instances (O75, O75a):
+`Private` over the domain seal (`law den-private`: `⊕` and `eval` open
+the seal and seal the result again), `ZK` (`Proof x = ∥ W x ∥₁`), `IVC`
+(`Proof = LegitM`), `Sharing` (`reshare = id`) and an `Aggregate`
+instance (`denAgg` is a `run` of `tally`). `langc laws
+examples/denote.lang` prints `laws: 1 of 1 discharged`.
+
 ## 4. Cryptography (ruling 3)
 
 ### 4.1 What the design leaves outside the denotation
@@ -513,6 +534,24 @@ program and the kit runtime.
 - Rebase by patch commutation ("Homotopical Patch Theory") is not in the
   design. NOT DOING in v1 (O10).
 
+S5 status (Claude reading, NOT ruled; O68 to O71, O76). `Code` is
+domain data in domain/domain.lang: `bitC`, `natC`, `optC`, `pairC` and
+`bagC` (O68). lib/prelude.lang renames its old `Code` to `BoolCode`.
+examples/circuit.lang declares `data Circuit : Code → Code → Type`, a
+program indexed family with the constructors `idC`, `seqC`, `fanC`,
+`zeroC`, `sucC`, `addC`, `leC`, `guardC` and `countC` (O69). `El : Code →
+Type` is a guest `fold`. The kernel name `foldᴵ` is the index recursor
+(O70), and `run a b c` is a `foldᴵ` over `Circuit`. A circuit family
+has only `Code` indices. Each constructor field must be a `Code`, a `ℕ`,
+a `Bool` or the family itself, else REFUSE_CIRCUIT (O71). So a circuit
+is first order. `majRun`, `countRun` and `addRun` run closed circuits,
+`majDirect` is the direct guest evaluation, and `agree a b c` compares
+`majRun` and `majDirect` (O76). The eval rows and the Wasm differential
+show that `run` agrees with direct evaluation, with 0 mismatches.
+examples/threshold.lang takes `Circuit` and `run` as parameters over
+`Type`. Its toy instance uses `toyCircuit A B = A → B` and `toyRun A B f
+= f`.
+
 ## 7. Agent adoption
 
 Each item of the pasted brief "Agent Incentives to Use DSL Programming
@@ -576,7 +615,7 @@ commit message file and the next prompt file. The USER commits.
 | S2 | kernel: Path, PathP, I, transp, hcomp, Sigma, Pi, U and levels (port zkpolicy-lang); `REFUSE_CELL` for CMs only (Q1 (b); port the CM branch of intent-lang, resolve-lang); indexed families; records as named Sigma (Q2); parameter sections (O8) | GREEN: each sec 2.4 refuse fixture gives `REFUSE_CELL` (6 files in test/check, sec 2.4 note); `Maybe₀`, `Trunc₀`, `Bag₀` check (examples/cells.lang); `sym`, `cong`, `trans` type check (examples/paths.lang); make check EXIT 0, gate: 0 failures (serial log); fmt: 74 files canonical; json: 22 fixtures; diagnostics: 33 codes, 0 without a fixture or a row; refusals: 38 check, 9 parse; evals: 41; differential: 767 cases, 0 mismatches; wasm: 16 modules valid | 3: generator test skipped (`cell-ghost.lang` fails), CC refusal skipped (`cell-cc.lang` fails), family index check skipped (`cell-type-index.lang` fails); 3 of 3 KILLED | sec 2 notes; sec 10 O14 to O36; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S3 | HITs: `∥_∥₁`, `FMSet` in generator form with its eliminator (O1), union, the truncation recursor, `∃`: the sec 3.1 Prelude in the guest | GREEN: lib/prelude.lang checks (the guest Prelude, with `isSetℕ` and `isSetBool` by a guest Hedberg proof, Q16 (b)); in examples/bag.lang the `_++_` equation (`consApp`, `appUnitL`) and the union unit, associativity and commutativity laws (`appUnitL`, `appUnitR`, `appAssoc`, `appComm`) check; make check EXIT 0, gate: 0 failures (serial log); fmt: 83 files canonical; json: 23 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 56; differential: 4007 cases, 0 mismatches (bag entries `count3`, `countUnion`, `countFlags`, `scale`); wasm: 18 modules valid | 3: comm path dropped (`bag-no-comm.lang` fails), swap obligation not checked (`bag-bad-swap.lang` fails), set truncation dropped (`bag-no-trunc.lang` fails); 3 of 3 KILLED | sec 1.2 Q16; sec 2.2 and 3.1 status; sec 10 O37 to O56; docs/DIAGNOSTICS.md, docs/GRAMMAR.md, docs/STATUS.md |
 | S4 | design secs 1 to 6 at the denotation: slots, `Policy`, `rules`, `Step`, `Reach`, `Legit`, `Authority`, descent, `Tip`, `Replica`, `current`, `Agree`; a closed toy instance; `langc laws`; law counts in `check --json` | GREEN: examples/threshold.lang checks; 7 of 7 sec 1 to 6 laws discharged (`reach-core`, `legit-core`, `honest-in`, `sound`, `no-fork`, `certified-legit`, `certified-core`); the toy instance proves each obligation (`isSetState`, `advance`, `isPropCore`, `core₀`); O3 PROVED (`tip-order`); `langc laws`: `laws: 7 of 7 discharged`; `check --json`: `"laws":{"discharged":7,"total":7}`; make check EXIT 0, gate: 0 failures (serial log); fmt: 86 files canonical; json: 24 fixtures; diagnostics: 34 codes, 0 without a fixture or a row; refusals: 43 check, 9 parse; evals: 61; differential: 4074 cases, 0 mismatches; wasm: 20 modules valid | 3: `keeps` not checked (`step` fails, `laws: 0 of 7`), quorum index ignored (`Authorized` fails, `laws: 2 of 7`, O67), `single` dropped (`fork-meet` fails, so `no-fork` and `tip-order` fail, `laws: 4 of 7`); the examples loop and the laws line kill each one; 3 of 3 KILLED | sec 3.2 and 3.3 status; sec 10 O3, O57 to O67; docs/GRAMMAR.md, docs/STATUS.md, AGENTS.md |
-| S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | 12 of 12 design laws discharged; `run` agrees with direct evaluation on each fixture (Wasm differential) | 3: fragment admits a higher-order value, `⟦_⟧` escapes the seal, `factors` not checked | sec 3.4, sec 6 |
+| S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | GREEN: examples/threshold.lang checks; 12 of 12 design laws discharged (the 7 S4 laws, `app-cons`, `ivc-prove`, `tallyᴹ-correct`, `tallyᶠ-correct`, `mpc≼fhe`); `langc laws`: `laws: 12 of 12 discharged`; `check --json`: `"laws":{"discharged":12,"total":12}`; examples/denote.lang: `laws: 1 of 1 discharged` (`den-private`); `run` agrees with direct evaluation (`agree` gives 1 on each eval row; the circuit.lang and denote.lang entries are in the Wasm differential); make check EXIT 0, gate: 0 failures (serial log); fmt: 95 files canonical; json: 27 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 48 check, 9 parse; evals: 72; differential: 5246 cases, 0 mismatches; wasm: 22 modules valid | 3: fragment admits a higher-order value (O71 check off: `circuit-ho.lang` and the `REFUSE_CIRCUIT` json fixture fail), `⟦_⟧` escapes the seal (`REFUSE_LAW` off: `seal-fold.lang`, `seal-unseal.lang`, `seal-relay.lang` and the `REFUSE_LAW` json fixture fail), `factors` not checked (its right side becomes its left side: `tallyᶠ-correct` fails with `TYPE_MISMATCH`, `check --json` gives 10 of 12 laws); 3 of 3 KILLED | sec 3.4 and sec 6 status; sec 10 O68 to O77; sec 11 Q7; docs/GRAMMAR.md, docs/STATUS.md |
 | S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | decrypt of the sum of casts = the bag counts, N cases, 0 mismatches; known-answer vectors equal; each invalid-proof fixture refused; each DKG fixture (good dealing, bad share, bad proof of knowledge) gives its result | 3: one slot of `⊕` skipped, DLEQ check skipped, Lagrange sign flipped | sec 4.2 |
 | S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | FIPS 180-4, RFC 9380 and RFC 9591 Appendix E vectors byte-equal (signing); each DKG fixture gives its result; old and new committees sign under one group key after reshare | 3: binding factor dropped, one SHA-256 round skipped, reshare coefficient wrong | sec 4.3, 4.4 |
 | S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | a scripted history of k certified steps; two replicas merge to one tip; refuse fixtures (bad signature, fork, ill-typed constitution, `Core` break) each give their code; the accept fixture is accepted | 3: fork check skipped, `Core` check skipped, fragment check skipped | sec 5, sec 6 |
@@ -1011,6 +1050,121 @@ commit message file and the next prompt file. The USER commits.
   refusal counts stay 43 check and 9 parse. The kill comes from the
   checker: it compares the index of the family `Quorum`. A checker
   that ignored the index would let the edit check.
+- O68. Codes (Claude reading, NOT ruled). `data Code : Type` is in
+  domain/domain.lang. It is closed and first order, with no arrow code:
+  `bitC`, `natC`, `optC (optOf : Code)`, `pairC (pairL pairR : Code)`
+  and `bagC (bagOf : Code)`. lib/prelude.lang renames its `Code` and
+  `code0` to `BoolCode` and `boolCode0`. `El : Code → Type` is a guest
+  `fold` into `Type` (Bool, ℕ, Maybe, `×`, FMSet). Each file that needs
+  it has a copy (O60).
+- O69. Circuit fragment (Claude reading, NOT ruled). `data Circuit :
+  Code → Code → Type` is a guest program family (FAMILY_INDEXED) in
+  examples/circuit.lang. The constructors are first order and use folds
+  only. The set is small: `idC`, `seqC`, `fanC`, `zeroC`, `sucC`, `addC`,
+  `leC`, `guardC` and `countC`, the constructors that the fixtures use.
+  `countC p` counts the elements of a bag that satisfy `p`. Its swap
+  proof is by Bool `elim` cases.
+- O70. Index recursor (Claude reading, NOT ruled). The kernel name
+  `foldᴵ` (RULE_FOLDI): `foldᴵ P c₁ .. cₙ x` over an indexed family with
+  no value params, with exactly n + 2 arguments. `P` is a motive over
+  the indices only, not over `x`. The case for a constructor takes its
+  fields in order, with each recursive field replaced by `P` at the
+  indices of that field, and gives `P` at the result indices of the
+  constructor. `fold` and `elim` over an indexed family keep
+  DOMAIN_FAMILY (O31). A later constructor field type or result index
+  that depends on a recursive field's original value also gives
+  DOMAIN_FAMILY: replacing that value by its fold result would change
+  the meaning of the dependent type. The check normalizes the types
+  first, so unused arguments do not create a dependency. `run a b c`
+  is a `foldᴵ` with the motive `λ (x :
+  Code) (y : Code) → El x → El y`. O70a: `foldᴵ` has no new core op. It
+  elaborates to OP_FOLD_FAMILY and drops the motive, so the iota, the
+  stuck form, quote, print and lower.c serve `foldᴵ` as they serve
+  `fold`. A stuck `foldᴵ` prints as `fold`. A Wasm entry takes ℕ or Bool
+  params only, so it cannot hold a neutral circuit, and lower.c needs no
+  new refusal.
+- O71. First order check (Claude reading, NOT ruled). In check_family,
+  a FAMILY_INDEXED declaration whose index types are all `Code` is a
+  circuit family. Each constructor field type must be `Code`, ℕ, Bool or
+  the family itself, else the new code REFUSE_CIRCUIT. Fixtures:
+  test/check/circuit-ho.lang (a field `(mf : ℕ → ℕ)`) and
+  test/json/REFUSE_CIRCUIT.lang. S5 mutant 1 turns the check off.
+- O72. Seal (Claude reading, NOT ruled). The new keyword `sealed` is
+  domain-only: a `sealed` declaration in a program gives REFUSE_DATA
+  (test/check/seal-data.lang). domain/domain.lang declares `sealed data
+  Hidden (A : Type) : Type` with `seal : (sealOf : A) → Hidden A`, and
+  `law unseal : (A : Type) → Hidden A → A`. `langc laws` does not count
+  domain laws. A sealed family must be a cell monad with one generator,
+  else REFUSE_CELL. The rule applies to bodies only: a body opens the
+  seal when it has a `fold` over a sealed family into a type that is
+  not a sealed family, or a reference to a law-only global. A law-only
+  global opens the seal and has a type that does not end in a Path or a
+  universe. A declaration that opens the seal, is not a `law` and has a
+  type that does not end in a Path or a universe gives the new code
+  REFUSE_LAW. So bind and map inside `Hidden` do not open the seal.
+  Fixtures (REFUSE_LAW): test/check/seal-fold.lang, seal-unseal.lang,
+  seal-relay.lang and test/json/REFUSE_LAW.lang. S5 mutant 2 turns the
+  refusal off. O72a: (1) A projection (`sealOf`) of a sealed family also
+  opens the seal. (2) A law in a section keeps its `law` mark, so it can
+  open the seal. (3) The REFUSE_CELL of a sealed family points at the
+  start of the declaration. It has no fixture.
+  The S5 review also checks the quoted endpoints inserted by Path
+  application. A proof's declared type can contain an unseal even when
+  its body is `refl` or a record projection. Extracting an unsealed
+  endpoint opens the seal and gets REFUSE_LAW in an ordinary definition.
+  Eliminations into a sealed family retain a sealed-result annotation
+  through evaluation and quotation, so resealing remains available even
+  inside an endpoint passed to another function.
+- O73. Laws file (Claude reading, NOT ruled). examples/threshold.lang
+  holds the 12 design laws: the 7 S4 laws, `app-cons` (the `_++_`
+  equation, as `consApp` in examples/bag.lang), `tallyᴹ-correct`,
+  `tallyᶠ-correct`, `mpc≼fhe` and `ivc-prove`. Each design name lexes,
+  so the file uses the design names. The gate laws line and the json
+  line change from 7 of 7 to 12 of 12.
+- O74. Secs 7 to 10 shape (Claude reading, NOT ruled). `Private` is a
+  top-level record (O59) over the params that it uses. Its types use
+  the domain `Hidden` and `unseal` (sec 2.4: a field cannot range over
+  `U -> U`). `Round` and `Aggregate` are modules (O8), and `factors` is
+  a param of `Aggregate`. `ZK`, `IVC` and `Sharing` are top-level
+  records. `ivc-prove` is by ℕ `elim` on the chain length (O57). O74a:
+  (1) `Round` takes only the 11 params that it uses (the last is `P`,
+  O59 style), not the 22 params of `Design`. It has its own `rulesR`
+  (the body of `Design.rules`). Modules do not nest, so `Aggregate` is a
+  top-level module after `Round`, with the same 11 params first. (2) The
+  record `IVC` is before `module Design`, and `ivc-prove` is in `Design`,
+  so no new module takes the 22 params. (3) The target of S5 mutant 3 is
+  the `Aggregate` param `factors` (O77).
+- O75. Denotational instances (Claude reading, NOT ruled).
+  examples/denote.lang (new) has an O60 copy of the records that it needs
+  and the instances: `Private` over the domain seal (`law den-private`,
+  because `reveal = unseal` opens the seal), `ZK` (`Proof x = ∥ W x ∥₁`,
+  `verify` gives `true`), `IVC` (`Proof = LegitM`, over a free `Move`),
+  `Sharing` (`Shares c = S`, `reshare = id`) and an `Aggregate` instance
+  (`denAgg` is a `run` of `tally`, with `denDecide` and `denFactors`).
+  The gate has its own laws line for the file: `laws: 1 of 1
+  discharged`. O75a: `elim` takes 4 arguments, for ℕ and Bool only. So
+  no `elim` over `Hidden`, and a fold of a free `Hidden` value does not
+  reduce. In the instance, `⊕` and `eval` open the seal and seal the
+  result again inside `den-private`, so `⟦⊕⟧` and `⟦eval⟧` are `refl`.
+  `cast` and `∅` do not open the seal. No kernel edit.
+- O76. `run` against direct evaluation (Claude reading, NOT ruled).
+  examples/circuit.lang has ℕ and Bool wrappers over closed circuits,
+  each with a direct guest definition: `majRun a b c` (the majority
+  circuit on a bag of 3 ballots, 1 for `just` and 0 for `nothing`) and
+  `majDirect a b c`, `countRun`, `addRun`, and `agree a b c`, which
+  compares `majRun` and `majDirect`. test/eval/expect.txt has a row for
+  each, and `agree` gives 1 on each row. The Wasm loop covers the file
+  by the glob, with 0 mismatches.
+- O77. S5 mutants (Claude reading, NOT ruled). Mutant 1 turns the O71
+  check off (the REFUSE_CIRCUIT condition in check_family never holds).
+  Mutant 2 turns the O72 refusal off (the REFUSE_LAW condition never
+  holds). They are src edits, and the fixtures kill them. Mutant 3 is a
+  guest edit in examples/threshold.lang: the right side of the `factors`
+  param type becomes its left side, so `factors` is not checked (O74a
+  (3)). Then `tallyᶠ-correct` fails with TYPE_MISMATCH, `mpc≼fhe` stays
+  open, and `check --json` gives 10 of 12 laws. The examples loop and
+  the laws line kill it. The three mutants: 3 of 3 KILLED
+  (W/mut-s5.py).
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 
@@ -1029,7 +1183,8 @@ commit message file and the next prompt file. The USER commits.
   homomorphism over the model.
 - Q6. Tally routes. RULED (b) 2026-10-25. (a) The replica runs the FHE route; the MPC route is
   law-only. (b) General MPC later.
-- Q7. Ballot. OPEN: it blocks S6 only; Claude asks it at the S5 close. (a) One of k choices with unit weight. (b) Public weights.
+- Q7. Ballot. RULED (a) 2026-10-26 (S5 close; USER answer verbatim: "(a) Unit weight
+  (Recommended)"). (a) One of k choices with unit weight. (b) Public weights.
   (c) Encrypted weights with range proofs.
 - Q8. Key generation. RULED (b) 2026-10-25. (a) Trusted dealer with Feldman VSS. (b) Pedersen
   DKG.

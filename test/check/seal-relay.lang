@@ -1,0 +1,5 @@
+law peek : Hidden ℕ → ℕ
+peek h = unseal ℕ h
+
+leak : Hidden ℕ → ℕ
+leak h = peek h

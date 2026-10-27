@@ -127,6 +127,7 @@ typedef struct {
   size_t field_count;
   int coinductive;     /* the record has the line `coinductive` */
   int is_law;          /* the definition starts with `law` (S4 O64) */
+  int is_sealed;       /* the family starts with `sealed` (O72, domain only) */
   size_t section;      /* 1 + the list index of the module that holds the definition; 0 outside a module (D3) */
 } Decl;
 

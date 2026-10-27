@@ -41,3 +41,14 @@ fold-hit-bad.lang TYPE_REFL
 bag-no-comm.lang TYPE_BAG
 bag-no-trunc.lang TYPE_BAG
 bag-bad-swap.lang TYPE_REFL
+circuit-ho.lang REFUSE_CIRCUIT
+seal-fold.lang REFUSE_LAW
+seal-unseal.lang REFUSE_LAW
+seal-relay.lang REFUSE_LAW
+seal-data.lang REFUSE_DATA
+seal-path.lang REFUSE_LAW
+seal-path-local.lang REFUSE_LAW
+seal-path-record.lang REFUSE_LAW
+seal-path-proj.lang REFUSE_LAW
+foldi-dependent.lang DOMAIN_FAMILY
+foldi-dependent-binder.lang DOMAIN_FAMILY

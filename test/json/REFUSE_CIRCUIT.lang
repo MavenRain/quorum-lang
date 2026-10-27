@@ -1,0 +1,2 @@
+data Bad : Code → Code → Type where
+  hoP : (mf : ℕ → ℕ) → Bad natC natC

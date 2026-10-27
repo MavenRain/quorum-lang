@@ -29,6 +29,7 @@ static const struct {
   {"coinductive", TOK_KW_COINDUCTIVE},
   {"module", TOK_KW_MODULE},
   {"law", TOK_KW_LAW},
+  {"sealed", TOK_KW_SEALED},
   /* S3 D5: a name with one of these texts is an operator or a notation
      token. `_∷_`, `∥_∥₁` and `[]` stay names. */
   {"∷", TOK_OPER},
@@ -92,6 +93,7 @@ const char *tok_kind_name(TokKind kind) {
     case TOK_KW_COINDUCTIVE: return "'coinductive'";
     case TOK_KW_MODULE: return "'module'";
     case TOK_KW_LAW: return "'law'";
+    case TOK_KW_SEALED: return "'sealed'";
     case TOK_KW_TYPE: return "'Type'";
   }
   return "a token";

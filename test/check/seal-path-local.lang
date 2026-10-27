@@ -1,0 +1,2 @@
+leak : (h : Hidden ℕ) → unseal ℕ h ≡ unseal ℕ h → ℕ
+leak h p = p i0

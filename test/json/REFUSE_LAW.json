@@ -1,0 +1,2 @@
+{"code":"REFUSE_LAW","span":{"file":"test/json/REFUSE_LAW.lang","line":4,"col":1,"endLine":4,"endCol":1},"expected":null,"found":null,"fix":null,"retry":false,"message":"leak opens the seal (a fold or a projection of a sealed family, or a law-only name such as unseal), but it is not a law and its type does not end in a Path or a universe (O72)"}
+{"parsed":2,"typed":1,"laws":{"discharged":0,"total":0}}

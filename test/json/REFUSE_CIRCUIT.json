@@ -1,0 +1,2 @@
+{"code":"REFUSE_CIRCUIT","span":{"file":"test/json/REFUSE_CIRCUIT.lang","line":1,"col":1,"endLine":1,"endCol":1},"expected":null,"found":null,"fix":null,"retry":false,"message":"Bad is a circuit family: the field mf of hoP must be a Code, a ℕ, a Bool or Bad itself, so that a circuit is first order (O71)"}
+{"parsed":1,"typed":0,"laws":{"discharged":0,"total":0}}

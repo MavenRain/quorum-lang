@@ -1,0 +1,2 @@
+sealed data Box (A : Type) : Type where
+  box : (boxOf : A) → Box A

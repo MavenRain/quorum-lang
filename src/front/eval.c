@@ -1632,6 +1632,14 @@ const Value *eval_core(Machine *m, const Env *env, const Core *c) {
     return NULL;
   v = eval_inner(m, env, c);
   m->depth--;
+  if (v != NULL && c->sealed_result && !v->sealed_result) {
+    Value *sealed = new_value(m, v->kind);
+    if (sealed == NULL)
+      return NULL;
+    *sealed = *v;
+    sealed->sealed_result = 1;
+    return sealed;
+  }
   return v;
 }
 
@@ -1863,6 +1871,14 @@ const Core *quote_value(Machine *m, uint32_t level, const Value *v) {
     return NULL;
   c = quote_inner(m, level, v);
   m->depth--;
+  if (c != NULL && v->sealed_result) {
+    Core *sealed = new_core(m, c->kind);
+    if (sealed == NULL)
+      return NULL;
+    *sealed = *c;
+    sealed->sealed_result = 1;
+    return sealed;
+  }
   return c;
 }
 

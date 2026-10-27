@@ -1,0 +1,9 @@
+data Good : ℕ → Type where
+  leafG : (number : ℕ) → Good number
+  branchG : (n : ℕ) → (same : n ≡ n) → (child : Good n) → (padding : let discarded = child in ℕ) → Good (let discarded = child in n)
+
+foldCount : (n : ℕ) → Good n → ℕ
+foldCount n x = foldᴵ (λ (i : ℕ) → ℕ) (λ number → number) (λ n same total padding → natAdd total padding) x
+
+law countGood : foldCount 4 (branchG 4 refl (leafG 4) 3) ≡ 7
+countGood = refl

@@ -1,0 +1,5 @@
+exposed : (h : Hidden ℕ) → unseal ℕ h ≡ unseal ℕ h
+exposed h = refl
+
+leak : Hidden ℕ → ℕ
+leak h = exposed h i0

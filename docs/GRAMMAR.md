@@ -241,6 +241,39 @@ data: `elim P c_1 .. c_n x`) and `foldᴮ` (the bag recursor:
 `fold` also takes a cell monad with path constructors: one case for each
 constructor, in order.
 
+S5 adds the kernel name `foldᴵ` (the index recursor: `foldᴵ P c_1 .. c_n x`
+for an indexed family with no parameters). `P` is a motive over the
+indices only, not over `x`. The case for a constructor takes its fields
+in order, with `P` at the indices of each recursive field, and gives `P`
+at the indices of the constructor. `fold` and `elim` over an indexed
+family give DOMAIN_FAMILY. `run` in `examples/circuit.lang` is a
+`foldᴵ` over `Circuit`.
+
+`foldᴵ` gives DOMAIN_FAMILY when a later constructor field type or a
+result index depends on an earlier recursive field. The fold replaces
+that field with its result, so these dependencies need a different
+eliminator. Dependencies on nonrecursive fields remain available.
+
+S5 adds the keyword `sealed` (O72). Only domain/domain.lang can declare a
+sealed data type. A program that declares one gets REFUSE_DATA.
+domain/domain.lang declares `sealed data Hidden (A : Type) : Type` with
+the constructor `seal`, and `law unseal : (A : Type) → Hidden A → A`. A
+constructor takes the family parameters first: `seal ℕ x`. A body opens
+the seal when it has a `fold` or a projection of a sealed family into a
+type that is not a sealed family, or when it uses a law-only name
+(`unseal`, or a law that opens the seal). Only a `law`, or a definition
+whose type ends in a Path or a universe, can open the seal. Each other
+definition that opens the seal gets REFUSE_LAW. A `fold` into `Hidden`
+does not open the seal. `elim` takes ℕ and Bool only, so it cannot open
+`Hidden` (O75a).
+
+Applying a Path also opens the seal if its quoted endpoints contain a
+sealed fold or projection and the result is outside `Hidden`. This
+applies to `refl` proofs, local proofs and record proof fields, because
+path application computes from the endpoints in the declared type.
+An elimination whose result stays sealed retains that fact through
+evaluation and quotation, including when it is an argument in an endpoint.
+
 Refused names:
 
 - `List`, `cons`, `nil`, `unfold`: REFUSE_CELL. A cons-form list is not a

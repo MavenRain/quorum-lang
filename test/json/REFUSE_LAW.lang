@@ -1,0 +1,5 @@
+mapH : Hidden ℕ → Hidden ℕ
+mapH h = fold (λ (x : ℕ) → seal ℕ x) h
+
+leak : Hidden ℕ → ℕ
+leak h = sealOf h

@@ -17,6 +17,14 @@ data Tree : Type where
 -- An indexed data type (former F15): `Lot 3` is a lot of size 3.
 data Lot (size : ℕ) : Type where
   makeLot : (lotPrice : ℕ) → Lot size
+-- The codes of first-order types (O68): a circuit `Circuit a b` is indexed
+-- by two codes, and a guest `El : Code → Type` gives the type of each code.
+data Code : Type where
+  bitC : Code
+  natC : Code
+  optC : (optOf : Code) → Code
+  pairC : (pairL : Code) → (pairR : Code) → Code
+  bagC : (bagOf : Code) → Code
 
 lineTotal : Item → ℕ
 lineTotal item = natMul (itemPrice item) (itemCount item)
@@ -24,3 +32,12 @@ isRed : Color → Bool
 isRed color = fold true false false color
 depth : Stack → ℕ
 depth s = fold 0 (λ (top : ℕ) (rest : ℕ) → natAdd rest 1) s
+
+-- The sealed identity cell monad (O72, Q4 (a)). A fold or a projection
+-- out of `Hidden` opens the seal. Only a law, or a definition whose type
+-- ends in a Path or a universe, can open it. `unseal` is the domain law.
+sealed data Hidden (A : Type) : Type where
+  seal : (sealOf : A) → Hidden A
+
+law unseal : (A : Type) → Hidden A → A
+unseal A h = fold (λ (x : A) → x) h

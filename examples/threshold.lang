@@ -1,5 +1,5 @@
--- The S4 design file (PLAN sec 9 S4 row): design/ThresholdVC/Design.agda
--- secs 1 to 6 at the denotation, then a closed toy instance. The Claude
+-- The design file (PLAN sec 9 S4 and S5 rows): design/ThresholdVC/Design.agda
+-- secs 1 to 10 at the denotation, then a closed toy instance. The Claude
 -- readings (PLAN sec 10, not ruled):
 -- O57: Reach is a chain of n steps from genesis, made by a large elim on ℕ.
 -- A data type over the telescope is not a cell signature (rule R1), and S3
@@ -15,6 +15,10 @@
 -- O62: `⟦ e ⟧ᵉ` gives NAME_UNKNOWN, so the edit map is `apply` and the
 -- meaning map of a replica is `denote`.
 -- O63: there are no implicit arguments (O41). Each argument is explicit.
+-- O74 (S5): Private, ZK, IVC and Sharing are records at the top level. Hidden
+-- and unseal are the domain seal (O72), so a field type can name unseal, but
+-- only a law can open the seal. Round and Aggregate are sections. IVC is
+-- before the section Design, because the law ivc-prove is in Design.
 sym : (A : Type) → (x : A) → (y : A) → x ≡ y → y ≡ x
 sym A x y p i = p (~ i)
 
@@ -83,6 +87,17 @@ data FMSet (A : Type) : Type where
   mcomm : (s₄ : FMSet A) → (t₄ : FMSet A) → m A s₄ t₄ ≡ m A t₄ s₄
   trunc : (s₅ : FMSet A) → (t₅ : FMSet A) → (p₅ : s₅ ≡ t₅) → (q₅ : s₅ ≡ t₅) → p₅ ≡ q₅
 
+-- The cons view and the union of a bag (sec 2.3) are the generator m. The law
+-- app-cons is the `_++_` equation of the design.
+_∷_ : (A : Type) → A → FMSet A → FMSet A
+_∷_ A x xs = m A (eta A x) xs
+
+_++_ : (A : Type) → FMSet A → FMSet A → FMSet A
+_++_ A xs ys = m A xs ys
+
+law app-cons : (A : Type) → (x : A) → (xs : FMSet A) → (ys : FMSet A) → _++_ A (_∷_ A x xs) ys ≡ _∷_ A x (_++_ A xs ys)
+app-cons A x xs ys = massoc A (eta A x) xs ys
+
 -- Sec 3: one governance step (Q2: a record). The rules of the source state
 -- choose the edit from a bag of ballots. The step must keep Core.
 record Step (State : Type) (Agenda : Type) (Ballot : Type) (Edit : Type) (rules : State → Agenda → FMSet Ballot → Maybe Edit) (apply : Edit → State → State) (Core : State → Type) (σ : State) (τ : State) : Type where
@@ -92,6 +107,19 @@ record Step (State : Type) (Agenda : Type) (Ballot : Type) (Edit : Type) (rules 
   chosen : rules σ agenda bag ≡ just edit
   lands : apply edit σ ≡ τ
   keeps : Core σ → Core τ
+
+-- Sec 9: recursive composition (IVC). A proof about σ means Valid σ. In the
+-- section Design, Move is StepD and Valid is Legit, a proposition, so the
+-- meaning holds no data about the history. The law ivc-prove is in Design: it
+-- is by elim on the length of the chain (O57).
+record IVC (State : Type) (genesis : State) (Move : State → State → Type) (Valid : State → Type) : Type₁ where
+  ProofI : State → Type
+  verifyI : (σ : State) → ProofI σ → Bool
+  start : ProofI genesis
+  extend : (σ : State) → (τ : State) → ProofI σ → Move σ τ → ProofI τ
+  start✓ : verifyI genesis start ≡ true
+  extend✓ : (σ : State) → (τ : State) → (π : ProofI σ) → (s : Move σ τ) → verifyI σ π ≡ true → verifyI τ (extend σ τ π s) ≡ true
+  ⟦_⟧ᴵ : (σ : State) → (π : ProofI σ) → verifyI σ π ≡ true → Valid σ
 
 -- Secs 2 to 4. A Policy is what a constitution means: its input is a bag, so
 -- it ignores ballot order. Reach σ is a rooted path of steps (O57), and
@@ -122,6 +150,12 @@ module Design (Artifact : Type) (Ballot : Type) (Agenda : Type) (Edit : Type) (M
   reach-core σ h = chain-core (fst h) σ (snd h)
   law legit-core : (σ : State) → Legit σ → Core σ
   legit-core σ = rec₁ (Reach σ) (Core σ) (isPropCore σ) (reach-core σ)
+  ChainProof : (I : IVC State genesis StepD Legit) → State → Type
+  ChainProof I σ = Σ (ProofI State genesis StepD Legit I σ) (λ π → verifyI State genesis StepD Legit I σ π ≡ true)
+  chain-prove : (I : IVC State genesis StepD Legit) → (n : ℕ) → (σ : State) → Chain n σ → ChainProof I σ
+  chain-prove I n = elim (λ (k : ℕ) → (σ : State) → Chain k σ → ChainProof I σ) (λ (σ : State) (p : genesis ≡ σ) → primTransp (λ i → ChainProof I (p i)) i0 (start State genesis StepD Legit I , start✓ State genesis StepD Legit I)) (λ (k : ℕ) (ih : (σ : State) → Chain k σ → ChainProof I σ) (σ : State) (h : Chain (suc k) σ) → extend State genesis StepD Legit I (fst h) σ (fst (ih (fst h) (fst (snd h)))) (snd (snd h)) , extend✓ State genesis StepD Legit I (fst h) σ (fst (ih (fst h) (fst (snd h)))) (snd (snd h)) (snd (ih (fst h) (fst (snd h))))) n
+  law ivc-prove : (I : IVC State genesis StepD Legit) → (σ : State) → Reach σ → ChainProof I σ
+  ivc-prove I σ h = chain-prove I (fst h) σ (snd h)
 
 -- Sec 6: a replica (O59). Its meaning is a tip: a state with a certified
 -- descent from genesis. The map denote is a join-semilattice morphism, so
@@ -230,6 +264,74 @@ module Authority (Artifact : Type) (Ballot : Type) (Agenda : Type) (Edit : Type)
   desc-ord n = elim (λ (k : ℕ) → (τ : State) → Desc genesis k τ → (σ : State) → _⊑_ genesis σ → Ordered σ τ) (λ (τ : State) (p : genesis ≡ τ) (σ : State) (c : _⊑_ genesis σ) → true , primTransp (λ i → _⊑_ (p i) σ) i0 c) (λ (k : ℕ) (ih : (τ : State) → Desc genesis k τ → (σ : State) → _⊑_ genesis σ → Ordered σ τ) (τ : State) (h : Desc genesis (suc k) τ) (σ : State) (c : _⊑_ genesis σ) → ord-step σ (fst h) τ (snd (snd h)) (ih (fst h) (fst (snd h)) σ c)) n
   tip-order : (t : Tip) → (u : Tip) → ∥ Ordered (fst t) (fst u) ∥₁
   tip-order t u = ∣_∣₁ (Ordered (fst t) (fst u)) (desc-ord (fst (snd u)) (fst u) (snd (snd u)) (fst t) (snd t))
+
+-- Sec 7: private computation. FHE ciphertexts and MPC sharings are two
+-- representations of one meaning, the hidden value. No single party computes
+-- unseal. It fixes what each operation must do: unseal is a homomorphism for
+-- each operation.
+record Private (Ballot : Type) (Committee : Type) (Quorum : Committee → Type) (Circuit : Type → Type → Type) (run : (A : Type) → (B : Type) → Circuit A B → A → B) (c : Committee) : Type₁ where
+  cast : Ballot → Hidden (FMSet Ballot)
+  ∅ : Hidden (FMSet Ballot)
+  _⊕_ : Hidden (FMSet Ballot) → Hidden (FMSet Ballot) → Hidden (FMSet Ballot)
+  eval : (A : Type) → (B : Type) → Circuit A B → Hidden A → Hidden B
+  reveal : (A : Type) → Quorum c → Hidden A → A
+  ⟦cast⟧ : (b : Ballot) → unseal (FMSet Ballot) (cast b) ≡ _∷_ Ballot b ([] Ballot)
+  ⟦∅⟧ : unseal (FMSet Ballot) ∅ ≡ [] Ballot
+  ⟦⊕⟧ : (x : Hidden (FMSet Ballot)) → (y : Hidden (FMSet Ballot)) → unseal (FMSet Ballot) (_⊕_ x y) ≡ _++_ Ballot (unseal (FMSet Ballot) x) (unseal (FMSet Ballot) y)
+  ⟦eval⟧ : (A : Type) → (B : Type) → (f : Circuit A B) → (x : Hidden A) → unseal B (eval A B f x) ≡ run A B f (unseal A x)
+  ⟦reveal⟧ : (A : Type) → (q : Quorum c) → (x : Hidden A) → reveal A q x ≡ unseal A x
+
+-- Sec 8: a round, two ways. Both compute the policy of sec 2. They differ only
+-- in what they reveal. A map d reveals no more than e when d factors through e.
+_≼_ : (Ballot : Type) → (D : Type) → (E : Type) → (FMSet Ballot → D) → (FMSet Ballot → E) → Type
+_≼_ Ballot D E d e = Σ (E → D) (λ g → (b : FMSet Ballot) → d b ≡ g (e b))
+
+-- MPC: run the constitution on the hidden bag, and open only the outcome.
+module Round (Ballot : Type) (Agenda : Type) (Edit : Type) (Committee : Type) (Quorum : Committee → Type) (Circuit : Type → Type → Type) (run : (A : Type) → (B : Type) → Circuit A B → A → B) (State : Type) (constitution : State → Agenda → Circuit (FMSet Ballot) (Maybe Edit)) (c : Committee) (P : Private Ballot Committee Quorum Circuit run c) where
+  rulesR : State → Agenda → FMSet Ballot → Maybe Edit
+  rulesR σ a = run (FMSet Ballot) (Maybe Edit) (constitution σ a)
+  evalR : (A : Type) → (B : Type) → Circuit A B → Hidden A → Hidden B
+  evalR A B f x = eval Ballot Committee Quorum Circuit run c P A B f x
+  tallyᴹ : State → Agenda → Quorum c → Hidden (FMSet Ballot) → Maybe Edit
+  tallyᴹ σ a q box = reveal Ballot Committee Quorum Circuit run c P (Maybe Edit) q (evalR (FMSet Ballot) (Maybe Edit) (constitution σ a) box)
+  law tallyᴹ-correct : (σ : State) → (a : Agenda) → (q : Quorum c) → (box : Hidden (FMSet Ballot)) → tallyᴹ σ a q box ≡ rulesR σ a (unseal (FMSet Ballot) box)
+  tallyᴹ-correct σ a q box = _∙_ (Maybe Edit) (tallyᴹ σ a q box) (unseal (Maybe Edit) (evalR (FMSet Ballot) (Maybe Edit) (constitution σ a) box)) (rulesR σ a (unseal (FMSet Ballot) box)) (⟦reveal⟧ Ballot Committee Quorum Circuit run c P (Maybe Edit) q (evalR (FMSet Ballot) (Maybe Edit) (constitution σ a) box)) (⟦eval⟧ Ballot Committee Quorum Circuit run c P (FMSet Ballot) (Maybe Edit) (constitution σ a) box)
+
+-- FHE: aggregate under encryption, open the aggregate, and decide in public.
+-- This is correct for each constitution that factors through the aggregate
+-- (the section parameter factors). The MPC route reveals no more than the FHE
+-- route (mpc≼fhe).
+module Aggregate (Ballot : Type) (Agenda : Type) (Edit : Type) (Committee : Type) (Quorum : Committee → Type) (Circuit : Type → Type → Type) (run : (A : Type) → (B : Type) → Circuit A B → A → B) (State : Type) (constitution : State → Agenda → Circuit (FMSet Ballot) (Maybe Edit)) (c : Committee) (P : Private Ballot Committee Quorum Circuit run c) (M : Type) (agg : Circuit (FMSet Ballot) M) (decide : State → Agenda → M → Maybe Edit) (factors : (σ : State) → (a : Agenda) → (b : FMSet Ballot) → rulesR Ballot Agenda Edit Committee Quorum Circuit run State constitution c P σ a b ≡ decide σ a (run (FMSet Ballot) M agg b)) where
+  rulesF : State → Agenda → FMSet Ballot → Maybe Edit
+  rulesF = rulesR Ballot Agenda Edit Committee Quorum Circuit run State constitution c P
+  aggF : Hidden (FMSet Ballot) → Hidden M
+  aggF box = eval Ballot Committee Quorum Circuit run c P (FMSet Ballot) M agg box
+  tallyᶠ : State → Agenda → Quorum c → Hidden (FMSet Ballot) → Maybe Edit
+  tallyᶠ σ a q box = decide σ a (reveal Ballot Committee Quorum Circuit run c P M q (aggF box))
+  openF : (q : Quorum c) → (box : Hidden (FMSet Ballot)) → reveal Ballot Committee Quorum Circuit run c P M q (aggF box) ≡ run (FMSet Ballot) M agg (unseal (FMSet Ballot) box)
+  openF q box = _∙_ M (reveal Ballot Committee Quorum Circuit run c P M q (aggF box)) (unseal M (aggF box)) (run (FMSet Ballot) M agg (unseal (FMSet Ballot) box)) (⟦reveal⟧ Ballot Committee Quorum Circuit run c P M q (aggF box)) (⟦eval⟧ Ballot Committee Quorum Circuit run c P (FMSet Ballot) M agg box)
+  law tallyᶠ-correct : (σ : State) → (a : Agenda) → (q : Quorum c) → (box : Hidden (FMSet Ballot)) → tallyᶠ σ a q box ≡ rulesF σ a (unseal (FMSet Ballot) box)
+  tallyᶠ-correct σ a q box = _∙_ (Maybe Edit) (tallyᶠ σ a q box) (decide σ a (run (FMSet Ballot) M agg (unseal (FMSet Ballot) box))) (rulesF σ a (unseal (FMSet Ballot) box)) (cong M (Maybe Edit) (decide σ a) (reveal Ballot Committee Quorum Circuit run c P M q (aggF box)) (run (FMSet Ballot) M agg (unseal (FMSet Ballot) box)) (openF q box)) (sym (Maybe Edit) (rulesF σ a (unseal (FMSet Ballot) box)) (decide σ a (run (FMSet Ballot) M agg (unseal (FMSet Ballot) box))) (factors σ a (unseal (FMSet Ballot) box)))
+  law mpc≼fhe : (σ : State) → (a : Agenda) → _≼_ Ballot (Maybe Edit) M (rulesF σ a) (run (FMSet Ballot) M agg)
+  mpc≼fhe σ a = decide σ a , factors σ a
+
+-- Sec 9: proofs. A verified zero-knowledge proof means the truncated existence
+-- of a witness: the verifier knows that a witness exists, but not which one.
+record ZK (X : Type) (Witness : X → Type) : Type₁ where
+  ProofZ : X → Type
+  verifyZ : (x : X) → ProofZ x → Bool
+  prove : (x : X) → Witness x → ProofZ x
+  complete : (x : X) → (w : Witness x) → verifyZ x (prove x w) ≡ true
+  ⟦_⟧ᶻ : (x : X) → (π : ProofZ x) → verifyZ x π ≡ true → ∥ Witness x ∥₁
+
+-- Sec 10: membership change. Resharing changes who holds the shares, but not
+-- what they mean. So the group public key stays the same across committees.
+record Sharing (Committee : Type) (Quorum : Committee → Type) : Type₁ where
+  Secret : Type
+  Shares : Committee → Type
+  ⟦_⟧ˢ : (c : Committee) → Shares c → Secret
+  reshare : (c : Committee) → Quorum c → (d : Committee) → Shares c → Shares d
+  ⟦reshare⟧ : (c : Committee) → (q : Quorum c) → (d : Committee) → (s : Shares c) → PathP (λ (i : I) → Secret) (⟦_⟧ˢ d (reshare c q d s)) (⟦_⟧ˢ c s)
 
 -- The closed toy instance (O65). State is ℕ, each step adds 1, and Core is
 -- 0 ≡ 0. The four obligations are isSetℕ ℕ, refl, isSetℕ ℕ 0 0 and refl. Then

@@ -11,11 +11,11 @@ reflℕ n = elim (λ (k : ℕ) → eqℕ k k ≡ true) refl (λ (k : ℕ) (ih : 
 eqBool : Bool → Bool → Bool
 eqBool a b = elim (λ (x : Bool) → Bool → Bool) (λ (y : Bool) → y) (λ (y : Bool) → elim (λ (z : Bool) → Bool) false true y) a b
 
-Code : Bool → Type
-Code b = elim (λ (x : Bool) → Type) ℕ Bool b
+BoolCode : Bool → Type
+BoolCode b = elim (λ (x : Bool) → Type) ℕ Bool b
 
-code0 : Code true
-code0 = 7
+boolCode0 : BoolCode true
+boolCode0 = 7
 
 _∘_ : (A : Type) → (B : Type) → (C : Type) → (B → C) → (A → B) → A → C
 _∘_ A B C g f x = g (f x)

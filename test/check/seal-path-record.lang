@@ -1,0 +1,5 @@
+record Carrier (h : Hidden ℕ) : Type where
+  evidence : unseal ℕ h ≡ unseal ℕ h
+
+leak : (h : Hidden ℕ) → Carrier h → ℕ
+leak h r = evidence h r i0

@@ -1,0 +1,6 @@
+data D : ℕ → Type where
+  leaf : D 0
+  branch : (child : D 0) → (same : Bool → child ≡ child) → D 0
+
+pick : (n : ℕ) → D n → Bool
+pick n d = foldᴵ (λ (i : ℕ) → Bool) true (λ r p → false) d

@@ -1,0 +1,23 @@
+mapH : Hidden ℕ → Hidden ℕ
+mapH h = fold (λ (x : ℕ) → seal ℕ (suc x)) h
+
+sameH : (h : Hidden ℕ) → mapH h ≡ mapH h
+sameH h = refl
+
+keepH : Hidden ℕ → Hidden ℕ
+keepH h = sameH h i0
+
+opened : (h : Hidden ℕ) → unseal ℕ h ≡ unseal ℕ h
+opened h i = unseal ℕ h
+
+sameConsumer : (consume : Hidden ℕ → ℕ) → (h : Hidden ℕ) → consume (mapH h) ≡ consume (mapH h)
+sameConsumer consume h = refl
+
+viaProof : (Hidden ℕ → ℕ) → Hidden ℕ → ℕ
+viaProof consume h = sameConsumer consume h i0
+
+sameNested : (consume : Hidden ℕ → ℕ) → (h : Hidden (Hidden ℕ)) → consume (sealOf h) ≡ consume (sealOf h)
+sameNested consume h = refl
+
+viaNested : (Hidden ℕ → ℕ) → Hidden (Hidden ℕ) → ℕ
+viaNested consume h = sameNested consume h i0

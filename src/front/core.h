@@ -115,6 +115,7 @@ struct Core {
   const Core *b;
   const Core *const *args;
   uint32_t argc;
+  int sealed_result; /* a checked sealed elimination returns a sealed family */
 };
 
 typedef enum {
@@ -152,6 +153,7 @@ struct Value {
   const Value *arg; /* APP: the argument. A PI with no body: the codomain. */
   const Env *env;   /* LAM, PI, SIGMA: the closure */
   const Core *body;
+  int sealed_result; /* retained through evaluation and quotation */
 };
 
 typedef struct {
@@ -192,6 +194,7 @@ typedef struct {
   FamilyClass r1;
   const Core *const *index_types; /* in the context of the parameters */
   uint32_t index_count;
+  int sealed; /* O72: a fold or a projection out of it opens the seal */
 } FamilyInfo;
 
 typedef struct {
@@ -200,6 +203,7 @@ typedef struct {
   const Core *body;
   const Value *type;
   const Value *value; /* computed when first used */
+  int law_only; /* O72: the body opens the seal and the type is not a law type */
 } DefInfo;
 
 /* The checked program and the evaluation state. No global state: every

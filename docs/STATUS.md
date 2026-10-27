@@ -1,14 +1,16 @@
 # quorum-lang status
 
-The build implements slices S1 to S4 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S5 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
 S3 is the eliminators for ℕ, Bool, higher inductive types and bags,
 and the guest Prelude (sec 3.1). S4 is design secs 1 to 6 at the
 denotation in examples/threshold.lang, a closed toy instance, the `law`
-form and `langc laws`. Slices S5 to S12 are not started. The next slice
-is S5.
+form and `langc laws`. S5 is the `Circuit` fragment with its guest
+evaluator `run`, the seal (`Hidden`), design secs 7 to 10 at the
+denotation and the denotational instances. Slices S6 to S12 are not
+started. The next slice is S6.
 
 ## Implemented
 
@@ -58,6 +60,23 @@ is S5.
   for each law, then `laws: D of T discharged`. It exits 0 only when
   the file checks and D = T. The last line of `check --json` has
   `"laws":{"discharged":D,"total":T}`.
+- Circuits (S5): `Code` is domain data (`bitC`, `natC`, `optC`,
+  `pairC`, `bagC`; O68). examples/circuit.lang declares `data Circuit :
+  Code → Code → Type` and its guest evaluator `run`, a `foldᴵ` over
+  `Circuit` (O69, O70). A circuit family is first order: a field that is
+  not a `Code`, a `ℕ`, a `Bool` or the family gives `REFUSE_CIRCUIT`
+  (O71). `agree a b c` compares `run` with direct evaluation (O76).
+- Seal (S5): the keyword `sealed` is domain-only (a program gets
+  `REFUSE_DATA`). domain/domain.lang declares `sealed data Hidden` and
+  `law unseal`. A definition that opens the seal, is not a `law` and has
+  a type that does not end in a Path or a universe gets `REFUSE_LAW`
+  (O72).
+- Design (S5): examples/threshold.lang holds design secs 7 to 10:
+  `record Private`, `_≼_`, `module Round`, `module Aggregate`, `record
+  ZK`, `record IVC` and `record Sharing` (O74). The 12 laws check, with
+  the 5 new laws `app-cons`, `ivc-prove`, `tallyᴹ-correct`,
+  `tallyᶠ-correct` and `mpc≼fhe` (O73). examples/denote.lang holds the
+  denotational instances and `law den-private` (O75).
 - Refusals: `List`, `cons`, `nil` and `unfold` give `REFUSE_CELL` (R1).
   A parameterized declaration that is not a cell signature, a type
   index, a record field of a type-constructor type and a coinductive
@@ -102,12 +121,24 @@ is S5.
   from module `Authority` (`fork-meet` fails, so `no-fork` and
   `tip-order` fail, 4 of 7 laws). The examples loop and the laws line
   kill each one.
+- Gate counts at S5: 95 files canonical under `fmt`, 27 JSON fixtures,
+  36 codes with a fixture or a row, 48 check refusals, 9 parse
+  refusals, 72 evaluations, 5246 differential cases with 0
+  mismatches, 22 Wasm modules valid, 12 of 12 laws discharged
+  (examples/threshold.lang) and 1 of 1 (examples/denote.lang).
+- Mutants at S5 (3 of 3 killed): the O71 first order check off
+  (`circuit-ho.lang` and the `REFUSE_CIRCUIT` JSON fixture fail),
+  `REFUSE_LAW` off (`seal-fold.lang`, `seal-unseal.lang`,
+  `seal-relay.lang` and the `REFUSE_LAW` JSON fixture fail), `factors`
+  not checked (its right side becomes its left side: `tallyᶠ-correct`
+  fails, 10 of 12 laws). The fixtures, the examples loop and the laws
+  line kill them.
 
 ## Remaining work
 
-1. S5 to S12: see `docs/PLAN.md` sec 9. Q7 must be ruled before S6, Q14
-   before S10 and Q15 before S11.
-2. The O items O14 to O67 (`docs/PLAN.md` sec 10) are Claude readings.
+1. S6 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
+   Q14 must be ruled before S10 and Q15 before S11.
+2. The O items O14 to O77 (`docs/PLAN.md` sec 10) are Claude readings.
    The USER can rule each one.
 
 ## Known limits
@@ -127,15 +158,23 @@ is S5.
 - Kan computation: `primHComp` reduces only on a face that holds.
   `primTransp` also computes for universe, `ℕ`, `Bool` and `Unit` lines.
   Other cases can remain stuck and cannot lower to Wasm (O27).
-- Eliminators: S3 has no eliminator for an indexed family. A `fold`
-  over one gives `DOMAIN_FAMILY` (O31). A `fold` at a 2-cell stays
-  stuck (O52). In a Wasm entry, an `elim` over a run-time `ℕ` or a
-  `foldᴮ` over a bag of run-time shape gives `REFUSE_RUNTIME_TREE`
-  (O46, O50).
+- Eliminators: `foldᴵ` (S5, O70) is the recursor for an indexed family
+  with no parameters. A `fold` or an `elim` over an indexed family
+  gives `DOMAIN_FAMILY` (O31). `elim` takes ℕ and Bool only (O75a). A
+  `fold` at a 2-cell stays stuck (O52). In a Wasm entry, an `elim` over
+  a run-time `ℕ` or a `foldᴮ` over a bag of run-time shape gives
+  `REFUSE_RUNTIME_TREE` (O46, O50). An entry cannot take a circuit, so
+  a run-time `foldᴵ` does not occur (O70a).
 - Chains (S4): `Reach` and `_⊑_` are chains of ℕ length by `elim` on
   the length, not data types (O57). A section holds no `data`, `record`
   or `module` (O35), so `Step` and `Replica` are top-level records
   (O59).
+- Seal (S5): a fold of a free `Hidden` value does not reduce, and
+  `elim` cannot open it. A denotational instance opens the seal inside
+  a `law` (O75a).
+- S5 review regressions cover seal extraction through Path endpoints
+  (including local and record proofs), safe resealing, and refusal of
+  `foldᴵ` when later types depend on a recursive field's original value.
 - Names: S2 has no qualified names. A module name is not a global name
   (O35).
 
