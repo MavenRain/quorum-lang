@@ -737,13 +737,325 @@ static int rep_mode(void) {
   return ok;
 }
 
+/* N words to 8N bytes: word 0 first, each word 8 bytes, big endian. */
+static void words_be(unsigned char *out, const uint64_t in[], size_t n) {
+  size_t i;
+  for (i = 0; i < 8u * n; i++) out[i] = (unsigned char)(in[i / 8u] >> (56u - 8u * (i % 8u)));
+}
+
+/* 8N bytes to N words: the inverse of words_be. */
+static void be_words(uint64_t out[], const unsigned char *in, size_t n) {
+  size_t i;
+  for (i = 0; i < n; i++) out[i] = 0;
+  for (i = 0; i < 8u * n; i++) out[i / 8u] = out[i / 8u] << 8 | (uint64_t)in[i];
+}
+
+/* H2 of R-C5: the SHA-256 of the 64 bytes of A and B as 4 words. */
+static void h2(uint64_t out[4], const uint64_t a[4], const uint64_t b[4]) {
+  unsigned char bytes[64];
+  unsigned char digest[32];
+  words_be(bytes, a, 4u);
+  words_be(bytes + 32, b, 4u);
+  sha256(bytes, sizeof bytes, digest);
+  be_words(out, digest, 4u);
+}
+
+/* "quorum-genesis" and "quorum-append" (R-C8), and the zero W4. */
+static const uint64_t TAG_GENESIS[4] = {UINT64_C(8175563235948047719), UINT64_C(7308890791633682432), 0, 0};
+static const uint64_t TAG_APPEND[4] = {UINT64_C(8175563235948047713), UINT64_C(8102087254438051840), 0, 0};
+static const uint64_t ZERO4[4] = {0, 0, 0, 0};
+
+/* The FROST signature SIG of the 32-byte MSG of chain step STEP by the COUNT
+   DKG members IDS (R-C10). The nonce seeds of sign_by get STEP in byte 31,
+   so a step signs with its own nonces. 1 when each step gives FROST_OK. */
+static int sign_msg(unsigned char sig[FROST_SIG_BYTES], const ThrShare share[], const G1 *pk, const uint32_t ids[],
+                    size_t count, const unsigned char msg[32], unsigned step) {
+  unsigned char hiding[32];
+  unsigned char binding[32];
+  FrostNonce nonce[THR_N_MAX];
+  FrostCommit list[THR_N_MAX];
+  Fe secret[THR_N_MAX];
+  Fe z[THR_N_MAX];
+  size_t k;
+  int ok = 1;
+  for (k = 0; k < count; k++) {
+    memset(hiding, (int)ids[k], sizeof hiding);
+    memset(binding, (int)(ids[k] + 16u), sizeof binding);
+    hiding[31] = (unsigned char)step;
+    binding[31] = (unsigned char)step;
+    ok &= fe_from_u256(&secret[k], &share[ids[k] - 1u].s, &SECP_FN);
+    ok &= frost_commit(&nonce[k], &list[k], ids[k], &secret[k], hiding, binding) == FROST_OK;
+  }
+  for (k = 0; k < count; k++)
+    ok &= frost_sign(&z[k], ids[k], &secret[k], &nonce[k], pk, list, count, msg, 32u) == FROST_OK;
+  ok &= frost_aggregate(sig, z, pk, list, count, msg, 32u) == FROST_OK;
+  return ok;
+}
+
+/* One step of the chain: the body words, enc(R) of the signing, and R (x,
+   then y) and z as words. */
+typedef struct {
+  uint64_t body[4];
+  unsigned char renc[33];
+  uint64_t r[8];
+  uint64_t z[4];
+} ChainStep;
+
+#define CHAIN_STEPS 4u
+
+/* The C reference walk of R-C5 (R-C17) over the COUNT steps, STEPS[0] the
+   oldest. *CODE is 0, 2 (body word 0 is not n) or 1 (the signature does not
+   verify under PK); the first failure stays. *TIP is the count when *CODE
+   is 0, else 0. */
+static void chain_walk(uint64_t *code, uint64_t *tip, const ChainStep *steps[], size_t count, const G1 *pk) {
+  unsigned char msg[32];
+  unsigned char sig[FROST_SIG_BYTES];
+  uint64_t head[4];
+  uint64_t outer[4];
+  uint64_t inner[4];
+  size_t k;
+  int bad_link;
+  h2(head, TAG_GENESIS, ZERO4);
+  *code = 0;
+  for (k = 0; k < count; k++) {
+    h2(outer, TAG_APPEND, head);
+    h2(inner, steps[k]->body, ZERO4);
+    h2(head, outer, inner);
+    words_be(msg, head, 4u);
+    memcpy(sig, steps[k]->renc, sizeof steps[k]->renc);
+    words_be(sig + 33, steps[k]->z, 4u);
+    bad_link = steps[k]->body[0] != (uint64_t)(k + 1u);
+    if (*code == 0 && bad_link) *code = 2;
+    if (*code == 0 && frost_verify(sig, pk, msg, sizeof msg) != FROST_OK) *code = 1;
+  }
+  *tip = *code == 0 ? (uint64_t)count : 0;
+}
+
+/* The start `ROW ENTRY WANT X0 .. Y3` of a line of test/replica/history.txt. */
+static void chain_key(const char *row, const char *entry, uint64_t want, const uint64_t pkw[8]) {
+  unsigned i;
+  printf("%s %s %llu", row, entry, (unsigned long long)want);
+  for (i = 0; i < 8u; i++) printf(" %llu", (unsigned long long)pkw[i]);
+}
+
+/* A space, then the eval text of the COUNT steps (STEPS[0] the oldest): the
+   newest first, then 0 (certGenesis). */
+static void chain_pre(const ChainStep *steps[], size_t count) {
+  size_t k;
+  unsigned i;
+  printf(" ");
+  for (k = count; k > 0; k--) {
+    printf("1,0");
+    for (i = 0; i < 4u; i++) printf(",%llu", (unsigned long long)steps[k - 1u]->body[i]);
+    printf(",0");
+    for (i = 0; i < 8u; i++) printf(",%llu", (unsigned long long)steps[k - 1u]->r[i]);
+    printf(",0");
+    for (i = 0; i < 4u; i++) printf(",%llu", (unsigned long long)steps[k - 1u]->z[i]);
+    printf(",");
+  }
+  printf("0");
+}
+
+/* The line `ROW ENTRY WANT X0 .. Y3 PRE` of test/replica/history.txt. PRE
+   is the eval text of the COUNT steps (STEPS[0] the oldest). */
+static void chain_line(const char *row, const char *entry, uint64_t want, const uint64_t pkw[8],
+                       const ChainStep *steps[], size_t count) {
+  chain_key(row, entry, want, pkw);
+  chain_pre(steps, count);
+  printf("\n");
+}
+
+/* The cert_verify and rep_tip lines of one chain, WANT from chain_walk. 1
+   when the walk gives CODE and TIP (R-C20). */
+static int chain_rows(const char *row, uint64_t code, uint64_t tip, const G1 *pk, const uint64_t pkw[8],
+                      const ChainStep *steps[], size_t count) {
+  uint64_t got_code;
+  uint64_t got_tip;
+  chain_walk(&got_code, &got_tip, steps, count, pk);
+  chain_line(row, "cert_verify", got_code, pkw, steps, count);
+  chain_line(row, "rep_tip", got_tip, pkw, steps, count);
+  return got_code == code && got_tip == tip;
+}
+
+/* The head of the first COUNT steps (STEPS[0] the oldest) in HEAD. */
+static void head_at(uint64_t head[4], const ChainStep *steps[], size_t count) {
+  uint64_t outer[4];
+  uint64_t inner[4];
+  size_t k;
+  h2(head, TAG_GENESIS, ZERO4);
+  for (k = 0; k < count; k++) {
+    h2(outer, TAG_APPEND, head);
+    h2(inner, steps[k]->body, ZERO4);
+    h2(head, outer, inner);
+  }
+}
+
+/* The C reference merge (R-D2, R-D3). *CODE is the code of A, then the
+   code of B, then 3 (REP_FORK) when the heads of A and B at the shorter
+   count differ. *TIP is the longer count when *CODE is 0, else 0. */
+static void merge_walk(uint64_t *code, uint64_t *tip, const ChainStep *a[], size_t na, const ChainStep *b[],
+                       size_t nb, const G1 *pk) {
+  uint64_t code_b;
+  uint64_t tip_b;
+  uint64_t head_a[4];
+  uint64_t head_b[4];
+  size_t m = na < nb ? na : nb;
+  chain_walk(code, tip, a, na, pk);
+  chain_walk(&code_b, &tip_b, b, nb, pk);
+  head_at(head_a, a, m);
+  head_at(head_b, b, m);
+  if (*code == 0) *code = code_b;
+  if (*code == 0 && memcmp(head_a, head_b, sizeof head_a) != 0) *code = 3;
+  *tip = *code == 0 ? (uint64_t)(na < nb ? nb : na) : 0;
+}
+
+/* The rep_merge and merge_tip lines of the chains A and B (R-D7: PRE is
+   the text of A, a space, the text of B), WANT from merge_walk. 1 when the
+   walk gives CODE and TIP. */
+static int merge_rows(const char *row, uint64_t code, uint64_t tip, const G1 *pk, const uint64_t pkw[8],
+                      const ChainStep *a[], size_t na, const ChainStep *b[], size_t nb) {
+  uint64_t got_code;
+  uint64_t got_tip;
+  merge_walk(&got_code, &got_tip, a, na, b, nb, pk);
+  chain_key(row, "rep_merge", got_code, pkw);
+  chain_pre(a, na);
+  chain_pre(b, nb);
+  printf("\n");
+  chain_key(row, "merge_tip", got_tip, pkw);
+  chain_pre(a, na);
+  chain_pre(b, nb);
+  printf("\n");
+  return got_code == code && got_tip == tip;
+}
+
+/* The step_apply line of the toy state S and the COUNT steps (R-D5, R-D7:
+   PRE is S, a space, the text). WANT is S + 1 when the walk gives 0 and
+   the tip S + 1, else S. 1 when WANT is STATE. */
+static int apply_row(const char *row, uint64_t s, uint64_t state, const G1 *pk, const uint64_t pkw[8],
+                     const ChainStep *steps[], size_t count) {
+  uint64_t code;
+  uint64_t tip;
+  uint64_t want;
+  chain_walk(&code, &tip, steps, count, pk);
+  want = code == 0 && tip == s + 1u ? s + 1u : s;
+  chain_key(row, "step_apply", want, pkw);
+  printf(" %llu", (unsigned long long)s);
+  chain_pre(steps, count);
+  printf("\n");
+  return want == state;
+}
+
+/* Sign the chain step ST (its body set) after HEAD (R-C10): HEAD becomes
+   the head of ST, the members IDS sign it with the nonce byte SEED, and ST
+   gets enc(R), R and z. 1 when each part succeeds. */
+static int chain_sign(ChainStep *st, uint64_t head[4], const ThrShare share[], const G1 *pk, const uint32_t ids[],
+                      unsigned seed) {
+  unsigned char xy[64];
+  unsigned char msg[32];
+  unsigned char sig[FROST_SIG_BYTES];
+  uint64_t outer[4];
+  uint64_t inner[4];
+  G1 r;
+  int ok;
+  h2(outer, TAG_APPEND, head);
+  h2(inner, st->body, ZERO4);
+  h2(head, outer, inner);
+  words_be(msg, head, 4u);
+  ok = sign_msg(sig, share, pk, ids, 2u, msg, seed);
+  ok &= secp_decode(&r, sig) != 0;
+  memcpy(st->renc, sig, sizeof st->renc);
+  secp_to_xy(xy, &r);
+  be_words(st->r, xy, 8u);
+  be_words(st->z, sig + 33, 4u);
+  return ok;
+}
+
+/* `frosttool chain` (R-C9, R-C10, R-D7): the 25 lines of
+   test/replica/history.txt. The DKG of rep_mode (t 2 of n 3, the context 7,
+   the seeds 100 + i) gives PK. Step n (n = 1 to 4) has the body (n, n, 10n,
+   0). The members {1, 2} (steps 1 and 2) or {2, 3} (steps 3 and 4) sign its
+   head. The rows are h0 to h4 (the first m steps), badsig (z word 3 of step
+   3 XOR 1) and badlink (steps 1, 2 and 4). Then the merge rows mAB (A =
+   steps 1 and 2, B = steps 1 to 4), mBA, mAA and fork (B and B' = steps 1,
+   2 and 3'; R-D6), and the step_apply rows ap1, ap4 and apskip. */
+static int chain_mode(void) {
+  static const char *const rows[CHAIN_STEPS + 1u] = {"h0", "h1", "h2", "h3", "h4"};
+  const DkgCurve *curve = &DKG_SECP256K1;
+  DkgDealing dealings[DKG_N];
+  U256 table[DKG_N * DKG_N];
+  ThrShare share[DKG_N];
+  ChainStep step[CHAIN_STEPS];
+  ChainStep bad;
+  ChainStep fork;
+  const ChainStep *steps[CHAIN_STEPS];
+  const ChainStep *forked[3];
+  unsigned char xy[64];
+  uint64_t pkw[8];
+  uint64_t head[4];
+  uint64_t base[4];
+  U256 ctx;
+  U256 seed;
+  G1 pk;
+  uint32_t qual = 0;
+  uint32_t k;
+  int ok = 1;
+  u256_from_u64(&ctx, 7u);
+  for (k = 1u; k <= DKG_N; k++) {
+    u256_from_u64(&seed, 100u + k);
+    ok &= dkg_deal(curve, &dealings[k - 1u], &table[(k - 1u) * DKG_N], &seed, k, DKG_T, DKG_N, &ctx) == DKG_OK;
+  }
+  ok &= dkg_qual(curve, &qual, dealings, table, DKG_T, DKG_N, &ctx) == DKG_OK;
+  dkg_public(curve, &pk, qual, dealings, DKG_N);
+  for (k = 1u; k <= DKG_N; k++)
+    ok &= dkg_share(curve, &share[k - 1u], qual, table, k, DKG_N) == DKG_OK;
+  secp_to_xy(xy, &pk);
+  be_words(pkw, xy, 8u);
+  h2(head, TAG_GENESIS, ZERO4);
+  for (k = 0; k < CHAIN_STEPS; k++) {
+    step[k].body[0] = k + 1u;
+    step[k].body[1] = k + 1u;
+    step[k].body[2] = 10u * (k + 1u);
+    step[k].body[3] = 0;
+    if (k == 2u) memcpy(base, head, sizeof base);
+    ok &= chain_sign(&step[k], head, share, &pk, k < 2u ? IDS_12 : IDS_23, k + 1u);
+    steps[k] = &step[k];
+  }
+  for (k = 0; k <= CHAIN_STEPS; k++)
+    ok &= chain_rows(rows[k], 0, k, &pk, pkw, steps, k);
+  bad = step[2];
+  bad.z[3] ^= 1u;
+  steps[2] = &bad;
+  ok &= chain_rows("badsig", 1u, 0, &pk, pkw, steps, CHAIN_STEPS);
+  steps[2] = &step[3];
+  ok &= chain_rows("badlink", 2u, 0, &pk, pkw, steps, CHAIN_STEPS - 1u);
+  steps[2] = &step[2];
+  fork.body[0] = 3u;
+  fork.body[1] = 3u;
+  fork.body[2] = 31u;
+  fork.body[3] = 0;
+  ok &= chain_sign(&fork, base, share, &pk, IDS_23, 19u);
+  forked[0] = &step[0];
+  forked[1] = &step[1];
+  forked[2] = &fork;
+  ok &= merge_rows("mAB", 0, 4u, &pk, pkw, steps, 2u, steps, CHAIN_STEPS);
+  ok &= merge_rows("mBA", 0, 4u, &pk, pkw, steps, CHAIN_STEPS, steps, 2u);
+  ok &= merge_rows("mAA", 0, 2u, &pk, pkw, steps, 2u, steps, 2u);
+  ok &= merge_rows("fork", 3u, 0, &pk, pkw, steps, CHAIN_STEPS, forked, 3u);
+  ok &= apply_row("ap1", 0, 1u, &pk, pkw, steps, 1u);
+  ok &= apply_row("ap4", 3u, 4u, &pk, pkw, steps, CHAIN_STEPS);
+  ok &= apply_row("apskip", 1u, 1u, &pk, pkw, steps, CHAIN_STEPS);
+  if (!ok) fputs("frosttool chain: a DKG, FROST or walk step failed\n", stderr);
+  return ok;
+}
+
 int main(int argc, char **argv) {
   unsigned char msg[517];
   size_t size;
   int ok;
   if (argc == 2 && strcmp(argv[1], "rep") == 0) return rep_mode() ? 0 : 1;
+  if (argc == 2 && strcmp(argv[1], "chain") == 0) return chain_mode() ? 0 : 1;
   if (argc != 1) {
-    fputs("usage: frosttool [rep]\n", stderr);
+    fputs("usage: frosttool [rep | chain]\n", stderr);
     return 2;
   }
   memset(million, 'a', sizeof million);

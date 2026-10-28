@@ -553,6 +553,35 @@ program and the kit runtime.
   slice (S11) adds a constant-size proof under the scheme that Q15 rules
   (O13). Its verifier laws stay guest terms (ruling 2).
 
+S8 status (Claude reading, NOT ruled; O104 to O108, O110, O112 to O114,
+O116). replica/replica.lang is the replica program. `langc build` writes
+build/replica.wasm, wasm2c translates it, and TCC compiles the
+translation into the C host test/replicatool.c (build/replicatool). The
+host imports of module "q" call the src/crypto code (Q9 (a), O105), and
+`langc eval` calls the same C functions. The exports are `cert_verify`,
+`rep_tip`, `rep_merge`, `merge_tip`, `step_apply`, `ballot_verify`,
+`tally_sum`, `partial_verify`, `combine` and `amend_accept`. `tally_sum`
+has the place of `tally_add`, and `merge_tip` gives the tip of a merge.
+A run-time input is an entry parameter of a list type below `heap_base`
+(O109 (i), the USER ruling). A certificate is the FROST signature of the
+chain digest h_n, and h_n covers the parent, the step body and the index
+(O107). `rep_merge` gives REP_FORK when the two chains have different
+digests at the length of the shorter chain (O108). The gate gives each
+line of test/replica/history.txt (25 lines) and test/replica/tally.txt
+(19 lines) to `langc eval` and to build/replicatool: 0 mismatches. The
+scripted history has 4 certified steps (tip 4), and the merge rows give
+tip 4. The refuse fixtures give REP_BAD_SIG, REP_BAD_LINK, REP_FORK,
+BALLOT_BAD and PARTIAL_BAD. The FHE route gives the S6 tally counts (14
+cases).
+
+S8 readings. The USER ruled O109 (i), R-C1 to R-C14, R-E1 (split), R-E5
+(one slot for each ballot), R-E18 (the `Core` check is the threshold
+template with k at least 1) and R-E37 (a) (accept the time of the tally
+rows). The S8 session readings D1 to D9, R-A1 to R-A9, R-B1 to R-B8,
+R-C15 to R-C20, R-D1 to R-D9, R-E2 to R-E4, R-E6 to R-E17, R-E19 to
+R-E36 and R-E38 to R-E51 are Claude readings, NOT ruled.
+W/S8-PROGRESS.md and W/S8-H5-SITEMAP.md record each one.
+
 ## 6. Self-amendment
 
 - `constitution σ a : Circuit (FMSet Ballot) (Maybe Edit)` is code in the
@@ -599,6 +628,18 @@ show that `run` agrees with direct evaluation, with 0 mismatches.
 examples/threshold.lang takes `Circuit` and `run` as parameters over
 `Type`. Its toy instance uses `toyCircuit A B = A → B` and `toyRun A B f
 = f`.
+
+S8 status (Claude reading, NOT ruled; O111 under Q10 (a), with the USER
+ruling R-E18). `amend_accept` takes the new constitution as a run-time
+list of opcode words in postfix form. It runs the three checks in the
+order 1, 2, 3. Check 1 walks the words with a stack of code pairs, at
+most 4 deep: a term that does not type check gives AMEND_ILL_TYPED (4).
+Check 2 wants the entrenched `agg` opcodes first and `seqC` last, else
+AMEND_NOT_FHE (5). Check 3 is `Core`: the threshold template with k at
+least 1 (R-E18), else AMEND_CORE (6). It gives 0 on accept.
+test/replica/amend.txt has 4 rows (ill 4, notfhe 5, corebrk 6, accept
+0). `langc eval` and `build/replicatool amend` give the same code on
+each row (`replica accept: 1 of 1`).
 
 ## 7. Agent adoption
 
@@ -680,7 +721,7 @@ commit message file and the next prompt file. The USER commits.
 | S5 | `Circuit` fragment (Q3), `run`, design secs 7 to 10 at the denotation (`Hidden` sealed, `Round`, `Aggregate`, `ZK`, `IVC`, `Sharing`); denotational instances | GREEN: examples/threshold.lang checks; 12 of 12 design laws discharged (the 7 S4 laws, `app-cons`, `ivc-prove`, `tallyᴹ-correct`, `tallyᶠ-correct`, `mpc≼fhe`); `langc laws`: `laws: 12 of 12 discharged`; `check --json`: `"laws":{"discharged":12,"total":12}`; examples/denote.lang: `laws: 1 of 1 discharged` (`den-private`); `run` agrees with direct evaluation (`agree` gives 1 on each eval row; the circuit.lang and denote.lang entries are in the Wasm differential); make check EXIT 0, gate: 0 failures (serial log); fmt: 95 files canonical; json: 27 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 48 check, 9 parse; evals: 72; differential: 5246 cases, 0 mismatches; wasm: 22 modules valid | 3: fragment admits a higher-order value (O71 check off: `circuit-ho.lang` and the `REFUSE_CIRCUIT` json fixture fail), `⟦_⟧` escapes the seal (`REFUSE_LAW` off: `seal-fold.lang`, `seal-unseal.lang`, `seal-relay.lang` and the `REFUSE_LAW` json fixture fail), `factors` not checked (its right side becomes its left side: `tallyᶠ-correct` fails with `TYPE_MISMATCH`, `check --json` gives 10 of 12 laws); 3 of 3 KILLED | sec 3.4 and sec 6 status; sec 10 O68 to O77; sec 11 Q7; docs/GRAMMAR.md, docs/STATUS.md |
 | S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | GREEN: decrypt of the sum of casts = the bag counts (`build/tallytool rep` against `langc eval` on denCount1 to denCount3): `tally: 14 cases, 28 counts, 0 mismatches`; known-answer vectors equal (O82); each invalid-proof fixture refused (9 rows, O83); each DKG fixture gives its result (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW); `tally regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 75; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5274 cases, 0 mismatches; wasm: 22 modules valid | 3: one slot of `⊕` skipped (`tally_add` bound `j + 1u < k`: 10 of the 28 rep lines differ, the row `tally k 2 slot 1` fails), DLEQ check skipped (the `thr_open` refusal off: the rows `part D + G` and `part z + 1` fail), Lagrange sign flipped (each rep line gives `open-1`, 8 open rows fail); 3 of 3 KILLED | sec 4.2 status; sec 8 note; sec 10 O78 to O89; docs/STATUS.md, README.md |
 | S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | GREEN: FIPS 180-4, RFC 9380 App. K.1 and RFC 9591 App. E.5 vectors byte-equal (signing); the secp256k1 rows pass; each DKG fixture gives its result on secp256k1 (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW) and the DKG key signs; old and new committees sign under one group key after reshare (Q = {1, 3}, (t 2, n 3) to (t' 3, n' 4); a dealing without λ gives DKG_BAD_RESHARE); `frost regressions: passed`; `build/frosttool rep` against `langc eval` on denAuth3 and denAuth4: `auth: 24 cases, 0 mismatches`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: binding factor dropped (`frost_group_commitment` R_i = D_i: none of the 9 V-1 rep lines gives 1; 7 FAIL lines, `e5 P1 sig_share`, `e5 P3 sig_share`, `e5 sig`), one SHA-256 round skipped (round bound `SHA256_ROUNDS - 1u`: 36 FAIL lines, the FIPS, xmd and E.5 rows), reshare coefficient wrong (g_i(0) = (λ + 1) s_i: the 5 V-1 denAuth4 rep lines give 0; 22 FAIL lines, `reshare good` gives DKG_BAD_RESHARE); 3 of 3 KILLED | sec 4.3 and 4.4 status; sec 8 note; sec 10 O90 to O103; docs/STATUS.md, README.md |
-| S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | a scripted history of k certified steps; two replicas merge to one tip; refuse fixtures (bad signature, fork, ill-typed constitution, `Core` break) each give their code; the accept fixture is accepted | 3: fork check skipped, `Core` check skipped, fragment check skipped | sec 5, sec 6 |
+| S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | GREEN: a scripted history of 4 certified steps by the S7 secp256k1 DKG committee (`replica history: 4 steps, tip 4`); two replicas merge to one tip (`replica merge: 3 rows, tip 4`); the refuse fixtures give their codes (bad signature REP_BAD_SIG, fork REP_FORK, ill-typed constitution AMEND_ILL_TYPED, `Core` break AMEND_CORE; also REP_BAD_LINK, AMEND_NOT_FHE, BALLOT_BAD and PARTIAL_BAD: `replica refusals: 8 of 8`); the accept fixture is accepted (`replica accept: 1 of 1`); `langc eval` against build/replicatool: `replica: 25 cases, 0 mismatches`, `replica route: 19 cases, 0 mismatches`, `replica tally: 14 cases, 0 mismatches` (the S6 counts); `replica apply: 3 rows, state 4`; `host: 2 rows`; `input: 4 rows`; make check EXIT 0, gate: 0 failures (serial log); fmt: 104 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: fork check skipped (`mergeCode` without the digest compare: the fork row gives 0, not REP_FORK), `Core` check skipped (`amendCore` gives 0: the corebrk row gives 0, not AMEND_CORE), fragment check skipped (the fragment fold replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED); 3 of 3 KILLED | sec 5 and sec 6 status; sec 10 O104 to O116; docs/STATUS.md, README.md |
 | S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | A3, A4, A5, A8, A13, A16, A17, A19 gates | 3: MCP tool drops a field, a SKILL.md copy drifts, `list-base` misses a name | sec 7 status |
 | S10 | general MPC tally route (Q6 (b)) under the protocol that Q14 rules; the replica runs `tallyᴹ` | `tallyᴹ` = `tallyᶠ` on each fixture, N cases, 0 mismatches; `tallyᴹ-correct` checks | 3: one share dropped from the sum, a reconstruction coefficient wrong, MPC output not checked | sec 5 |
 | S11 | constant-size IVC proof (Q11 (b)) under the scheme that Q15 rules; verifier laws as guest terms (ruling 2) | proof size is the same for histories of 1, 10 and 100 steps; `start✓`, `extend✓` and `IVC.⟦_⟧` check for the new instance; each bad-proof fixture refused | 3: one step not folded, verifier check skipped, state hash not bound | sec 3.4, sec 5 |
@@ -1530,6 +1571,172 @@ commit message file and the next prompt file. The USER commits.
   laws 12/12 and 1/1, check refusals 54, parse 9, 36 codes, ir 19, wasm
   22, differential 5274/0). H2a STEP 0 runs the serial gate once
   (W/S7-step0-gate.log) before any edit.
+- O104. Where the replica lives and who hosts it (Claude reading, NOT
+  ruled). The replica program is replica/replica.lang (a new directory;
+  it is NOT in examples/, so the node loop of F6 does not change).
+  `langc build` writes build/replica.wasm. The host is the C tool
+  test/replicatool.c, linked with the wasm2c translation of
+  build/replica.wasm, the wasm2c runtime (F7) and CRYPTO. The Makefile
+  chain: build/langc, then build/replica.wasm, then build/replica.c
+  (wasm2c), then build/replicatool. Compiler: TCC when the H2a probe P1
+  passes, else CC for this one tool (README says why). Result: TCC
+  compiles build/replicatool. The wasm2c translation takes the shim
+  src/w2c-tcc.h, because TCC has no `__builtin_add_overflow` (the
+  Makefile comment says why). No new node, Python or shell harness. The
+  node runner stays for import-free modules.
+- O105. The host-import ABI (Q9 (a); Claude reading, NOT ruled). Import
+  module "q". Each import parameter and result is an i64. A pointer
+  parameter is the address of a kit block in memory 0 (F2 layout). The
+  module exports memory 0 as "memory". A U256 or a digest is 4 words,
+  word 0 most significant, each word as 8 big-endian bytes (so the 32
+  bytes are the words in order). A point is 8 words (x, then y), as
+  g1_to_words (bn254.h:66-67); secp256k1 points use the same form with a
+  new secp_from_words that refuses an off-curve point (the USER S7 fix
+  of F1). The result is the C enum value (0 = OK). An output goes into a
+  block that the guest allocates before the call. The imports, in this
+  order (function indices 0 to 5; `alloc` becomes 6 and entry K becomes
+  7 + K): 0 q_hash2 (out4, a4, b4): SHA-256(a 32 bytes, b 32 bytes)
+  (cairn thr_hash), result 0; 1 q_frost_verify (pk8, sig12, msg4):
+  secp_encode(R) and z, then frost_verify, result FrostResult; 2
+  q_ballot_verify (proof, pk8, ct16, ctx4): sig_or_verify, result
+  SigResult; 3 q_tally_add (out16, a16, b16): tally_add, result 0; 4
+  q_partial_verify (part29, key8, ct16): thr_verify, result 0 or 1; 5
+  q_combine (out1, parts, k, keys, t, n, ct16): thr_open, result
+  ThrResult. sig12 = R (8 words) then z (4 words). part29 = x (1) then
+  d, a, b (24) then z (4). The proof layout and the `bits` value of
+  q_combine come from sigma.h:45-53 and the S6 tallytool `rep` mode (H2b
+  reads them once).
+- O106. The guest form of the imports (Claude reading, NOT ruled). Each
+  import is a kit name in domain/domain.lang with a fixed type over word
+  records (`W4`, `Pt`, `Ct`, `Part`, `Proof`). The checker treats it as
+  opaque. `langc eval` calls the same C function (langc links CRYPTO
+  from S8). lower.c gives a new IR statement IR_STMT_HOST (import
+  number, argument expressions, result local), after an ALLOC of the
+  output block. wasm.c writes the IMPORT section, the index shift,
+  `call` (0x10) and the memory export. A module without a host name
+  stays byte-equal to S7 (no import section): the wasm 22 and
+  differential 5318 lines do not change.
+- O107. Certificate format and chain link (the cairn-lang precedent of
+  F10; Claude reading, NOT ruled). A step body is 4 words (n, slot,
+  value, editTag). e_n = H2(body, 0). h_0 = H2(tagGenesis, 0) with
+  tagGenesis = "quorum-genesis" (ASCII, big endian, zero padded to 32
+  bytes). h_n = H2(H2(tagAppend, h_{n-1}), e_n) with tagAppend =
+  "quorum-append". A certificate is (body, R, z): the FROST signature
+  (RFC 9591, the S7 code) of the 32 message bytes h_n under the group
+  key PK. The signature thus covers the parent (through h_{n-1}), the
+  body and the index (body word 0 = n). `cert_verify pk chain` walks the
+  chain from genesis. The first failure gives its code: a body word 0
+  that is not the position gives REP_BAD_LINK; a signature that does not
+  verify gives REP_BAD_SIG.
+- O108. Merge, fork and tip (Claude reading, NOT ruled). A replica state
+  is a chain (a list of certificates for 1 to m). The total order of
+  certified states is the chain length (O3, the S4 tip-order proof).
+  `rep_tip pk chain` = m when `cert_verify` gives 0. `rep_merge pk a b`:
+  both chains verify; with m_a <= m_b, h_{m_a} of b must equal h_{m_a}
+  of a (b fast-forwards a), else REP_FORK. The merged tip is the longer
+  chain. Equal lengths with different digests give REP_FORK. This is the
+  PLAN sec 5 reading "merge is the join, a fast-forward". One pass over
+  each list (F4 chain walk) with a record accumulator (count, h, h at
+  m_a) is sufficient: no walk of two lists in step.
+- O109. Run-time input (closes the O46 question; USER ruled (i)). The
+  run-time bag form is a list in arrival order: ballots, certificates
+  and circuit opcodes are run-time lists of word records, walked by the
+  list walk of F4. Two forms, in this order: (i) an entry parameter of a
+  list type, passed by address in the kit block layout; the entry starts
+  its heap after the input (an exported mutable global `heap_base`, 0
+  when the module has no input); the host writes the input; (ii) if
+  probe P2 shows that (i) needs more than one session of lower.c work,
+  the S8 fixtures are closed entries over constant lists (the evaluator
+  unrolls the walk; the host calls stay in the residual because O106
+  makes them opaque), and (i) moves to a new O item for S12. H2a decides
+  between (i) and (ii) and records it. Result: (i), the USER ruling. The
+  gate line `input: 4 rows` compares the Stack that build/replicatool
+  writes below `heap_base` with `langc eval`.
+- O110. FHE tally route (Claude reading, NOT ruled). The replica does:
+  `ballot_verify` on each ballot (q_ballot_verify), `tally_add` of the
+  casts slot by slot (q_tally_add), `partial_verify` of each partial
+  decryption (q_partial_verify), `combine` of each slot (q_combine, the
+  count), then `decide` in public on the counts (guest code, no import).
+  The host computes only the 4 imports. The data (one DKG t 2 n 3, the
+  casts, the partials) comes from a new `tallytool lang` mode with the
+  S6 seeds. Result: `build/tallytool lang` writes test/replica/tally.txt
+  (19 lines). The gate gives `replica route: 19 cases, 0 mismatches` and
+  `replica tally: 14 cases, 0 mismatches` against the S6 tally counts.
+- O111. `amend_accept` (Q10 (a): the module carries the fragment
+  checker; Claude reading, NOT ruled). The new constitution is a
+  run-time list of opcode words: the postfix form of a `Circuit` term
+  (the 9 constructors of F9), with each `Code` in one word (postfix
+  digits in base 8: bitC 1, natC 2, optC 3, pairC 4, bagC 5). Check 1
+  (fragment): a walk with a stack of (a, b) code pairs, depth at most 4
+  (8 words in the accumulator; deeper gives AMEND_ILL_TYPED). The end
+  stack must be one `Circuit (bagC ballot) (optC edit)`. Check 2 (laws,
+  FHE route): the opcodes start with the entrenched `agg` opcodes, word
+  for word, and end with `seqC`: the code is `decide` after `agg`, so
+  `factors` holds by definition. Else AMEND_NOT_FHE. Check 3 (`Core`):
+  `coreCheck σ'` (an entrenched closed circuit, run by the guest `run`)
+  gives `true`, else AMEND_CORE. The checks run in the order 1, 2, 3.
+  Result: the USER ruling R-E18 makes the `Core` check the threshold
+  template with k at least 1. test/replica/amend.txt has 4 rows (ill 4,
+  notfhe 5, corebrk 6, accept 0), and `langc eval` and
+  `build/replicatool amend` give the same code on each row.
+- O112. Replica result codes (Claude reading, NOT ruled): 0 OK, 1
+  REP_BAD_SIG, 2 REP_BAD_LINK, 3 REP_FORK, 4 AMEND_ILL_TYPED, 5
+  AMEND_NOT_FHE, 6 AMEND_CORE, 7 BALLOT_BAD, 8 PARTIAL_BAD. They are
+  return values of the exports, not langc diagnostics: the codes check
+  (36) does not change. PLAN sec 5 has the table. If H2 adds a langc
+  diagnostic (for example a host name in `langc eval` without CRYPTO),
+  the codes check count changes and the HANDOFF of that step names it.
+  Result: no step adds a langc diagnostic, so the codes check stays 36.
+- O113. Fixtures (test/replica/; Claude reading, NOT ruled). The
+  scripted history: k = 4 certified steps, signed by the S7 secp256k1
+  DKG committee (t 2, n 3, the good dealing), signers {1, 2} for steps 1
+  and 2, {2, 3} for steps 3 and 4. A new `frosttool chain` mode writes
+  test/replica/history.lang from the fixed S7 seeds. The gate writes it
+  again and `cmp`s it with the checked-in file. Merge rows: A = steps 1
+  to 2, B = steps 1 to 4: merge A B = merge B A = tip 4; merge A A = tip
+  2. Refuse fixtures and codes: bad signature (one z word of step 3
+  changed: REP_BAD_SIG), fork (B' = steps 1, 2 and a different step 3
+  with a valid signature; merge B B': REP_FORK), ill-typed constitution
+  (seqC over codes that do not meet: AMEND_ILL_TYPED), `Core` break (a
+  well-typed FHE-form edit with `coreCheck σ'` false: AMEND_CORE).
+  Accept fixture: a well-typed FHE-form edit with `coreCheck σ'` true:
+  0. Result: `build/frosttool chain` writes test/replica/history.txt (25
+  lines: ROW ENTRY WANT X0 .. Y3 PRE), not a .lang file, and the gate
+  `cmp`s it with the checked-in file. test/replica/amend.txt has the 4
+  amend rows (R-E19).
+- O114. Gate lines (new; Claude reading, NOT ruled): `replica: N cases,
+  0 mismatches` (langc eval against build/replicatool on each fixture
+  entry), `replica history: 4 steps, tip 4`, `replica merge: 3 rows, tip
+  4`, `replica refusals: 4 of 4`, `replica accept: 1 of 1`, and the FHE
+  route row `replica tally: 14 cases, 0 mismatches` against the S6 tally
+  counts. fmt grows by the new .lang files (each step names its count).
+  Result: the gate gives `host: 2 rows`, `input: 4 rows`, `replica: 25
+  cases, 0 mismatches`, `replica history: 4 steps, tip 4`, `replica
+  merge: 3 rows, tip 4`, `replica apply: 3 rows, state 4`, `replica
+  route: 19 cases, 0 mismatches`, `replica tally: 14 cases, 0
+  mismatches`, `replica accept: 1 of 1` and `replica refusals: 8 of 8`
+  (bad signature, bad link, fork, the 2 tally refusals and the 3 amend
+  refusals). fmt grows from 103 to 104 files (replica/replica.lang). The
+  other S7 counts do not change.
+- O115. Mutants (3; Claude reading, NOT ruled), in replica/replica.lang
+  (W/mut-s8.py from W/mut-s7.py; each rebuild `make -B` of
+  build/replica.wasm and build/replicatool): M1 fork check skipped
+  (`rep_merge` takes the longer chain without the digest compare;
+  killer: the fork fixture wants REP_FORK); M2 `Core` check skipped
+  (killer: the `Core` break fixture wants AMEND_CORE); M3 fragment check
+  skipped (killer: the ill-typed fixture wants AMEND_ILL_TYPED). Result:
+  3 of 3 KILLED (W/S8-mutants.log). The killers are the history and
+  amend loops of test/gate.sh alone. M1 (the digest compare in
+  `mergeCode` replaced by 0): the fork row gives 0 on both sides, not 3
+  (2 FAIL lines). M2 (`amendCore` gives 0): the corebrk row gives 0, not
+  6. M3 (the fragment fold replaced by 0): the ill row gives 6, not 4.
+- O116. Speed budget (Claude reading, NOT ruled). One frost_verify is
+  the cost unit (frosttool: about 12.5 s for all S7 rows). The replica
+  section of the gate (eval and Wasm sides, about 40 verifies) is at
+  most 60 s, with build/replicatool at most 30 s. Result: one
+  frost_verify takes about 94 to 113 ms (TCC). A tally combine row takes
+  2.64 to 3.05 s of user time on each side, over the budget. The USER
+  ruling R-E37 (a) accepts the time.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 

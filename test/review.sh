@@ -72,4 +72,19 @@ case "$(cat "$tmp/err")" in
   'langc: EVAL_PRINT:'*) ;;
   *) exit 1 ;;
 esac
+# Compiler-generated exports must not duplicate a source entry name.
+for name in memory heap_base; do
+  printf '%s : Stack → ℕ\n%s s = fold 0 (λ (x : ℕ) (a : ℕ) → natAdd x a) s\n' "$name" "$name" >"$tmp/export.lang"
+  status=0
+  build/langc build "$tmp/export.lang" -o "$tmp/export.wasm" >"$tmp/got" 2>"$tmp/err" || status=$?
+  test "$status" = 1
+  case "$(cat "$tmp/err")" in
+    'langc: REFUSE_NAME:'*) ;;
+    *) exit 1 ;;
+  esac
+  # Without the generated exports, both names remain valid entries.
+  printf '%s : ℕ → ℕ\n%s x = x\n' "$name" "$name" >"$tmp/export.lang"
+  build/langc build "$tmp/export.lang" -o "$tmp/export.wasm"
+  test "$(node test/run-wasm.mjs "$tmp/export.wasm" "$name" 7)" = 7
+done
 echo 'review regressions: passed'

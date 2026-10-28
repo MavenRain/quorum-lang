@@ -1,0 +1,158 @@
+-- The replica program of S8 (O104). H2b gives the smoke entries of the
+-- host import q_hash2 (O105). H3 adds the certificate chain. The program
+-- has host imports, so the node runner cannot run it: build/replicatool
+-- (test/replicatool.c) is its host. H4 adds the merge and H5a the FHE
+-- tally route.
+hashOf : ℕ → W4
+hashOf x = q_hash2 (w4 x x x x) (w4 x x x x)
+hash0 : ℕ → ℕ
+hash0 x = w4a (hashOf x)
+hash1 : ℕ → ℕ
+hash1 x = w4b (hashOf x)
+hash2 : ℕ → ℕ
+hash2 x = w4c (hashOf x)
+hash3 : ℕ → ℕ
+hash3 x = w4d (hashOf x)
+-- H2b part B (O109 (i)): the input entries over a Stack that the host
+-- writes below heap_base. chainOf hashes the last item first.
+total : Stack → ℕ
+total s = fold 0 (λ (top : ℕ) (acc : ℕ) → natAdd top acc) s
+chainOf : Stack → W4
+chainOf s = fold (w4 0 0 0 0) (λ (x : ℕ) (acc : W4) → q_hash2 (w4 x x x x) acc) s
+chain0 : Stack → ℕ
+chain0 s = w4a (chainOf s)
+chain1 : Stack → ℕ
+chain1 s = w4b (chainOf s)
+chain2 : Stack → ℕ
+chain2 s = w4c (chainOf s)
+chain3 : Stack → ℕ
+chain3 s = w4d (chainOf s)
+-- H3 (O107): the certificate chain. A step appends its body to the head,
+-- and the group signs the new head with FROST (q_frost_verify, R-C1). The
+-- walk keeps the first failure: 1 for a bad signature, 2 for a bad step
+-- number (R-C5). The public key is 8 ℕ entry parameters, word 0 the most
+-- significant (R-C6).
+tagGenesis : W4
+tagGenesis = w4 8175563235948047719 7308890791633682432 0 0
+tagAppend : W4
+tagAppend = w4 8175563235948047713 8102087254438051840 0 0
+zero4 : W4
+zero4 = w4 0 0 0 0
+sigOf : W8 → W4 → W12
+sigOf r z = w12 (w8a r) (w8b r) (w8c r) (w8d r) (w8e r) (w8f r) (w8g r) (w8h r) (w4a z) (w4b z) (w4c z) (w4d z)
+appendHead : W4 → W4 → W4
+appendHead h b = q_hash2 (q_hash2 tagAppend h) (q_hash2 b zero4)
+stepCode : W8 → W4 → W8 → W4 → ℕ → ℕ → W4 → ℕ
+stepCode pk b r z code n h = flagIf (natEq code 0) (flagIf (natEq (w4a b) n) (flagIf (natEq (q_frost_verify pk (sigOf r z) h) 0) 0 1) 2) code
+stepOf : W8 → W4 → W8 → W4 → Link → Link
+stepOf pk b r z acc = (λ (h : W4) → link (stepCode pk b r z (linkCode acc) (natAdd (linkCount acc) 1) h) (natAdd (linkCount acc) 1) h) (appendHead (linkHead acc) b)
+walk : W8 → CertChain → Link
+walk pk c = fold (link 0 0 (q_hash2 tagGenesis zero4)) (λ (b : W4) (r : W8) (z : W4) (acc : Link) → stepOf pk b r z acc) c
+cert_verify : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → CertChain → ℕ
+cert_verify x0 x1 x2 x3 y0 y1 y2 y3 c = linkCode (walk (w8 x0 x1 x2 x3 y0 y1 y2 y3) c)
+rep_tip : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → CertChain → ℕ
+rep_tip x0 x1 x2 x3 y0 y1 y2 y3 c = (λ (k : Link) → flagIf (natEq (linkCode k) 0) (linkCount k) 0) (walk (w8 x0 x1 x2 x3 y0 y1 y2 y3) c)
+-- H4 (O108, R-D1 to R-D5): the merge of two chains. The code is the first
+-- failure of a, then of b. Then the heads of a and b at the shorter count
+-- must be equal (b fast-forwards a), else 3 (REP_FORK). The merged tip is
+-- the longer count. sameAt hashes only: walk checked each signature.
+sameW4 : W4 → W4 → ℕ
+sameW4 a b = flagIf (natEq (w4a a) (w4a b)) (flagIf (natEq (w4b a) (w4b b)) (flagIf (natEq (w4c a) (w4c b)) (flagIf (natEq (w4d a) (w4d b)) 1 0) 0) 0) 0
+twinStep : W4 → ℕ → W4 → Twin → Twin
+twinStep b m h acc = (λ (g : W4) → twinOf (natAdd (twinCount acc) 1) g (flagIf (natEq (natAdd (twinCount acc) 1) m) (sameW4 g h) (twinSame acc))) (appendHead (twinHead acc) b)
+sameAt : ℕ → W4 → CertChain → ℕ
+sameAt m h c = twinSame (fold (twinOf 0 (q_hash2 tagGenesis zero4) 1) (λ (b : W4) (r : W8) (z : W4) (acc : Twin) → twinStep b m h acc) c)
+mergeCode : Link → Link → CertChain → CertChain → ℕ
+mergeCode ka kb a b = flagIf (natEq (linkCode ka) 0) (flagIf (natEq (linkCode kb) 0) (flagIf (natEq (flagIf (natLe (linkCount ka) (linkCount kb)) (sameAt (linkCount ka) (linkHead ka) b) (sameAt (linkCount kb) (linkHead kb) a)) 1) 0 3) (linkCode kb)) (linkCode ka)
+mergeTip : Link → Link → CertChain → CertChain → ℕ
+mergeTip ka kb a b = flagIf (natEq (mergeCode ka kb a b) 0) (flagIf (natLe (linkCount ka) (linkCount kb)) (linkCount kb) (linkCount ka)) 0
+rep_merge : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → CertChain → CertChain → ℕ
+rep_merge x0 x1 x2 x3 y0 y1 y2 y3 a b = (λ (pk : W8) → mergeCode (walk pk a) (walk pk b) a b) (w8 x0 x1 x2 x3 y0 y1 y2 y3)
+merge_tip : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → CertChain → CertChain → ℕ
+merge_tip x0 x1 x2 x3 y0 y1 y2 y3 a b = (λ (pk : W8) → mergeTip (walk pk a) (walk pk b) a b) (w8 x0 x1 x2 x3 y0 y1 y2 y3)
+-- step_apply (R-D5) on the S4 toy state s (State ℕ, a step adds 1): s + 1
+-- when c verifies and its tip is s + 1 (the next step), else s.
+step_apply : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → CertChain → ℕ
+step_apply x0 x1 x2 x3 y0 y1 y2 y3 s c = (λ (k : Link) → flagIf (natEq (linkCode k) 0) (flagIf (natEq (linkCount k) (natAdd s 1)) (natAdd s 1) s) s) (walk (w8 x0 x1 x2 x3 y0 y1 y2 y3) c)
+-- H5a (R-E1 to R-E13, R-E21): the FHE tally route. A ballot is one slot
+-- (R-E5: bit 1 = yes, j 0, k 1) with its bit proof. The sum folds the
+-- ballots from the zero cipher with q_tally_add. Each part carries the
+-- key of its member, and q_combine opens the count (t 2, 8 bits). The
+-- public key is 8 ℕ entry parameters (x, then y), word 0 the most
+-- significant. Codes: 7 BALLOT_BAD, 8 PARTIAL_BAD.
+zero16 : W16
+zero16 = w16 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxW : W4
+ctxW = w4 0 0 0 7
+sumOf : Ballots → W16
+sumOf bs = fold zero16 (λ (ct : W16) (p : BitProof) (acc : W16) → q_tally_add acc ct 1) bs
+ballotCode : W8 → Ballots → ℕ
+ballotCode pk bs = fold 0 (λ (ct : W16) (p : BitProof) (acc : ℕ) → flagIf (natEq acc 0) (flagIf (natEq (q_ballot_verify p pk ct ctxW 0) 0) 0 7) acc) bs
+partsCode : W16 → Parts → ℕ
+partsCode s ps = fold 0 (λ (d : DecPart) (g : W8) (acc : ℕ) → flagIf (natEq acc 0) (flagIf (natEq (q_partial_verify d g s) 0) 0 8) acc) ps
+routeCode : W8 → Ballots → Parts → W16 → ℕ
+routeCode pk bs ps s = (λ (c : ℕ) → flagIf (natEq c 0) (partsCode s ps) c) (ballotCode pk bs)
+openOf : Parts → KeyList → W16 → W4
+openOf ps ks s = q_combine ps (fold 0 (λ (d : DecPart) (g : W8) (acc : ℕ) → natAdd acc 1) ps) ks 2 (fold 0 (λ (g : W8) (acc : ℕ) → natAdd acc 1) ks) s 8
+ballot_verify : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → Ballots → Parts → KeyList → ℕ
+ballot_verify x0 x1 x2 x3 y0 y1 y2 y3 b p k = ballotCode (w8 x0 x1 x2 x3 y0 y1 y2 y3) b
+tally_sum : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → Ballots → Parts → KeyList → ℕ
+tally_sum x0 x1 x2 x3 y0 y1 y2 y3 b p k = w16a (sumOf b)
+partial_verify : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → Ballots → Parts → KeyList → ℕ
+partial_verify x0 x1 x2 x3 y0 y1 y2 y3 b p k = routeCode (w8 x0 x1 x2 x3 y0 y1 y2 y3) b p (sumOf b)
+combine : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → Ballots → Parts → KeyList → ℕ
+combine x0 x1 x2 x3 y0 y1 y2 y3 b p k = (λ (s : W16) → flagIf (natEq (routeCode (w8 x0 x1 x2 x3 y0 y1 y2 y3) b p s) 0) ((λ (o : W4) → flagIf (natEq (w4b o) 0) (w4a o) 0) (openOf p k s)) 0) (sumOf b)
+-- H5b (R-E14 to R-E20): the amend check of a new constitution, a Stack of
+-- opcode words in postfix order. The fold reads the last item of the text
+-- first, so the text gives the opcodes in reverse order. A word is tag + 16
+-- x code (R-E15). The guest has no division: amendCode finds the code with
+-- a 24-bit search (R-E39). Check 1 (R-E16) types each fragment on a stack
+-- of at most 4 code pairs in a Frag record, and the end must be one pair
+-- (13, 19): else 4 AMEND_ILL_TYPED. A code over 8 digits is ill-typed, and
+-- amendCap keeps each slot small (R-E42). Check 2 (R-E17): the first 2
+-- words are [17, 9] and the last word is 2: else 5 AMEND_NOT_FHE. Check 3
+-- (R-E18, R-E43): the decide part is the threshold template with k at least
+-- 1, read by a state machine (12 a match, 13 a bad first or second word, 14
+-- no match): else 6 AMEND_CORE. The entry gives 0 when it accepts.
+amendQ : ℕ → ℕ → ℕ → ℕ
+amendQ w q b = flagIf (natLe (natMul (natAdd q b) 16) w) (natAdd q b) q
+amendCode : ℕ → ℕ
+amendCode w = amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w (amendQ w 0 8388608) 4194304) 2097152) 1048576) 524288) 262144) 131072) 65536) 32768) 16384) 8192) 4096) 2048) 1024) 512) 256) 128) 64) 32) 16) 8) 4) 2) 1
+amendCap : ℕ → ℕ
+amendCap c = flagIf (natLe c 16777215) c 16777216
+amendPow : ℕ → ℕ
+amendPow d = flagIf (natLe d 7) 8 (flagIf (natLe d 63) 64 (flagIf (natLe d 511) 512 (flagIf (natLe d 4095) 4096 (flagIf (natLe d 32767) 32768 (flagIf (natLe d 262143) 262144 (flagIf (natLe d 2097151) 2097152 16777216))))))
+amendPair : ℕ → ℕ → ℕ
+amendPair b d = natAdd (natMul (natAdd (natMul b (amendPow d)) d) 8) 4
+amendX : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ
+amendX t c a1 b1 a2 b2 = flagIf (natEq t 1) c (flagIf (natEq t 2) a2 (flagIf (natEq t 3) a2 (flagIf (natEq t 4) c (flagIf (natEq t 5) 2 (flagIf (natEq t 6) 148 (flagIf (natEq t 7) 148 (flagIf (natEq t 8) a1 (natAdd (natMul a1 8) 5))))))))
+amendY : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ
+amendY t c a1 b1 a2 b2 = flagIf (natEq t 1) c (flagIf (natEq t 2) b1 (flagIf (natEq t 3) (amendPair b2 b1) (flagIf (natEq t 7) 1 (flagIf (natEq t 8) (natAdd (natMul b1 8) 3) 2))))
+amendN : ℕ → ℕ
+amendN t = flagIf (natEq t 2) 2 (flagIf (natEq t 3) 2 (flagIf (natEq t 8) 2 (flagIf (natEq t 9) 1 0)))
+amendOk : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ
+amendOk t c a1 b1 a2 b2 = flagIf (natEq t 1) 1 (flagIf (natEq t 4) 1 (flagIf (natEq c 0) (flagIf (natEq t 2) (flagIf (natEq b2 a1) 1 0) (flagIf (natEq t 3) (flagIf (natEq a2 a1) 1 0) (flagIf (natEq t 8) (flagIf (natEq a2 a1) (flagIf (natEq b2 1) 1 0) 0) (flagIf (natEq t 9) (flagIf (natEq b1 1) 1 0) (flagIf (natLe 5 t) (flagIf (natLe t 7) 1 0) 0))))) 0))
+amendFault : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ
+amendFault w ok n d x y = natAdd (natAdd (flagIf (natEq ok 1) 0 1) (flagIf (natLe n d) 0 1)) (natAdd (natAdd (flagIf (natLe (natAdd d 1) (natAdd n 4)) 0 1) (flagIf (natLe w 268435455) 0 1)) (natAdd (flagIf (natLe x 16777215) 0 1) (flagIf (natLe y 16777215) 0 1)))
+amendPut : ℕ → ℕ → ℕ → ℕ → ℕ → Frag → Frag
+amendPut w ok n x y f = frag (natSub (natAdd (fDepth f) 1) (flagIf (natLe n (fDepth f)) n (fDepth f))) (flagIf (natEq (natAdd (fBad f) (amendFault w ok n (fDepth f) x y)) 0) 0 1) (amendCap x) (amendCap y) (flagIf (natEq n 0) (fa1 f) (flagIf (natEq n 1) (fa2 f) (fa3 f))) (flagIf (natEq n 0) (fb1 f) (flagIf (natEq n 1) (fb2 f) (fb3 f))) (flagIf (natEq n 0) (fa2 f) (flagIf (natEq n 1) (fa3 f) (fa4 f))) (flagIf (natEq n 0) (fb2 f) (flagIf (natEq n 1) (fb3 f) (fb4 f))) (flagIf (natEq n 0) (fa3 f) (flagIf (natEq n 1) (fa4 f) 0)) (flagIf (natEq n 0) (fb3 f) (flagIf (natEq n 1) (fb4 f) 0))
+amendStep : ℕ → Frag → Frag
+amendStep w f = (λ (c : ℕ) → (λ (t : ℕ) → amendPut w (amendOk t c (fa1 f) (fb1 f) (fa2 f) (fb2 f)) (amendN t) (amendX t c (fa1 f) (fb1 f) (fa2 f) (fb2 f)) (amendY t c (fa1 f) (fb1 f) (fa2 f) (fb2 f)) f) (natSub w (natMul c 16))) (amendCode w)
+amendFrag : Stack → Frag
+amendFrag s = fold (frag 0 0 0 0 0 0 0 0 0 0) (λ (w : ℕ) (acc : Frag) → amendStep w acc) s
+amendTyped : Frag → ℕ
+amendTyped f = flagIf (natEq (fBad f) 0) (flagIf (natEq (fDepth f) 1) (flagIf (natEq (fa1 f) 13) (flagIf (natEq (fb1 f) 19) 0 4) 4) 4) 4
+amendWant : ℕ → ℕ
+amendWant q = flagIf (natEq q 0) 17 (flagIf (natEq q 1) 9 (flagIf (natEq q 2) 36 (flagIf (natEq q 3) 5 (flagIf (natEq q 4) 2 (flagIf (natEq q 5) 33 (flagIf (natEq q 6) 3 (flagIf (natEq q 7) 7 (flagIf (natEq q 8) 2 (flagIf (natEq q 9) 33 (flagIf (natEq q 10) 8 2))))))))))
+amendNext : ℕ → ℕ → ℕ
+amendNext q w = flagIf (natEq q 13) 13 (flagIf (natLe 12 q) 14 (flagIf (natEq w (amendWant q)) (natAdd q 1) (flagIf (natEq q 5) (flagIf (natEq w 5) 4 14) (flagIf (natLe q 1) 13 14))))
+amendState : Stack → ℕ
+amendState s = fold 0 (λ (w : ℕ) (q : ℕ) → amendNext q w) s
+amendLast : Stack → ℕ
+amendLast s = fold 0 (λ (w : ℕ) (q : ℕ) → w) s
+amendCore : ℕ → ℕ
+amendCore q = flagIf (natEq q 12) 0 6
+amendForm : ℕ → ℕ → ℕ
+amendForm q last = flagIf (natEq last 2) (flagIf (natLe 2 q) (flagIf (natEq q 13) 5 (amendCore q)) 5) 5
+amend_accept : Stack → ℕ
+amend_accept s = (λ (c : ℕ) → flagIf (natEq c 0) (amendForm (amendState s) (amendLast s)) c) (amendTyped (amendFrag s))

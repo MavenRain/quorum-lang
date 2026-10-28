@@ -41,3 +41,52 @@ sealed data Hidden (A : Type) : Type where
 
 law unseal : (A : Type) → Hidden A → A
 unseal A h = fold (λ (x : A) → x) h
+
+-- A record of 4 words (O105): a digest or a U256, word 0 the most
+-- significant. The host import q_hash2 takes two and gives one.
+data W4 : Type where
+  w4 : (w4a : ℕ) → (w4b : ℕ) → (w4c : ℕ) → (w4d : ℕ) → W4
+-- The records of the host import q_frost_verify (R-C1): W8 is a secp256k1
+-- point (x, then y) and W12 is a signature (R: x, then y; then z).
+data W8 : Type where
+  w8 : (w8a : ℕ) → (w8b : ℕ) → (w8c : ℕ) → (w8d : ℕ) → (w8e : ℕ) → (w8f : ℕ) → (w8g : ℕ) → (w8h : ℕ) → W8
+data W12 : Type where
+  w12 : (w12a : ℕ) → (w12b : ℕ) → (w12c : ℕ) → (w12d : ℕ) → (w12e : ℕ) → (w12f : ℕ) → (w12g : ℕ) → (w12h : ℕ) → (w12i : ℕ) → (w12j : ℕ) → (w12k : ℕ) → (w12l : ℕ) → W12
+-- The certificate chain of the replica (O107, R-C4), the newest step first.
+data CertChain : Type where
+  certGenesis : CertChain
+  cert : (body : W4) → (sigR : W8) → (sigZ : W4) → (prev : CertChain) → CertChain
+-- A walk of the chain (R-C5): the first failure code, the step count and
+-- the head.
+data Link : Type where
+  link : (linkCode : ℕ) → (linkCount : ℕ) → (linkHead : W4) → Link
+-- The hash walk of a merge (O108, R-D2): the step count, the head, and 1
+-- when the head at the height m is the given head (1 at m = 0).
+data Twin : Type where
+  twinOf : (twinCount : ℕ) → (twinHead : W4) → (twinSame : ℕ) → Twin
+-- The records of the FHE tally route (H5a, R-E3, R-E21), each word 8
+-- bytes big endian: W16 is an ElGamal cipher (c1, then c2: x, then y),
+-- DecPart is a decryption part (x, then d, a, b: x, then y; then z) and
+-- BitProof is the bit proof of one slot (a0, b0, a1, b1: x, then y; then
+-- e0, e1, z0, z1).
+data W16 : Type where
+  w16 : (w16a : ℕ) → (w16b : ℕ) → (w16c : ℕ) → (w16d : ℕ) → (w16e : ℕ) → (w16f : ℕ) → (w16g : ℕ) → (w16h : ℕ) → (w16i : ℕ) → (w16j : ℕ) → (w16k : ℕ) → (w16l : ℕ) → (w16m : ℕ) → (w16n : ℕ) → (w16o : ℕ) → (w16p : ℕ) → W16
+data DecPart : Type where
+  decPart : (dp00 : ℕ) → (dp01 : ℕ) → (dp02 : ℕ) → (dp03 : ℕ) → (dp04 : ℕ) → (dp05 : ℕ) → (dp06 : ℕ) → (dp07 : ℕ) → (dp08 : ℕ) → (dp09 : ℕ) → (dp10 : ℕ) → (dp11 : ℕ) → (dp12 : ℕ) → (dp13 : ℕ) → (dp14 : ℕ) → (dp15 : ℕ) → (dp16 : ℕ) → (dp17 : ℕ) → (dp18 : ℕ) → (dp19 : ℕ) → (dp20 : ℕ) → (dp21 : ℕ) → (dp22 : ℕ) → (dp23 : ℕ) → (dp24 : ℕ) → (dp25 : ℕ) → (dp26 : ℕ) → (dp27 : ℕ) → (dp28 : ℕ) → DecPart
+data BitProof : Type where
+  bitProof : (bp00 : ℕ) → (bp01 : ℕ) → (bp02 : ℕ) → (bp03 : ℕ) → (bp04 : ℕ) → (bp05 : ℕ) → (bp06 : ℕ) → (bp07 : ℕ) → (bp08 : ℕ) → (bp09 : ℕ) → (bp10 : ℕ) → (bp11 : ℕ) → (bp12 : ℕ) → (bp13 : ℕ) → (bp14 : ℕ) → (bp15 : ℕ) → (bp16 : ℕ) → (bp17 : ℕ) → (bp18 : ℕ) → (bp19 : ℕ) → (bp20 : ℕ) → (bp21 : ℕ) → (bp22 : ℕ) → (bp23 : ℕ) → (bp24 : ℕ) → (bp25 : ℕ) → (bp26 : ℕ) → (bp27 : ℕ) → (bp28 : ℕ) → (bp29 : ℕ) → (bp30 : ℕ) → (bp31 : ℕ) → (bp32 : ℕ) → (bp33 : ℕ) → (bp34 : ℕ) → (bp35 : ℕ) → (bp36 : ℕ) → (bp37 : ℕ) → (bp38 : ℕ) → (bp39 : ℕ) → (bp40 : ℕ) → (bp41 : ℕ) → (bp42 : ℕ) → (bp43 : ℕ) → (bp44 : ℕ) → (bp45 : ℕ) → (bp46 : ℕ) → (bp47 : ℕ) → BitProof
+-- The lists of the route (R-E4): the ballots (a cipher and its bit
+-- proof), the parts (each with the key of its member) and the member keys.
+data Ballots : Type where
+  noBallot : Ballots
+  ballotCons : (bCt : W16) → (bProof : BitProof) → (bRest : Ballots) → Ballots
+data Parts : Type where
+  noPart : Parts
+  partCons : (pHead : DecPart) → (pKey : W8) → (pRest : Parts) → Parts
+data KeyList : Type where
+  noKey : KeyList
+  keyCons : (kHead : W8) → (kRest : KeyList) → KeyList
+-- The type stack of the amend check (H5b, R-E16): the depth, 1 when a step
+-- is ill-typed, then at most 4 code pairs (a, b), the top first.
+data Frag : Type where
+  frag : (fDepth : ℕ) → (fBad : ℕ) → (fa1 : ℕ) → (fb1 : ℕ) → (fa2 : ℕ) → (fb2 : ℕ) → (fa3 : ℕ) → (fb3 : ℕ) → (fa4 : ℕ) → (fb4 : ℕ) → Frag

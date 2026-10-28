@@ -134,3 +134,19 @@ int u256_scale_add(U256 *x, uint32_t mul, uint32_t add) {
   join(x, h);
   return carry == 0;
 }
+
+void u256_from_be(U256 *x, const unsigned char *be) {
+  uint32_t k;
+  uint32_t j;
+  for (k = 0; k < 4u; k++) {
+    x->limb[3u - k] = 0;
+    for (j = 0; j < 8u; j++) x->limb[3u - k] = x->limb[3u - k] << 8 | be[8u * k + j];
+  }
+}
+
+void u256_to_be(unsigned char *be, const U256 *x) {
+  uint32_t k;
+  uint32_t j;
+  for (k = 0; k < 4u; k++)
+    for (j = 0; j < 8u; j++) be[8u * k + j] = (unsigned char)(x->limb[3u - k] >> (56u - 8u * j));
+}

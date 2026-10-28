@@ -1,5 +1,10 @@
 /* The evaluator, the conversion test, quote and the printer (see
    front/core.h). SHARED by the tcc kits. */
+#include "crypto/elgamal.h"
+#include "crypto/frost.h"
+#include "crypto/sha256.h"
+#include "crypto/sigma.h"
+#include "crypto/threshold.h"
 #include "front/core.h"
 
 #include <string.h>
@@ -27,11 +32,11 @@ static const char *const OP_NAMES[] = {
   [OP_PARTIAL] = "Partial", [OP_SYSTEM] = "system", [OP_SYSNIL] = "[]",
   [OP_FROMPARTIAL] = "fromPartial", [OP_TRANSP] = "primTransp",
   [OP_TPART] = "%tpart", [OP_TCOD] = "%tcod", [OP_HCOMP] = "primHComp",
-  [OP_SYSMAP] = "%sysmap", [OP_PCTOR] = "?"
+  [OP_SYSMAP] = "%sysmap", [OP_PCTOR] = "?", [OP_HOST] = "%host"
 };
 
 /* The number of arguments of each operation. VARIES: it comes from the
-   family tables. */
+   family tables, or for OP_HOST from the import number. */
 static const unsigned char OP_ARITY[] = {
   [OP_NAT] = 0, [OP_FLAG] = 0, [OP_UNIT] = 0, [OP_SUM] = 2,
   [OP_OPTION] = 1, [OP_LIST] = 1, [OP_FAMILY] = VARIES,
@@ -48,7 +53,7 @@ static const unsigned char OP_ARITY[] = {
   [OP_IMIN] = 2, [OP_IMAX] = 2, [OP_PATHP] = 3, [OP_PLAM] = 1, [OP_PAPP] = 4,
   [OP_PARTIAL] = 2, [OP_SYSTEM] = 3, [OP_SYSNIL] = 0, [OP_FROMPARTIAL] = 1,
   [OP_TRANSP] = 3, [OP_TPART] = 1, [OP_TCOD] = 2, [OP_HCOMP] = 4,
-  [OP_SYSMAP] = 2
+  [OP_SYSMAP] = 2, [OP_HOST] = VARIES
 };
 
 typedef enum {
@@ -1477,6 +1482,8 @@ static uint32_t varied_arity(const Machine *m, Op op, uint32_t inst) {
     return f->param_count + f->index_count;
   if (op == OP_FOLD_FAMILY && f != NULL)
     return f->ctor_count + 1u;
+  if (op == OP_HOST)
+    return inst == 1u || inst == 3u || inst == 4u ? 3u : inst == 2u ? 5u : inst == 5u ? 7u : 2u;
   return UINT32_MAX;
 }
 
@@ -1486,6 +1493,147 @@ static int arity_ok(const Machine *m, Op op, uint32_t inst, uint32_t n) {
   if (OP_ARITY[op] != VARIES)
     return n == (uint32_t)OP_ARITY[op];
   return n == varied_arity(m, op, inst);
+}
+
+/* The WORDS words of the record R to BYTES, each 8 bytes big endian. 1
+   when done; else 0, and *OUT is the stuck call or the error. */
+static int host_words(Machine *m, const Value *r, uint32_t words, unsigned char *bytes, uint32_t inst, const Value *const *a, uint32_t n, const Value **out) {
+  uint64_t w;
+  uint32_t j;
+  uint32_t k;
+  if (blocked(m, r, OP_HOST, inst, 0, a, n, out))
+    return 0;
+  if (r->kind != VAL_OP || r->op != OP_CTOR || r->argc != words) {
+    *out = internal(m, "a host call on a value that is not its word record");
+    return 0;
+  }
+  for (k = 0; k < words; k++) {
+    if (blocked(m, r->args[k], OP_HOST, inst, 0, a, n, out))
+      return 0;
+    if (r->args[k]->kind != VAL_NAT) {
+      *out = internal(m, "a record word that is not a ℕ");
+      return 0;
+    }
+    w = r->args[k]->nat;
+    for (j = 0; j < 8u; j++) bytes[8u * k + j] = (unsigned char)(w >> (56u - 8u * j));
+  }
+  return 1;
+}
+
+/* The list L (R-E4): nil has no field, a cell ARGC fields, the record of
+   WORDS words first and the rest last. The records go to BYTES, one after
+   the other. *HAVE is the cell count; a list of more than 8 cells gives 9
+   (thr_open_be refuses it). 1 when done; else 0, and *OUT is the stuck
+   call or the error. */
+static int host_list(Machine *m, const Value *l, uint32_t argc, uint32_t words, unsigned char *bytes, uint32_t *have, uint32_t inst, const Value *const *a, uint32_t n, const Value **out) {
+  *have = 0;
+  for (;;) {
+    if (blocked(m, l, OP_HOST, inst, 0, a, n, out))
+      return 0;
+    if (l->kind != VAL_OP || l->op != OP_CTOR || (l->argc != 0u && l->argc != argc)) {
+      *out = internal(m, "a host call on a value that is not its list");
+      return 0;
+    }
+    if (l->argc == 0u)
+      return 1;
+    if (*have == 8u) {
+      *have = 9u;
+      return 1;
+    }
+    if (!host_words(m, l->args[0], words, bytes + 8u * words * *have, inst, a, n, out))
+      return 0;
+    *have += 1u;
+    l = l->args[argc - 1u];
+  }
+}
+
+/* The constructor of the word record W4 (the q_combine result, R-E30). */
+static uint32_t w4_ctor(const Machine *m) {
+  uint32_t i;
+  for (i = 0; i < m->family_count; i++)
+    if (strcmp(m->families[i].name, "W4") == 0 && m->families[i].ctor_count == 1u)
+      return m->families[i].first_ctor;
+  return UINT32_MAX;
+}
+
+/* The host import INST (O105) over the arguments A: a word record (each
+   word 8 bytes big endian), a ℕ or a list (R-E4). q_hash2 (0) takes two
+   W4 and gives the SHA-256 of their 64 bytes as a W4. q_frost_verify (1,
+   R-C1) takes a W8 (the public key: x, then y), a W12 (R: x, then y; then
+   z) and a W4 (the message) and gives the FrostResult code as a ℕ (0 is
+   OK; a code is data, not a trap). H5a (R-E6, R-E8): q_ballot_verify (2)
+   gives the SigResult code; q_tally_add (3) gives the sum as a W16 (16
+   zero words when k is not 1 or a point does not decode);
+   q_partial_verify (4) gives 0 when the part verifies, else 1; q_combine
+   (5) walks its two lists and gives the W4 (m, the ThrResult code, 0, 0).
+   A neutral record, word or list gives a stuck call, and the lowering
+   gives IR_STMT_HOST for it. */
+static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a, uint32_t n) {
+  static const uint32_t WORDS[6][7] = {{4u, 4u},
+                                       {8u, 12u, 4u},
+                                       {48u, 8u, 16u, 4u, 0u},
+                                       {16u, 16u, 0u},
+                                       {29u, 8u, 16u},
+                                       {UINT32_MAX, 0u, UINT32_MAX, 0u, 0u, 16u, 0u}};
+  const Value *words[16];
+  const Value *out;
+  unsigned char bytes[2560];
+  uint64_t num[7];
+  uint64_t open = 0;
+  uint64_t w;
+  uint32_t have[2] = {0u, 0u};
+  uint32_t at = 0;
+  uint32_t i;
+  uint32_t k;
+  if (inst > 5u || n != varied_arity(m, OP_HOST, inst))
+    return internal(m, "a host import with no guest form");
+  for (i = 0; i < n; i++) {
+    if (blocked(m, a[i], OP_HOST, inst, 0, a, n, &out))
+      return out;
+    if (WORDS[inst][i] == 0u ? a[i]->kind != VAL_NAT
+                             : WORDS[inst][i] != UINT32_MAX &&
+                                   (a[i]->kind != VAL_OP || a[i]->op != OP_CTOR || a[i]->argc != WORDS[inst][i]))
+      return internal(m, "a host call on a value that is not its word record");
+  }
+  for (i = 0; i < n; i++) {
+    num[i] = WORDS[inst][i] == 0u ? a[i]->nat : 0u;
+    if (WORDS[inst][i] == 0u || WORDS[inst][i] == UINT32_MAX)
+      continue;
+    if (!host_words(m, a[i], WORDS[inst][i], bytes + at, inst, a, n, &out))
+      return out;
+    at += 8u * WORDS[inst][i];
+  }
+  if (inst == 1u)
+    return val_nat(m, (uint64_t)frost_verify_xy(bytes, bytes + 64, bytes + 160));
+  if (inst == 2u)
+    return val_nat(m, (uint64_t)sig_or_verify_be(bytes, bytes + 384, bytes + 448, bytes + 576, num[4]));
+  if (inst == 4u)
+    return val_nat(m, (uint64_t)thr_verify_be(bytes, bytes + 232, bytes + 296));
+  if (inst == 5u) {
+    if (!host_list(m, a[0], 3u, 29u, bytes + 128, &have[0], inst, a, n, &out) ||
+        !host_list(m, a[2], 2u, 8u, bytes + 1984, &have[1], inst, a, n, &out))
+      return out;
+    w = (uint64_t)thr_open_be(&open, bytes + 128, have[0], bytes + 1984, have[1], bytes, num[1], num[3], num[4], num[6]);
+    k = w4_ctor(m);
+    if (k == UINT32_MAX)
+      return internal(m, "a q_combine call with no W4 record");
+    words[0] = val_nat(m, open);
+    words[1] = val_nat(m, w);
+    words[2] = val_nat(m, 0);
+    words[3] = val_nat(m, 0);
+    return val_op(m, VAL_OP, OP_CTOR, k, 0, words, 4u);
+  }
+  if (inst == 3u)
+    tally_add_be(bytes + 256, bytes, bytes + 128, num[2]);
+  else
+    sha256(bytes, 64u, bytes + 256);
+  at = inst == 3u ? 16u : 4u;
+  for (k = 0; k < at; k++) {
+    w = 0;
+    for (i = 0; i < 8u; i++) w = w << 8 | bytes[256u + 8u * k + i];
+    words[k] = val_nat(m, w);
+  }
+  return val_op(m, VAL_OP, OP_CTOR, a[0]->inst, 0, words, at);
 }
 
 static const Value *reduce_op(Machine *m, Op op, uint32_t inst, uint32_t field, const Value *const *a, uint32_t n) {
@@ -1583,6 +1731,8 @@ static const Value *reduce_op(Machine *m, Op op, uint32_t inst, uint32_t field, 
     return reduce_flag_if(m, a, n);
   case OP_PROJ:
     return reduce_proj(m, inst, field, a, n);
+  case OP_HOST:
+    return reduce_host(m, inst, a, n);
   }
   return internal(m, "an unknown operation");
 }
@@ -1882,6 +2032,10 @@ const Core *quote_value(Machine *m, uint32_t level, const Value *v) {
   return c;
 }
 
+/* The host imports of module "q" (O105), by import number. */
+static const char *const HOST_NAMES[] = {"q_hash2", "q_frost_verify", "q_ballot_verify", "q_tally_add", "q_partial_verify", "q_combine"};
+#define HOST_NAME_COUNT ((uint32_t)(sizeof HOST_NAMES / sizeof HOST_NAMES[0]))
+
 const char *op_name(const Machine *m, Op op, uint32_t inst, uint32_t field) {
   if (op == OP_FAMILY)
     return inst < m->family_count ? m->families[inst].name : "?";
@@ -1889,6 +2043,8 @@ const char *op_name(const Machine *m, Op op, uint32_t inst, uint32_t field) {
     return inst < m->ctor_count ? m->ctors[inst].name : "?";
   if (op == OP_PROJ)
     return inst < m->ctor_count && field < m->ctors[inst].field_count ? m->ctors[inst].fields[field].name : "?";
+  if (op == OP_HOST)
+    return inst < HOST_NAME_COUNT ? HOST_NAMES[inst] : "?";
   return (size_t)op < sizeof OP_NAMES / sizeof OP_NAMES[0] ? OP_NAMES[op] : "?";
 }
 

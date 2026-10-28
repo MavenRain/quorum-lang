@@ -21,7 +21,8 @@
 
 typedef enum {
   IR_SCALAR_NAT,
-  IR_SCALAR_FLAG
+  IR_SCALAR_FLAG,
+  IR_SCALAR_ADDR /* the address of an input block that the host wrote (O109 (i)) */
 } IrScalar;
 
 typedef enum {
@@ -69,7 +70,9 @@ typedef enum {
   IR_STMT_WHILE,  /* counter := expr; run body while counter > 0 and local != 0,
                      counter decreasing by 1 at each run; body sets local */
   IR_STMT_TRAP,   /* stop the call: Wasm unreachable, EVM REVERT */
-  IR_STMT_RETURN  /* return expr */
+  IR_STMT_RETURN, /* return expr */
+  IR_STMT_HOST    /* local := host import COUNTER (O105) over the fields: the
+                     out address (q_hash2 only), then the argument addresses */
 } IrStmtKind;
 
 struct IrStmt {
@@ -98,6 +101,8 @@ typedef struct {
 typedef struct {
   const IrFunc *funcs;
   size_t func_count;
+  int host; /* 1 when a body has IR_STMT_HOST: the module imports module "q" */
+  int input; /* 1 when an entry has an ADDR parameter: the module exports memory 0 and heap_base */
 } IrProgram;
 
 #endif

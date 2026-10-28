@@ -45,7 +45,8 @@ AGENTS.md gives the loop for an agent.
 make -j 2 check
 ```
 
-The gate needs tcc, clang, node, wasm-validate and wasm-objdump.
+The gate needs tcc, clang, node, wasm-validate, wasm-objdump and wasm2c
+(WABT; `make WABT=PREFIX` when WABT is not in /opt/homebrew).
 
 ## Layout
 
@@ -55,6 +56,7 @@ The gate needs tcc, clang, node, wasm-validate and wasm-objdump.
 - src/front/: lexer, parser, checker, evaluator and lowering. src/wasm.c: the Wasm emitter.
 - src/crypto/: BN254 G1, ElGamal, the ballot proofs, threshold decryption and the DKG (S6). test/tallytool.c: their C rows and the `rep` mode.
 - src/crypto/sha256.c, xmd.c, secp256k1.c and frost.c: SHA-256, expand_message_xmd, secp256k1 and FROST(secp256k1, SHA-256) (S7); dkg.c also reshares. test/frosttool.c: their C rows and the `rep` mode.
+- replica/replica.lang: the Wasm replica (S8): the certificate chain check, merge and tip, the FHE tally route and `amend_accept`. test/replicatool.c: the C host that runs build/replica.wasm through wasm2c with the src/crypto host imports; src/w2c-tcc.h is the TCC shim for the translation. test/replica/history.txt, tally.txt and amend.txt: the replica fixtures.
 - examples/, test/: guest programs and gate fixtures.
 
 ## License

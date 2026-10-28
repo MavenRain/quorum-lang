@@ -7,11 +7,21 @@
 
 #define ENTRY_PARAMS_MAX 16u
 
-/* An entry: a program definition of type Nat, Flag, or a function of Nat and
-   Flag arguments to a Nat or Flag result. */
+/* The kind of an entry parameter. An INPUT parameter (O109 (i)) has a list
+   family type (check.c input_family). The host writes its blocks in memory
+   and gives the address. */
+typedef enum {
+  ENTRY_PARAM_NAT,
+  ENTRY_PARAM_FLAG,
+  ENTRY_PARAM_INPUT
+} EntryParam;
+
+/* An entry: a program definition of type Nat, Flag, or a function of Nat,
+   Flag and input arguments to a Nat or Flag result. */
 typedef struct {
   uint32_t param_count;
-  int param_flag[ENTRY_PARAMS_MAX];
+  EntryParam param_kind[ENTRY_PARAMS_MAX];
+  uint32_t param_family[ENTRY_PARAMS_MAX]; /* INPUT: the family */
   int result_flag;
 } Entry;
 

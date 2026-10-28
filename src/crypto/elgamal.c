@@ -165,3 +165,15 @@ void tally_add(ElgCipher *out, const ElgCipher *a, const ElgCipher *b, uint32_t 
   for (j = 0; j < k; j++)
     elg_add(&out[j], &a[j], &b[j]);
 }
+
+void tally_add_be(unsigned char *out, const unsigned char *a, const unsigned char *b, uint64_t k) {
+  ElgCipher x;
+  ElgCipher y;
+  ElgCipher s;
+  memset(out, 0, 128u);
+  if (k != 1u || !g1_from_be(&x.c1, a) || !g1_from_be(&x.c2, a + 64) || !g1_from_be(&y.c1, b) || !g1_from_be(&y.c2, b + 64))
+    return;
+  tally_add(&s, &x, &y, 1u);
+  g1_to_be(out, &s.c1);
+  g1_to_be(out + 64, &s.c2);
+}

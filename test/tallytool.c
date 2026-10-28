@@ -485,6 +485,178 @@ static int rep_lines(void) {
   return ok ? 0 : 1;
 }
 
+/* The list texts of the lang mode (R-E11): a cons is 1, then each record
+   as a tag 0 and its words, then the rest; nil is 0 (the langc eval text). */
+#define LANG_TEXT_MAX 8192u
+
+typedef struct {
+  char s[LANG_TEXT_MAX];
+  size_t n;
+} LangList;
+
+/* The texts of one lang case: the ballots B, the parts P and the keys K,
+   and the sum of the ballots (a W16 in 128 bytes). */
+typedef struct {
+  LangList b;
+  LangList p;
+  LangList k;
+  unsigned char sum[128];
+} LangCase;
+
+/* The word of the 8 big-endian bytes IN. */
+static uint64_t lang_be_word(const unsigned char *in) {
+  uint64_t w = 0;
+  unsigned i;
+  for (i = 0; i < 8u; i++) w = w << 8 | in[i];
+  return w;
+}
+
+/* Add the word W to L, then a comma (no comma when LAST). */
+static void lang_add(LangList *l, uint64_t w, int last) {
+  if (l->n < LANG_TEXT_MAX)
+    l->n += (size_t)snprintf(l->s + l->n, LANG_TEXT_MAX - l->n, "%llu%s", (unsigned long long)w, last ? "" : ",");
+}
+
+/* Add a record to L: the tag 0, then the N words of the 8N big-endian
+   bytes IN. The word BUMP gets 1 more (BUMP = N: no word). */
+static void lang_rec(LangList *l, const unsigned char *in, unsigned n, unsigned bump) {
+  unsigned i;
+  lang_add(l, 0u, 0);
+  for (i = 0; i < n; i++) lang_add(l, lang_be_word(in + 8u * i) + (i == bump ? 1u : 0u), 0);
+}
+
+/* The 232 bytes of the part P as thr_verify_be reads them: x in 8 bytes,
+   then d, a and b (64 bytes each) and z (32 bytes). */
+static void lang_part_be(unsigned char *out, const ThrPart *p) {
+  uint64_t x = p->x;
+  unsigned i;
+  for (i = 0; i < 8u; i++) out[i] = (unsigned char)(x >> (56u - 8u * i));
+  g1_to_be(out + 8, &p->d);
+  g1_to_be(out + 72, &p->a);
+  g1_to_be(out + 136, &p->b);
+  u256_to_be(out + 200, &p->z);
+}
+
+/* The case C of length LEN in T (R-E11): the cast of each ballot
+   ballot_of with the nonces from NONCE and its bit proof at slot 0 (B),
+   the sum from the zero cipher by tally_add_be (as the guest sumOf), the
+   parts of the members 1 and 2 on the sum, each with its member key (P),
+   and the keys of the 3 members (K). Word BB of the first bit proof and
+   word BP of the first part get 1 more (48 and 29: no word). It gives the
+   count of the open, or -1 on a failure. */
+static int lang_case(LangCase *t, const Keys *keys, const U256 *ctx, uint32_t len, uint32_t c, uint64_t nonce,
+                     unsigned bb, unsigned bp) {
+  ElgCipher ct;
+  ElgCipher sum;
+  SigOr proof;
+  ThrPart part;
+  U256 r;
+  unsigned char ct_b[128];
+  unsigned char next[128];
+  unsigned char proof_b[384];
+  unsigned char part_b[232];
+  unsigned char key_b[64];
+  uint64_t count = 0;
+  uint32_t i;
+  int ok = 1;
+  t->b.n = 0;
+  t->p.n = 0;
+  t->k.n = 0;
+  memset(t->sum, 0, sizeof t->sum);
+  for (i = 0; i < len; i++) {
+    cast(&ct, &keys->pk, ballot_of(c, len, i), nonce + i);
+    elg_nonce(&r, nonce + i);
+    ok &= sig_or_prove(&proof, &keys->pk, &ct, ballot_of(c, len, i), &r, ctx, 0u) == SIG_OK;
+    g1_to_be(ct_b, &ct.c1);
+    g1_to_be(ct_b + 64, &ct.c2);
+    g1_to_be(proof_b, &proof.a0);
+    g1_to_be(proof_b + 64, &proof.b0);
+    g1_to_be(proof_b + 128, &proof.a1);
+    g1_to_be(proof_b + 192, &proof.b1);
+    u256_to_be(proof_b + 256, &proof.e0);
+    u256_to_be(proof_b + 288, &proof.e1);
+    u256_to_be(proof_b + 320, &proof.z0);
+    u256_to_be(proof_b + 352, &proof.z1);
+    lang_add(&t->b, 1u, 0);
+    lang_rec(&t->b, ct_b, 16u, 16u);
+    lang_rec(&t->b, proof_b, 48u, i == 0 ? bb : 48u);
+    tally_add_be(next, t->sum, ct_b, 1u);
+    memcpy(t->sum, next, sizeof next);
+  }
+  lang_add(&t->b, 0u, 1);
+  ok &= g1_from_be(&sum.c1, t->sum) && g1_from_be(&sum.c2, t->sum + 64);
+  for (i = 0; i < 2u; i++) {
+    thr_partial(&part, &keys->share[i], &sum);
+    lang_part_be(part_b, &part);
+    g1_to_be(key_b, &keys->keys[i]);
+    lang_add(&t->p, 1u, 0);
+    lang_rec(&t->p, part_b, 29u, i == 0 ? bp : 29u);
+    lang_rec(&t->p, key_b, 8u, 8u);
+  }
+  lang_add(&t->p, 0u, 1);
+  for (i = 0; i < DKG_N; i++) {
+    g1_to_be(key_b, &keys->keys[i]);
+    lang_add(&t->k, 1u, 0);
+    lang_rec(&t->k, key_b, 8u, 8u);
+  }
+  lang_add(&t->k, 0u, 1);
+  ok &= open_pair(&count, keys, 1u, 2u, &sum) == THR_FOUND;
+  return ok ? (int)count : -1;
+}
+
+/* Print `ROW ENTRY WANT X0 .. Y3 B P K` of the key PK_B (64 bytes) and the
+   texts of T. */
+static void lang_row(const char *row, const char *entry, uint64_t want, const unsigned char *pk_b, const LangCase *t) {
+  unsigned i;
+  printf("%s %s %llu", row, entry, (unsigned long long)want);
+  for (i = 0; i < 8u; i++) printf(" %llu", (unsigned long long)lang_be_word(pk_b + 8u * i));
+  printf(" %s %s %s\n", t->b.s, t->p.s, t->k.s);
+}
+
+/* The lang mode (R-E11): the good dealing (as rep), then for each ballot
+   list over Bool of length 1 to 3 (14 cases; one slot a ballot, bit 1 =
+   yes, R-E5) the row `tcLEN_C combine COUNT`, then on the case LEN 3, C 5
+   the rows tb, tt (word 0 of the sum), tp, badballot (bit proof word 47
+   plus 1) and badpart (part word 28 plus 1). Each line is `ROW ENTRY WANT
+   X0 .. Y3 B P K` for langc eval and replicatool tally on
+   replica/replica.lang (19 lines). The nonces are 2000 up (rep: 1000 up). */
+static int lang_lines(void) {
+  static LangCase t;
+  DkgDealing dealings[DKG_N];
+  U256 table[DKG_N * DKG_N];
+  Keys keys;
+  U256 ctx;
+  Fe a0;
+  unsigned char pk_b[64];
+  char row[16];
+  uint64_t nonce = 2000u;
+  uint64_t n5 = 0;
+  uint32_t len;
+  uint32_t c;
+  int count;
+  int ok = deal_good(&keys, dealings, table, &ctx, &a0);
+  g1_to_be(pk_b, &keys.pk);
+  for (len = 1u; len <= 3u; len++) {
+    for (c = 0; c < (1u << len); c++) {
+      if (len == 3u && c == 5u) n5 = nonce;
+      count = lang_case(&t, &keys, &ctx, len, c, nonce, 48u, 29u);
+      ok &= count >= 0;
+      snprintf(row, sizeof row, "tc%u_%u", len, c);
+      lang_row(row, "combine", count < 0 ? 0u : (uint64_t)count, pk_b, &t);
+      nonce += len;
+    }
+  }
+  ok &= lang_case(&t, &keys, &ctx, 3u, 5u, n5, 48u, 29u) >= 0;
+  lang_row("tb", "ballot_verify", 0u, pk_b, &t);
+  lang_row("tt", "tally_sum", lang_be_word(t.sum), pk_b, &t);
+  lang_row("tp", "partial_verify", 0u, pk_b, &t);
+  ok &= lang_case(&t, &keys, &ctx, 3u, 5u, n5, 47u, 29u) >= 0;
+  lang_row("badballot", "ballot_verify", 7u, pk_b, &t);
+  ok &= lang_case(&t, &keys, &ctx, 3u, 5u, n5, 48u, 28u) >= 0;
+  lang_row("badpart", "partial_verify", 8u, pk_b, &t);
+  return ok ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
   G1 g;
   G1 two;
@@ -493,8 +665,10 @@ int main(int argc, char **argv) {
   Keys keys;
   if (argc == 2 && strcmp(argv[1], "rep") == 0)
     return rep_lines();
+  if (argc == 2 && strcmp(argv[1], "lang") == 0)
+    return lang_lines();
   if (argc != 1) {
-    fputs("usage: tallytool [rep]\n", stderr);
+    fputs("usage: tallytool [rep | lang]\n", stderr);
     return 2;
   }
   elg_generator(&g);

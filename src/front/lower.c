@@ -55,6 +55,7 @@ typedef struct {
   Operand *levels; /* the operand of each de Bruijn level */
   uint32_t level_count;
   uint32_t level_cap;
+  int host; /* an IR_STMT_HOST is made (O105) */
 } Low;
 
 static int oom(Low *l) {
@@ -491,6 +492,14 @@ static void stmt_print(const IrStmt *s, FILE *out, unsigned depth) {
     }
     fputs("]\n", out);
     return;
+  case IR_STMT_HOST:
+    fprintf(out, "l%u := host %u [", (unsigned)s->local, (unsigned)s->counter);
+    for (i = 0; i < s->field_count; i++) {
+      fputs(i == 0 ? "" : ", ", out);
+      expr_print(s->fields[i], out, 0);
+    }
+    fputs("]\n", out);
+    return;
   case IR_STMT_IF:
     fputs("if ", out);
     expr_print(s->expr, out, 0);
@@ -553,6 +562,8 @@ static const char *scalar_word(IrScalar s) {
     return "nat";
   case IR_SCALAR_FLAG:
     return "flag";
+  case IR_SCALAR_ADDR:
+    return "addr";
   }
   return "?";
 }
@@ -695,6 +706,7 @@ static int lower_canon(Low *l, Buf *b, const Value *v, Operand *out) {
   case OP_NAT_LE:
   case OP_FLAG_IF:
   case OP_PROJ:
+  case OP_HOST:
     return closure(l);
   }
   return internal(l, "an unknown operation");
@@ -711,6 +723,99 @@ static int nat_bin(Low *l, Buf *b, const Value *v, IrOp op, int carry, Operand *
   if (carry)
     f = ex_or(l, f, ex_bin(l, op == IR_OP_ADD ? IR_OP_ADD_CARRY : IR_OP_MUL_CARRY, x.w, y.w));
   return atoms(l, b, ex_bin(l, op, x.w, y.w), f, out);
+}
+
+/* q_frost_verify (import 1, R-C1), q_ballot_verify and q_partial_verify
+   (imports 2 and 4, R-E6): IR_STMT_HOST with the argument addresses
+   FIELDS and no out block. The result word is the code (a code is data,
+   not a trap), and the flag is F, the OR of the argument flags. */
+static int host_code(Low *l, Buf *b, const Value *v, const IrExpr **fields, const IrExpr *f, Operand *out) {
+  IrStmt *s = stmt_new(l, IR_STMT_HOST);
+  if (s == NULL)
+    return 0;
+  s->local = local_new(l);
+  s->counter = v->inst;
+  s->fields = fields;
+  s->field_count = (size_t)v->argc;
+  l->host = 1;
+  return emit(l, b, s) && atoms(l, b, ex_local(l, s->local), f, out);
+}
+
+/* Host records demand every word, including each word's deferred trap. */
+static const IrExpr *host_record_flag(Low *l, Operand x, uint32_t words) {
+  const IrExpr *f = x.f;
+  uint32_t k;
+  for (k = 0; k < words; k++)
+    f = ex_or(l, f, field_op(l, x.w, k).f);
+  return f;
+}
+
+/* q_combine reads at most eight heads, as eval.c host_list does. Only
+   the first record and the tail are demanded from a Parts cell. */
+static const IrExpr *host_list_flag(Low *l, Buf *b, Operand x, uint32_t fields, uint32_t words) {
+  uint32_t cur = local_new(l);
+  uint32_t flag = local_new(l);
+  Buf body = buf_under(b);
+  Buf cell = buf_under(&body);
+  Buf none = buf_under(&body);
+  Operand head = field_op(l, ex_local(l, cur), 0);
+  Operand tail = field_op(l, ex_local(l, cur), fields - 1u);
+  const IrExpr *f = ex_or(l, ex_local(l, flag), ex_or(l, host_record_flag(l, head, words), tail.f));
+  if (!set(l, b, cur, x.w) || !set(l, b, flag, x.f) ||
+      !set(l, &cell, flag, f) || !set(l, &cell, cur, tail.w) ||
+      !st_if(l, &body, ex_bin(l, IR_OP_EQ, ex_load(l, ex_local(l, cur), 0), ex_const(l, 1)), &cell, &none) ||
+      !st_repeat(l, b, ex_const(l, 8), &body))
+    return NULL;
+  return ex_local(l, flag);
+}
+
+/* A host import (O105, D5). q_hash2 (import 0) and q_combine (import 5):
+   the out block (tag 0, four words 0 with flag 0; q_tally_add, import 3:
+   16 words), then IR_STMT_HOST with the out address and the argument
+   addresses. The flag is the OR of the argument flags and (result != 0).
+   Imports 1, 2 and 4 go to host_code (R-E6). */
+static int host_call(Low *l, Buf *b, const Value *v, Operand *out) {
+  static const uint32_t widths[6][7] = {{4u, 4u}, {8u, 12u, 4u}, {48u, 8u, 16u, 4u},
+                                      {16u, 16u}, {29u, 8u, 16u}, {0u, 0u, 0u, 0u, 0u, 16u}};
+  const IrExpr **fields = arena_alloc(l->m->arena, ((size_t)v->argc + 1u) * sizeof *fields);
+  Operand zero[16];
+  uint32_t width;
+  Operand blk;
+  Operand x;
+  const IrExpr *f = NULL;
+  const IrExpr *arg_flag;
+  IrStmt *s;
+  uint32_t i;
+  if (fields == NULL)
+    return oom(l);
+  for (i = 0; i < v->argc; i++) {
+    if (!lower(l, b, v->args[i], &x))
+      return 0;
+    fields[1u + i] = x.w;
+    arg_flag = v->inst == 5u && (i == 0u || i == 2u)
+                   ? host_list_flag(l, b, x, i == 0u ? 3u : 2u, i == 0u ? 29u : 8u)
+                   : host_record_flag(l, x, widths[v->inst][i]);
+    if (arg_flag == NULL)
+      return 0;
+    f = f == NULL ? arg_flag : ex_or(l, f, arg_flag);
+  }
+  if (v->inst == 1u || v->inst == 2u || v->inst == 4u)
+    return host_code(l, b, v, fields + 1, f, out);
+  width = v->inst == 3u ? 16u : 4u;
+  for (i = 0; i < width; i++) zero[i] = operand(ex_const(l, 0), ex_const(l, 0));
+  if (!block_ops(l, b, 0, zero, width, &blk))
+    return 0;
+  s = stmt_new(l, IR_STMT_HOST);
+  if (s == NULL)
+    return 0;
+  fields[0] = blk.w;
+  s->local = local_new(l);
+  s->counter = v->inst;
+  s->fields = fields;
+  s->field_count = (size_t)v->argc + 1u;
+  l->host = 1;
+  f = ex_or(l, f, ex_bin(l, IR_OP_EQ, ex_bin(l, IR_OP_EQ, ex_local(l, s->local), ex_const(l, 0)), ex_const(l, 0)));
+  return emit(l, b, s) && atoms(l, b, blk.w, f, out);
 }
 
 /* Field K of the block X, behind the guard on the flag of X. */
@@ -1241,6 +1346,8 @@ static int lower_stuck(Low *l, Buf *b, const Value *v, Operand *out) {
     return family_fold(l, b, v, out);
   case OP_FOLD_BAG:
     return diag_fail(l->m->diag, "REFUSE_RUNTIME_TREE", l->m->def, "a foldᴮ over a run-time bag is not in the Wasm host in S3 (HOST-LIMIT)");
+  case OP_HOST:
+    return host_call(l, b, v, out);
   case OP_NAT_ADD:
     return nat_bin(l, b, v, IR_OP_ADD, 1, out);
   case OP_NAT_SUB:
@@ -1297,9 +1404,24 @@ static int lower(Low *l, Buf *b, const Value *v, Operand *out) {
   return ok && (!memo_kind(v) || memo_put(l, b, v, *out));
 }
 
+/* The IR scalar of an entry parameter. */
+static IrScalar param_scalar(EntryParam kind) {
+  switch (kind) {
+  case ENTRY_PARAM_NAT:
+    return IR_SCALAR_NAT;
+  case ENTRY_PARAM_FLAG:
+    return IR_SCALAR_FLAG;
+  case ENTRY_PARAM_INPUT:
+    return IR_SCALAR_ADDR;
+  }
+  return IR_SCALAR_NAT;
+}
+
 /* The entry INDEX, applied to a variable for each parameter. Only the
-   result is strict: its flag runs TRAP. */
-static int lower_entry(Machine *m, uint32_t index, const Entry *e, IrFunc *fn) {
+   result is strict: its flag runs TRAP. An input parameter (O109 (i)) is
+   the address of a block that the host wrote: the walks and the
+   projections read it as a block of the lowering. INPUT becomes 1. */
+static int lower_entry(Machine *m, uint32_t index, const Entry *e, IrFunc *fn, int *host, int *input) {
   Low l;
   Buf body = buf_under(NULL);
   Buf trap = buf_under(NULL);
@@ -1318,7 +1440,8 @@ static int lower_entry(Machine *m, uint32_t index, const Entry *e, IrFunc *fn) {
     return oom(&l);
   v = def_value(m, index);
   for (k = 0; k < e->param_count && v != NULL; k++) {
-    params[k] = e->param_flag[k] ? IR_SCALAR_FLAG : IR_SCALAR_NAT;
+    params[k] = param_scalar(e->param_kind[k]);
+    *input = *input || e->param_kind[k] == ENTRY_PARAM_INPUT;
     x = fresh(&l, operand(ex_local(&l, k), ex_const(&l, 0)));
     v = x == NULL ? NULL : apply_value(m, v, x);
   }
@@ -1331,6 +1454,7 @@ static int lower_entry(Machine *m, uint32_t index, const Entry *e, IrFunc *fn) {
   fn->result = e->result_flag ? IR_SCALAR_FLAG : IR_SCALAR_NAT;
   fn->local_count = l.local_count;
   fn->body = block_of(&body);
+  *host = *host || l.host;
   return 1;
 }
 
@@ -1342,15 +1466,22 @@ int lower_program(Machine *m, IrProgram *prog) {
   int entry;
   prog->funcs = funcs;
   prog->func_count = 0;
+  prog->host = 0;
+  prog->input = 0;
   if (funcs == NULL)
     return diag_fail(m->diag, "OOM", m->def, "out of memory");
   for (i = 0; i < m->def_count; i++) {
     m->fuel = EVAL_FUEL_STEPS;
     entry = m->defs[i].origin == ORIGIN_PROGRAM && entry_of(m, m->defs[i].type, &e);
-    if (entry && !lower_entry(m, i, &e, &funcs[n]))
+    if (entry && !lower_entry(m, i, &e, &funcs[n], &prog->host, &prog->input))
       return 0;
     n += entry ? 1u : 0u;
   }
   prog->func_count = n;
+  for (i = 0; i < n; i++) {
+    if (((prog->host || prog->input) && strcmp(funcs[i].name, "memory") == 0) ||
+        (prog->input && strcmp(funcs[i].name, "heap_base") == 0))
+      return diag_fail(m->diag, "REFUSE_NAME", funcs[i].name, "the entry name is reserved for a Wasm export in this module");
+  }
   return 1;
 }

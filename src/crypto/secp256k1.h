@@ -46,4 +46,12 @@ int scalar_decode(Fe *out, const unsigned char in[32]);
 /* OUT = the 32 big endian bytes of K (RFC 9591 section 6.5
    SerializeScalar). */
 void scalar_encode(unsigned char out[32], const Fe *k);
+/* NEW (quorum-lang S8, O105, R-C2): OUT = the point of the 64 bytes IN: x,
+   then y, 32 big endian bytes each. Returns 1, or 0 with OUT not written
+   when a coordinate is p or more or the point is not on the curve. (0, 0)
+   gives the identity. */
+int secp_from_xy(G1 *out, const unsigned char in[64]);
+/* OUT = x, then y of P, 32 big endian bytes each ((0, 0) for the
+   identity). */
+void secp_to_xy(unsigned char out[64], const G1 *p);
 #endif

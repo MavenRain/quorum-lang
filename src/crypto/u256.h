@@ -24,5 +24,10 @@ int u256_cmp(const U256 *a, const U256 *b);
 void u256_from_u64(U256 *out, uint64_t n);
 /* X = X * MUL + ADD. Returns 0 on an overflow. */
 int u256_scale_add(U256 *x, uint32_t mul, uint32_t add);
+/* X from the 4 host words at BE (32 bytes, R-E24): word k is limb[3 - k],
+   8 bytes big endian, word 0 the most significant. */
+void u256_from_be(U256 *x, const unsigned char *be);
+/* The 32 bytes of X at BE: the inverse of u256_from_be. */
+void u256_to_be(unsigned char *be, const U256 *x);
 
 #endif

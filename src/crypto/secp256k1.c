@@ -134,3 +134,26 @@ void scalar_encode(unsigned char out[32], const Fe *k) {
   fe_to_u256(&w, k);
   put_word(out, &w);
 }
+
+/* NEW (quorum-lang S8, O105, R-C2) from here: the word records of a point. */
+
+int secp_from_xy(G1 *out, const unsigned char in[64]) {
+  U256 w;
+  G1 p;
+  get_word(&w, in);
+  if (!fe_from_u256(&p.x, &w, &SECP_FP))
+    return 0;
+  get_word(&w, in + 32);
+  if (!fe_from_u256(&p.y, &w, &SECP_FP) || !secp_on_curve(&p))
+    return 0;
+  *out = p;
+  return 1;
+}
+
+void secp_to_xy(unsigned char out[64], const G1 *p) {
+  U256 w;
+  fe_to_u256(&w, &p->x);
+  put_word(out, &w);
+  fe_to_u256(&w, &p->y);
+  put_word(out + 32, &w);
+}

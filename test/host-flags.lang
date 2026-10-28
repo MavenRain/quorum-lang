@@ -1,0 +1,28 @@
+word4 : ℕ → W4
+word4 x = w4 (natAdd x 1) 0 0 0
+word8 : ℕ → W8
+word8 x = w8 (natAdd x 1) 0 0 0 0 0 0 0
+word16 : ℕ → W16
+word16 x = w16 (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+partWord : ℕ → DecPart
+partWord x = decPart (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+proofWord : ℕ → BitProof
+proofWord x = bitProof (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+hashFlag : ℕ → ℕ
+hashFlag x = w4a (q_hash2 (word4 x) (word4 0))
+frostFlag : ℕ → ℕ
+frostFlag x = q_frost_verify (word8 x) (w12 0 0 0 0 0 0 0 0 0 0 0 0) (word4 0)
+ballotFlag : ℕ → ℕ
+ballotFlag x = q_ballot_verify (proofWord x) (word8 0) (word16 0) (word4 0) 0
+tallyFlag : ℕ → ℕ
+tallyFlag x = w16a (q_tally_add (word16 x) (word16 0) 1)
+partialFlag : ℕ → ℕ
+partialFlag x = q_partial_verify (partWord x) (word8 0) (word16 0)
+partsFlag : ℕ → ℕ
+partsFlag x = w4a (q_combine (partCons (partWord x) (word8 0) noPart) 1 noKey 1 0 (word16 0) 8)
+keysFlag : ℕ → ℕ
+keysFlag x = w4a (q_combine noPart 0 (keyCons (word8 x) noKey) 1 1 (word16 0) 8)
+scalarFlag : ℕ → ℕ
+scalarFlag x = w16a (q_tally_add (word16 0) (word16 0) (natAdd x 1))
+unusedKey : ℕ → ℕ
+unusedKey x = w4a (q_combine (partCons (partWord 0) (word8 x) noPart) 1 noKey 1 0 (word16 0) 8)

@@ -116,5 +116,11 @@ SigResult sig_onehot_prove(ElgCipher *cts, SigOr *slots, SigDleq *sum, const G1 
    proof fails, then the result of sig_rand_verify on the pointwise sum
    for m = 1. */
 SigResult sig_onehot_verify(const ElgCipher *cts, const SigOr *slots, const SigDleq *sum, const G1 *pk, uint32_t k, const U256 *ctx);
+/* sig_or_verify over the host words (R-E8): PROOF is 48 words (a0, b0,
+   a1, b1: x, then y; then e0, e1, z0, z1), PK 8 words, CT 16 words (c1,
+   then c2), CTX 4 words; each word 8 bytes big endian. SIG_REFUSED when J
+   is above 2^32 - 1 or a point does not decode (R-E27), else the result
+   of sig_or_verify. */
+SigResult sig_or_verify_be(const unsigned char *proof, const unsigned char *pk, const unsigned char *ct, const unsigned char *ctx, uint64_t j);
 
 #endif

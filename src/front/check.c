@@ -95,7 +95,8 @@ typedef enum {
   RULE_PATHP,
   RULE_PATH_EQ,
   RULE_TRANSP,
-  RULE_HCOMP
+  RULE_HCOMP,
+  RULE_HOST
 } Rule;
 
 typedef struct {
@@ -104,7 +105,7 @@ typedef struct {
   Rule rule;
   Op op;
   Op result;     /* VALUE0, NAT2: the result type. EMPTY, INJ: the type former. */
-  uint32_t part; /* INJ, SIGMA_PART: 0 or 1 */
+  uint32_t part; /* INJ, SIGMA_PART: 0 or 1. HOST: the import number (O105). */
 } Builtin;
 
 static const Builtin BUILTINS[] = {
@@ -150,7 +151,13 @@ static const Builtin BUILTINS[] = {
   {"Level", 0, RULE_TYPE0, OP_LEVEL, OP_NAT, 0},
   {"lzero", 0, RULE_LEVEL, OP_NAT_ADD, OP_LEVEL, 0},
   {"lsuc", 1, RULE_LEVEL, OP_NAT_ADD, OP_LEVEL, 0},
-  {"ℓ-max", 2, RULE_LEVEL, OP_NAT_LE, OP_LEVEL, 0}
+  {"ℓ-max", 2, RULE_LEVEL, OP_NAT_LE, OP_LEVEL, 0},
+  {"q_hash2", 2, RULE_HOST, OP_HOST, OP_NAT, 0},
+  {"q_frost_verify", 3, RULE_HOST, OP_HOST, OP_NAT, 1},
+  {"q_ballot_verify", 5, RULE_HOST, OP_HOST, OP_NAT, 2},
+  {"q_tally_add", 3, RULE_HOST, OP_HOST, OP_NAT, 3},
+  {"q_partial_verify", 3, RULE_HOST, OP_HOST, OP_NAT, 4},
+  {"q_combine", 7, RULE_HOST, OP_HOST, OP_NAT, 5}
 };
 
 #define BUILTIN_COUNT ((uint32_t)(sizeof BUILTINS / sizeof BUILTINS[0]))
@@ -1787,6 +1794,120 @@ static const Core *rule_nat2(Call *k) {
   return op3(c, k->b->op, 0, 2, x, y, NULL);
 }
 
+/* Family I is the word record NAME of domain/domain.lang (W4, W8, W12):
+   one constructor of WORDS fields. */
+static int is_word_record(const Machine *m, uint32_t i, const char *name, uint32_t words) {
+  const FamilyInfo *f = &m->families[i];
+  return strcmp(f->name, name) == 0 && f->param_count == 0u && f->index_count == 0u && f->ctor_count == 1u &&
+         m->ctors[f->first_ctor].field_count == words;
+}
+
+/* The type NAME. A domain without it refuses a host call. */
+static const Value *word_record(Checker *c, const char *name, uint32_t words) {
+  uint32_t i;
+  for (i = 0; i < c->m->family_count; i++) {
+    if (is_word_record(c->m, i, name, words))
+      return val_make(c->m, OP_FAMILY, i, 0, NULL, NULL, NULL);
+  }
+  FAIL(c, "DOMAIN_FAMILY",
+       "a host call needs its word records (`data W4`, `data W8`, `data W12`, `data W16`, `data DecPart`, `data BitProof`: one constructor of ℕ fields) in "
+       "domain/domain.lang");
+  return NULL;
+}
+
+/* The list NAME (R-E4): CTORS constructors, no parameter or index. A
+   domain without it refuses a host call. */
+static const Value *list_family(Checker *c, const char *name, uint32_t ctors) {
+  uint32_t i;
+  for (i = 0; i < c->m->family_count; i++) {
+    const FamilyInfo *f = &c->m->families[i];
+    if (strcmp(f->name, name) == 0 && f->param_count == 0u && f->index_count == 0u && f->ctor_count == ctors)
+      return val_make(c->m, OP_FAMILY, i, 0, NULL, NULL, NULL);
+  }
+  FAIL(c, "DOMAIN_FAMILY", "a host call needs its lists (`data Parts`, `data KeyList`) in domain/domain.lang");
+  return NULL;
+}
+
+/* The argument types of the host import PART in T, then the result type
+   at T[*N] (R-E2). 0 when the domain has no record or list for it. */
+static int host_types(Checker *c, uint32_t part, const Value **t, uint32_t *n) {
+  const Value *nat = nat_type(c);
+  const Value *w4 = word_record(c, "W4", 4u);
+  const Value *w16 = w4 == NULL || part < 2u ? NULL : word_record(c, "W16", 16u);
+  if (w4 == NULL || (part >= 2u && w16 == NULL))
+    return 0;
+  if (part == 0u) {
+    t[0] = w4;
+    t[1] = w4;
+    t[2] = w4;
+    *n = 2u;
+    return 1;
+  }
+  if (part == 1u) {
+    t[0] = word_record(c, "W8", 8u);
+    t[1] = t[0] == NULL ? NULL : word_record(c, "W12", 12u);
+    t[2] = w4;
+    t[3] = nat;
+    *n = 3u;
+    return t[1] != NULL;
+  }
+  if (part == 3u) {
+    t[0] = w16;
+    t[1] = w16;
+    t[2] = nat;
+    t[3] = w16;
+    *n = 3u;
+    return 1;
+  }
+  if (part == 5u) {
+    t[0] = list_family(c, "Parts", 2u);
+    t[2] = t[0] == NULL ? NULL : list_family(c, "KeyList", 2u);
+    t[1] = nat;
+    t[3] = nat;
+    t[4] = nat;
+    t[5] = w16;
+    t[6] = nat;
+    t[7] = w4;
+    *n = 7u;
+    return t[2] != NULL;
+  }
+  t[0] = part == 2u ? word_record(c, "BitProof", 48u) : word_record(c, "DecPart", 29u);
+  t[1] = t[0] == NULL ? NULL : word_record(c, "W8", 8u);
+  t[2] = w16;
+  t[3] = part == 2u ? w4 : nat;
+  t[4] = nat;
+  t[5] = nat;
+  *n = part == 2u ? 5u : 3u;
+  return t[1] != NULL;
+}
+
+/* A host import (O105). q_hash2 (import 0) : W4 → W4 → W4.
+   q_frost_verify (import 1) : W8 → W12 → W4 → ℕ, the FrostResult code
+   (R-C1). H5a (R-E2): q_ballot_verify (2) : BitProof → W8 → W16 → W4 → ℕ
+   → ℕ, the SigResult code; q_tally_add (3) : W16 → W16 → ℕ → W16;
+   q_partial_verify (4) : DecPart → W8 → W16 → ℕ (0 when the part
+   verifies, else 1); q_combine (5) : Parts → ℕ → KeyList → ℕ → ℕ → W16 →
+   ℕ → W4 (m, the ThrResult code, 0, 0). The node has one child for each
+   argument (core_op, R-E23). The checker treats the call as opaque. langc
+   eval and the Wasm host call the same C function. */
+static const Core *rule_host(Call *k) {
+  Checker *c = k->c;
+  const Value *t[8];
+  const Core *x[7];
+  uint32_t n = 0;
+  uint32_t i;
+  if (!host_types(c, k->b->part, t, &n))
+    return NULL;
+  for (i = 0; i < n; i++) {
+    x[i] = check(c, k->args[i], t[i]);
+    if (x[i] == NULL)
+      return NULL;
+  }
+  k->type = t[n];
+  return core_op(c, k->b->op, k->b->part, 0, x, n);
+
+}
+
 /* suc n: natAdd n 1 */
 static const Core *rule_suc(Call *k) {
   Checker *c = k->c;
@@ -1877,6 +1998,8 @@ static const Core *rule(Call *k) {
     return rule_transp(k);
   case RULE_HCOMP:
     return rule_hcomp(k);
+  case RULE_HOST:
+    return rule_host(k);
   }
   return NULL;
 }
@@ -3191,13 +3314,119 @@ int check_program(Arena *arena, const DeclList *decls, Machine *m, Diag *diag) {
   return 1;
 }
 
+/* O109 (i): TYPE is an input family. That is a family of
+   domain/domain.lang without parameters, indices or seal, with point
+   constructors only. Each field is ℕ, Bool, the family itself (LIST only)
+   or a record (an input family with LIST 0). A LIST family has a
+   constructor with one recursive field and no constructor with two. */
+static int input_family(Machine *m, const Value *type, int list) {
+  const FamilyInfo *fam;
+  const FieldInfo *f;
+  const Value *ft;
+  uint32_t recs = 0;
+  uint32_t r;
+  uint32_t c;
+  uint32_t k;
+  if (!val_is(type, OP_FAMILY) || type->inst >= m->family_count)
+    return 0;
+  fam = &m->families[type->inst];
+  if (fam->r1 != FAMILY_BASE || fam->param_count != 0u || fam->index_count != 0u || fam->sealed)
+    return 0;
+  for (c = fam->first_ctor; c < fam->first_ctor + fam->ctor_count; c++) {
+    if (m->ctors[c].depth != 0u)
+      return 0;
+    r = 0;
+    for (k = 0; k < m->ctors[c].field_count; k++) {
+      f = &m->ctors[c].fields[k];
+      ft = f->recursive ? NULL : eval_core(m, NULL, f->type);
+      r += f->recursive ? 1u : 0u;
+      if (!f->recursive && !val_is(ft, OP_NAT) && !val_is(ft, OP_FLAG) && !(list && input_family(m, ft, 0)))
+        return 0;
+    }
+    if (r > (uint32_t)list)
+      return 0;
+    recs += r;
+  }
+  return !list || recs > 0u;
+}
+
+/* The kind of an entry parameter of type DOM. */
+static EntryParam param_kind_of(const Value *dom) {
+  if (val_is(dom, OP_NAT))
+    return ENTRY_PARAM_NAT;
+  if (val_is(dom, OP_FLAG))
+    return ENTRY_PARAM_FLAG;
+  return ENTRY_PARAM_INPUT;
+}
+
+/* The decimal word at *P, then *P goes past it and past one comma. */
+static int next_word(const char **p, uint64_t *out) {
+  const char *s = *p;
+  uint64_t n = 0;
+  unsigned d;
+  if (*s < '0' || *s > '9')
+    return 0;
+  for (; *s >= '0' && *s <= '9'; s++) {
+    d = (unsigned)(*s - '0');
+    if (n > (UINT64_MAX - d) / 10u)
+      return 0;
+    n = n * 10u + d;
+  }
+  *p = *s == ',' ? s + 1 : s;
+  *out = n;
+  return 1;
+}
+
+static const Value *input_value(Machine *m, uint32_t family, const char **p);
+
+/* Field F of a block of FAMILY at *P. */
+static const Value *input_field(Machine *m, uint32_t family, const FieldInfo *f, const char **p) {
+  const Value *ft = f->recursive ? NULL : eval_core(m, NULL, f->type);
+  uint64_t w = 0;
+  if (f->recursive)
+    return input_value(m, family, p);
+  if (val_is(ft, OP_FAMILY))
+    return input_value(m, ft->inst, p);
+  if (!next_word(p, &w) || (val_is(ft, OP_FLAG) && w > 1u))
+    return NULL;
+  return val_is(ft, OP_FLAG) ? val_make(m, w == 1u ? OP_FLAG_YES : OP_FLAG_NO, 0, 0, NULL, NULL, NULL) : val_nat(m, w);
+}
+
+/* An input value of FAMILY at *P in the pre-order form: the tag of the
+   block, then each field (a ℕ in decimal, a Bool as 0 or 1, or a block),
+   comma-separated. "1,3,1,4,0" is push 3 (push 4 bottom). NULL when the
+   text does not fit. */
+static const Value *input_value(Machine *m, uint32_t family, const char **p) {
+  const FamilyInfo *fam = &m->families[family];
+  const CtorInfo *c;
+  const Value **args;
+  uint64_t tag = 0;
+  uint32_t k;
+  int ok = 1;
+  if (!next_word(p, &tag) || tag >= fam->ctor_count || m->depth >= EVAL_DEPTH_LIMIT)
+    return NULL;
+  c = &m->ctors[fam->first_ctor + (uint32_t)tag];
+  args = arena_alloc(m->arena, ((size_t)c->field_count + 1u) * sizeof *args);
+  if (args == NULL)
+    return NULL;
+  m->depth++;
+  for (k = 0; k < c->field_count && ok; k++) {
+    args[k] = input_field(m, family, &c->fields[k], p);
+    ok = args[k] != NULL;
+  }
+  m->depth--;
+  return ok ? val_op(m, VAL_OP, OP_CTOR, fam->first_ctor + (uint32_t)tag, 0, (const Value *const *)args, c->field_count)
+            : NULL;
+}
+
 int entry_of(Machine *m, const Value *type, Entry *out) {
   const Value *t = type;
   memset(out, 0, sizeof *out);
   while (t != NULL && t->kind == VAL_PI && out->param_count < ENTRY_PARAMS_MAX) {
-    if (!val_is(t->dom, OP_NAT) && !val_is(t->dom, OP_FLAG))
+    if (!val_is(t->dom, OP_NAT) && !val_is(t->dom, OP_FLAG) && !input_family(m, t->dom, 1))
       return 0;
-    out->param_flag[out->param_count] = val_is(t->dom, OP_FLAG);
+    out->param_kind[out->param_count] = param_kind_of(t->dom);
+    out->param_family[out->param_count] = t->dom->inst;
     t = closure_apply(m, t, val_var(m, out->param_count));
     out->param_count++;
   }
@@ -3220,14 +3449,25 @@ static int parse_u64(const char *s, uint64_t *out) {
   return 1;
 }
 
-/* An entry argument: a ℕ in decimal, or a Bool as 0 or 1. */
-static const Value *entry_arg(Machine *m, const char *text, int is_flag) {
+/* An entry argument: a ℕ in decimal, a Bool as 0 or 1, or an input in the
+   pre-order form (input_value). */
+static const Value *entry_arg(Machine *m, const char *text, EntryParam kind, uint32_t family) {
   uint64_t n = 0;
-  if (!parse_u64(text, &n) || (is_flag && n > 1u)) {
-    diag_fail(m->diag, "EVAL_ARGS", m->def, "'%s' is not a %s", text, is_flag ? "Bool (0 or 1)" : "ℕ (0 to 2^64-1)");
+  const char *p = text;
+  const Value *v = kind == ENTRY_PARAM_INPUT ? input_value(m, family, &p) : NULL;
+  if (kind == ENTRY_PARAM_INPUT && (v == NULL || *p != '\0')) {
+    diag_fail(m->diag, "EVAL_ARGS", m->def, "'%s' is not a %s (the tags and words in pre-order, comma-separated)", text,
+              m->families[family].name);
     return NULL;
   }
-  return is_flag ? val_make(m, n == 1u ? OP_FLAG_YES : OP_FLAG_NO, 0, 0, NULL, NULL, NULL) : val_nat(m, n);
+  if (kind == ENTRY_PARAM_INPUT)
+    return v;
+  if (!parse_u64(text, &n) || (kind == ENTRY_PARAM_FLAG && n > 1u)) {
+    diag_fail(m->diag, "EVAL_ARGS", m->def, "'%s' is not a %s", text,
+              kind == ENTRY_PARAM_FLAG ? "Bool (0 or 1)" : "ℕ (0 to 2^64-1)");
+    return NULL;
+  }
+  return kind == ENTRY_PARAM_FLAG ? val_make(m, n == 1u ? OP_FLAG_YES : OP_FLAG_NO, 0, 0, NULL, NULL, NULL) : val_nat(m, n);
 }
 
 static int print_result(Machine *m, const char *name, const Value *v, FILE *out, FILE *err) {
@@ -3292,7 +3532,7 @@ int eval_command(Machine *m, const char *name, char *const *args, int arg_count,
     return 2;
   }
   for (i = 0; i < entry.param_count && v != NULL; i++) {
-    const Value *arg = entry_arg(m, args[i], entry.param_flag[i]);
+    const Value *arg = entry_arg(m, args[i], entry.param_kind[i], entry.param_family[i]);
     v = arg == NULL ? NULL : apply_value(m, v, arg);
   }
   if (v == NULL)

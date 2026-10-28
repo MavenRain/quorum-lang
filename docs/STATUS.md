@@ -1,6 +1,6 @@
 # quorum-lang status
 
-The build implements slices S1 to S7 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S8 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
@@ -14,8 +14,10 @@ denotation and the denotational instances. S6 is the cryptography of sec
 and threshold decryption) and the C tool test/tallytool.c. S7 is the
 cryptography of sec 4.3 and 4.4 in src/crypto (SHA-256,
 expand_message_xmd, secp256k1, FROST, one DKG for both curves and the
-reshare) and the C tool test/frosttool.c. Slices S8 to S12 are not
-started. The next slice is S8.
+reshare) and the C tool test/frosttool.c. S8 is the Wasm replica of sec
+5 and the `amend_accept` check of sec 6 in replica/replica.lang, with
+the host-import ABI and the C host test/replicatool.c. Slices S9 to S12
+are not started. The next slice is S9.
 
 ## Implemented
 
@@ -104,6 +106,16 @@ started. The next slice is S8.
   the BN254 reshare row (O97): Q = {1, 3} of the S6 good dealing
   reshares the ElGamal key to (t' 3, n' 4), and the new {2, 3, 4} open
   an S6 cast under the old PK.
+- Replica (S8): replica/replica.lang is the Wasm replica (`docs/PLAN.md`
+  sec 5 and sec 6). build/replicatool runs build/replica.wasm through
+  wasm2c and gives the host imports of module "q" from src/crypto
+  (O105). `langc eval` links the same code. The exports check a
+  certificate chain (`cert_verify`, `rep_tip`), merge two chains
+  (`rep_merge`, `merge_tip`), apply a step (`step_apply`), run the FHE
+  tally route (`ballot_verify`, `tally_sum`, `partial_verify`,
+  `combine`) and check an amendment (`amend_accept`). The gate compares
+  `langc eval` with build/replicatool on the fixtures of test/replica/
+  (O113, O114).
 - Refusals: `List`, `cons`, `nil` and `unfold` give `REFUSE_CELL` (R1).
   A parameterized declaration that is not a cell signature, a type
   index, a record field of a type-constructor type and a coinductive
@@ -186,13 +198,31 @@ started. The next slice is S8.
   xmd and E.5 rows), the reshare coefficient wrong (g_i(0) = (λ + 1)
   s_i: the 5 V-1 denAuth4 `rep` lines give 0, and `reshare good` gives
   DKG_BAD_RESHARE). The `rep` lines and the frosttool rows kill them.
+- Gate counts at S8: 104 files canonical under `fmt`, 29 JSON fixtures,
+  36 codes with a fixture or a row, 54 check refusals, 9 parse refusals,
+  77 evaluations, 14 tally cases with 28 counts and 0 mismatches, 24
+  auth cases with 0 mismatches, 2 host rows, 4 input rows, 25 replica
+  cases with 0 mismatches (a history of 4 steps with tip 4, 3 merge rows
+  with tip 4, 3 apply rows with state 4), 19 route cases with 0
+  mismatches, 14 replica tally cases with 0 mismatches, 1 of 1 accepted,
+  8 of 8 refusals, 5318 differential cases with 0 mismatches, 19 IR
+  lowerings, 22 Wasm modules valid, 12 of 12 laws discharged
+  (examples/threshold.lang) and 1 of 1 (examples/denote.lang).
+- Mutants at S8 (3 of 3 killed): the fork check skipped (`mergeCode`
+  without the digest compare: the fork row gives 0, not REP_FORK), the
+  `Core` check skipped (`amendCore` gives 0: the corebrk row gives 0,
+  not AMEND_CORE), the fragment check skipped (the fragment fold
+  replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED). The
+  history and amend loops of test/gate.sh kill them.
 
 ## Remaining work
 
-1. S8 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
+1. S9 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
    Q14 must be ruled before S10 and Q15 before S11.
-2. The O items O14 to O103 (`docs/PLAN.md` sec 10) are Claude readings.
-   The USER can rule each one.
+2. The O items O14 to O116 (`docs/PLAN.md` sec 10) are Claude readings,
+   but the USER ruled O109 (i). The USER can rule each one.
+   `docs/PLAN.md` sec 5 (S8 readings) names the S8 session readings that
+   are NOT ruled.
 
 ## Known limits
 
@@ -240,6 +270,14 @@ started. The next slice is S8.
   is a test tool, not a signer. The DKG and the reshare are t of n with
   n at most 8 (`THR_N_MAX`). frost_aggregate does not check t: the
   coordinator must check it (O94).
+- Replica (S8): build/replicatool needs wasm2c (WABT) and TCC, and the
+  wasm2c translation needs the shim src/w2c-tcc.h (TCC has no
+  `__builtin_add_overflow`). `make check-clang` does not compile
+  test/replicatool.c. The fragment check of `amend_accept` keeps at most
+  4 code pairs on its stack: a deeper term gives AMEND_ILL_TYPED (O111).
+  One frost_verify takes about 0.1 s. A tally combine row takes about 3
+  s of user time on each side (O116; the USER ruling R-E37 (a) accepts
+  the time).
 - Names: S2 has no qualified names. A module name is not a global name
   (O35).
 

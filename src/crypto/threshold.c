@@ -185,3 +185,42 @@ ThrResult thr_open(uint64_t *m, const ThrPart *parts, uint32_t k, const G1 *keys
   }
   return res;
 }
+
+/* The part at BE (29 words, R-E25): 1 when d, a and b decode. X becomes
+   0 when the word is 0 or above THR_N_MAX. */
+static int part_be(ThrPart *p, const unsigned char *be) {
+  uint64_t x = 0;
+  uint32_t i;
+  for (i = 0; i < 8u; i++) x = x << 8 | be[i];
+  p->x = x == 0u || x > THR_N_MAX ? 0u : (uint32_t)x;
+  u256_from_be(&p->z, be + 200);
+  return g1_from_be(&p->d, be + 8) && g1_from_be(&p->a, be + 72) && g1_from_be(&p->b, be + 136);
+}
+
+int thr_verify_be(const unsigned char *part, const unsigned char *key, const unsigned char *ct) {
+  ThrPart p;
+  G1 k;
+  ElgCipher c;
+  if (!part_be(&p, part) || p.x == 0u || !g1_from_be(&k, key) || !g1_from_be(&c.c1, ct) || !g1_from_be(&c.c2, ct + 64))
+    return 1;
+  return thr_verify(&p, &k, &c) ? 0 : 1;
+}
+
+ThrResult thr_open_be(uint64_t *m, const unsigned char *parts, uint32_t have_parts, const unsigned char *keys, uint32_t have_keys, const unsigned char *ct, uint64_t k, uint64_t t, uint64_t n, uint64_t bits) {
+  ThrPart p[THR_N_MAX];
+  G1 g[THR_N_MAX];
+  ElgCipher c;
+  uint32_t i;
+  *m = 0;
+  if (have_parts != k || have_keys != n || k > THR_N_MAX || t > THR_N_MAX || n > THR_N_MAX || bits > 64u)
+    return THR_REFUSED;
+  for (i = 0; i < have_parts; i++)
+    if (!part_be(&p[i], parts + 232u * i))
+      return THR_REFUSED;
+  for (i = 0; i < have_keys; i++)
+    if (!g1_from_be(&g[i], keys + 64u * i))
+      return THR_REFUSED;
+  if (!g1_from_be(&c.c1, ct) || !g1_from_be(&c.c2, ct + 64))
+    return THR_REFUSED;
+  return thr_open(m, p, have_parts, g, (uint32_t)t, have_keys, &c, (uint32_t)bits);
+}

@@ -65,6 +65,10 @@ int g1_on_curve(const G1 *p);
    point is not on the curve (the 0x06 and 0x07 failure). */
 int g1_from_words(G1 *out, const U256 *x, const U256 *y);
 void g1_to_words(U256 *x, U256 *y, const G1 *p);
+/* g1_from_words over the 8 host words at BE (x, then y; R-E26). */
+int g1_from_be(G1 *out, const unsigned char *be);
+/* g1_to_words to the 8 host words at BE (x, then y). */
+void g1_to_be(unsigned char *be, const G1 *p);
 /* Each operation takes points on the curve. OUT can be A or B. */
 void g1_add(G1 *out, const G1 *a, const G1 *b);
 void g1_double(G1 *out, const G1 *a);

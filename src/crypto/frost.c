@@ -302,3 +302,13 @@ FrostResult frost_verify(const unsigned char sig[FROST_SIG_BYTES], const G1 *pk,
   secp_add(&right, &r, &cpk);
   return secp_eq(&left, &right) ? FROST_OK : FROST_BAD_SIG;
 }
+
+FrostResult frost_verify_xy(const unsigned char pk[64], const unsigned char sig[96], const unsigned char msg[32]) {
+  unsigned char enc[FROST_SIG_BYTES];
+  G1 p;
+  G1 r;
+  if (!secp_from_xy(&p, pk) || !secp_from_xy(&r, sig) || !secp_encode(enc, &r))
+    return FROST_BAD_POINT;
+  memcpy(enc + 33, sig + 64, 32);
+  return frost_verify(enc, &p, msg, 32);
+}

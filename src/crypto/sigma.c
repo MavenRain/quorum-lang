@@ -315,3 +315,19 @@ SigResult sig_onehot_verify(const ElgCipher *cts, const SigOr *slots, const SigD
   /* Without the sum proof, two slots that encrypt 1 pass. */
   return sig_rand_verify(sum, pk, &total, &one, ctx);
 }
+
+SigResult sig_or_verify_be(const unsigned char *proof, const unsigned char *pk, const unsigned char *ct, const unsigned char *ctx, uint64_t j) {
+  SigOr p;
+  G1 key;
+  ElgCipher c;
+  U256 x;
+  if (j > UINT32_MAX || !g1_from_be(&p.a0, proof) || !g1_from_be(&p.b0, proof + 64) || !g1_from_be(&p.a1, proof + 128) ||
+      !g1_from_be(&p.b1, proof + 192) || !g1_from_be(&key, pk) || !g1_from_be(&c.c1, ct) || !g1_from_be(&c.c2, ct + 64))
+    return SIG_REFUSED;
+  u256_from_be(&p.e0, proof + 256);
+  u256_from_be(&p.e1, proof + 288);
+  u256_from_be(&p.z0, proof + 320);
+  u256_from_be(&p.z1, proof + 352);
+  u256_from_be(&x, ctx);
+  return sig_or_verify(&p, &key, &c, &x, (uint32_t)j);
+}

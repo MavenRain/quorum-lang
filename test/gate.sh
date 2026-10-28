@@ -325,6 +325,151 @@ echo "differential: $cases cases, $mismatches mismatches"
 # A Flag argument larger than 1 traps (langc eval refuses it with EVAL_ARGS).
 got=$(node test/run-wasm.mjs "$tmp/entries.wasm" pick 2 4 9 2>&1) || true
 [ "$got" = "trap" ] || { echo "FAIL wasm pick 2 4 9: want trap, got $got"; fail=$((fail + 1)); }
+# The host import q_hash2 (O105). langc eval and the Wasm module under
+# build/replicatool give the same 4 words. The digest is the SHA-256 of
+# the 64 bytes: the word x 8 times, each 8 bytes big endian.
+hosts=0
+for x in 0 1; do
+  want=$(for k in 0 1 2 3; do build/langc eval replica/replica.lang "hash$k" "$x"; done | paste -sd ' ' -)
+  sum=$(printf "\\000\\000\\000\\000\\000\\000\\000\\00$x%.0s" 1 2 3 4 5 6 7 8 | shasum -a 256 | awk '{print $1}')
+  got=$(build/replicatool hash "$x" 2>&1) || true
+  hosts=$((hosts + 1))
+  [ "$got" = "$want $sum" ] || { echo "FAIL host hash $x: want $want $sum, got $got"; fail=$((fail + 1)); }
+done
+got=$(build/replicatool hash 0 2>&1 | awk '{print $5}')
+[ "$got" = "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b" ] ||
+  { echo "FAIL host hash 0: want the known digest, got $got"; fail=$((fail + 1)); }
+echo "host: $hosts rows"
+# The input entries (O109 (i)). build/replicatool writes a Stack below
+# heap_base. langc eval reads the same Stack in the pre-order form.
+inputs=0
+for xs in "" "5" "3 4" "1 2 3 4 5 6 7"; do
+  pre="$(for x in $xs; do printf '1,%s,' "$x"; done)0"
+  want=$(for e in total chain0 chain1 chain2 chain3; do build/langc eval replica/replica.lang "$e" "$pre"; done | paste -sd ' ' -)
+  got=$(build/replicatool stack $xs 2>&1) || true
+  inputs=$((inputs + 1))
+  [ "$got" = "$want" ] || { echo "FAIL input stack '$xs': want $want, got $got"; fail=$((fail + 1)); }
+done
+rc=0
+build/langc eval replica/replica.lang total 1,3 > /dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || { echo "FAIL input: the text 1,3 gave rc $rc, want 2 (EVAL_ARGS)"; fail=$((fail + 1)); }
+echo "input: $inputs rows"
+# The certificate chain (R-C12) and the merge (R-D8). build/frosttool chain
+# writes the 25 lines of test/replica/history.txt: ROW ENTRY WANT X0 .. Y3
+# PRE. PRE is one chain text, two (rep_merge, merge_tip), or a state and a
+# chain text (step_apply), so $pre is not quoted. langc eval and
+# build/replicatool chain give WANT for each line (R-C19).
+build/frosttool chain > "$tmp/history.txt" 2>&1 || true
+cmp -s "$tmp/history.txt" test/replica/history.txt ||
+  { echo "FAIL replica history: build/frosttool chain is not test/replica/history.txt"; fail=$((fail + 1)); }
+replicas=0
+replica_bad=0
+hrows=0
+tip=none
+refused=0
+mrows=0
+mtip=none
+arows=0
+astate=none
+while read -r row entry want x0 x1 x2 x3 y0 y1 y2 y3 pre; do
+  a=$(build/langc eval replica/replica.lang "$entry" "$x0" "$x1" "$x2" "$x3" "$y0" "$y1" "$y2" "$y3" $pre < /dev/null 2>&1) || true
+  b=$(build/replicatool chain "$entry" "$x0" "$x1" "$x2" "$x3" "$y0" "$y1" "$y2" "$y3" $pre < /dev/null 2>&1) || true
+  replicas=$((replicas + 1))
+  if [ "$a" != "$want" ] || [ "$b" != "$want" ]; then
+    echo "FAIL replica $row $entry: want $want, langc eval $a, replicatool $b"
+    replica_bad=$((replica_bad + 1))
+    fail=$((fail + 1))
+  fi
+  case "$row $entry" in
+    "h"*" rep_tip") hrows=$((hrows + 1)) ;;
+    "m"*" merge_tip") mrows=$((mrows + 1)) ;;
+    "ap"*" step_apply") arows=$((arows + 1)) ;;
+  esac
+  case "$row $entry $b" in
+    "h4 rep_tip "*) tip=$b ;;
+    "mAB merge_tip "*) mtip=$b ;;
+    "ap4 step_apply "*) astate=$b ;;
+    "badsig cert_verify 1" | "badlink cert_verify 2" | "fork rep_merge 3") refused=$((refused + 1)) ;;
+  esac
+done < test/replica/history.txt
+# The tally route (R-E11, R-E13). build/tallytool lang writes the 19 lines
+# of test/replica/tally.txt: ROW ENTRY WANT X0 .. Y3 B P K (B, P and K are
+# list texts). langc eval and build/replicatool tally give WANT for each
+# line. The WANT of each combine row tcLEN_C is the count of the J = 1 line
+# of the same ballots in $tmp/rep (S6, R-E5).
+build/tallytool lang > "$tmp/tally.txt" 2>&1 || true
+cmp -s "$tmp/tally.txt" test/replica/tally.txt ||
+  { echo "FAIL replica tally: build/tallytool lang is not test/replica/tally.txt"; fail=$((fail + 1)); }
+routes=0
+route_bad=0
+tallies=0
+tally_bad=0
+while read -r row entry want x0 x1 x2 x3 y0 y1 y2 y3 tb tp tk; do
+  a=$(build/langc eval replica/replica.lang "$entry" "$x0" "$x1" "$x2" "$x3" "$y0" "$y1" "$y2" "$y3" "$tb" "$tp" "$tk" < /dev/null 2>&1) || true
+  b=$(build/replicatool tally "$entry" "$x0" "$x1" "$x2" "$x3" "$y0" "$y1" "$y2" "$y3" "$tb" "$tp" "$tk" < /dev/null 2>&1) || true
+  routes=$((routes + 1))
+  if [ "$a" != "$want" ] || [ "$b" != "$want" ]; then
+    echo "FAIL replica route $row $entry: want $want, langc eval $a, replicatool $b"
+    route_bad=$((route_bad + 1))
+    fail=$((fail + 1))
+  fi
+  case "$row $entry" in
+    "tc"*" combine")
+      tlen=${row#tc}
+      tlen=${tlen%_*}
+      tcase=${row#*_}
+      tkey="denote denCount$tlen 1"
+      ti=$tlen
+      while [ "$ti" -gt 0 ]; do
+        ti=$((ti - 1))
+        tkey="$tkey $(( (tcase >> ti) & 1 ))"
+      done
+      srep=$(awk -v k="$tkey => " 'index($0, k) == 1 { print substr($0, length(k) + 1) }' "$tmp/rep")
+      tallies=$((tallies + 1))
+      [ "$srep" = "$want" ] ||
+        { echo "FAIL replica tally $row: want $want, the S6 rep line gives $srep"; tally_bad=$((tally_bad + 1)); fail=$((fail + 1)); }
+      ;;
+  esac
+  case "$row $entry $b" in
+    "badballot ballot_verify 7" | "badpart partial_verify 8") refused=$((refused + 1)) ;;
+  esac
+done < test/replica/tally.txt
+# The amend check (R-E19, R-E20). Each line of test/replica/amend.txt is
+# ROW WANT TEXT: TEXT is the eval text of a Stack of opcode words, the
+# last opcode first (R-E14). langc eval and build/replicatool amend give
+# WANT.
+amends=0
+accepted=0
+while read -r row want text; do
+  a=$(build/langc eval replica/replica.lang amend_accept "$text" < /dev/null 2>&1) || true
+  b=$(build/replicatool amend "$text" < /dev/null 2>&1) || true
+  amends=$((amends + 1))
+  if [ "$a" != "$want" ] || [ "$b" != "$want" ]; then
+    echo "FAIL replica amend $row: want $want, langc eval $a, replicatool $b"
+    fail=$((fail + 1))
+  fi
+  case "$row $b" in
+    "ill 4" | "notfhe 5" | "corebrk 6") refused=$((refused + 1)) ;;
+    "accept 0") accepted=$((accepted + 1)) ;;
+  esac
+done < test/replica/amend.txt
+[ "$replicas" = 25 ] || { echo "FAIL replica: $replicas lines, want 25"; fail=$((fail + 1)); }
+[ "$tip" = 4 ] || { echo "FAIL replica history: tip $tip, want 4"; fail=$((fail + 1)); }
+[ "$mrows $mtip" = "3 4" ] || { echo "FAIL replica merge: $mrows rows, tip $mtip, want 3 rows, tip 4"; fail=$((fail + 1)); }
+[ "$arows $astate" = "3 4" ] || { echo "FAIL replica apply: $arows rows, state $astate, want 3 rows, state 4"; fail=$((fail + 1)); }
+[ "$routes" = 19 ] || { echo "FAIL replica route: $routes lines, want 19"; fail=$((fail + 1)); }
+[ "$tallies" = 14 ] || { echo "FAIL replica tally: $tallies combine rows, want 14"; fail=$((fail + 1)); }
+[ "$amends" = 4 ] || { echo "FAIL replica amend: $amends lines, want 4"; fail=$((fail + 1)); }
+[ "$accepted" = 1 ] || { echo "FAIL replica accept: $accepted of 1"; fail=$((fail + 1)); }
+[ "$refused" = 8 ] || { echo "FAIL replica refusals: $refused of 8"; fail=$((fail + 1)); }
+echo "replica: $replicas cases, $replica_bad mismatches"
+echo "replica history: $((hrows - 1)) steps, tip $tip"
+echo "replica merge: $mrows rows, tip $mtip"
+echo "replica apply: $arows rows, state $astate"
+echo "replica route: $routes cases, $route_bad mismatches"
+echo "replica tally: $tallies cases, $tally_bad mismatches"
+echo "replica accept: $accepted of 1"
+echo "replica refusals: $refused of 8"
 rm -rf "$tmp"
 
 # design/DESIGN.md is verbatim and can hold a dash (as bridge-lang, ruling 2026-10-09).

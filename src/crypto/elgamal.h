@@ -58,5 +58,10 @@ ElgResult elg_decrypt(uint64_t *m, const U256 *sk, const ElgCipher *ct, uint32_t
 /* New C (S6 H2b): the tally of K slots, slot by slot: OUT[j] = the sum of
    A[j] and B[j] by elg_add for j < K. OUT can be A or B. */
 void tally_add(ElgCipher *out, const ElgCipher *a, const ElgCipher *b, uint32_t k);
+/* tally_add with k = 1 over the host words (R-E8): A, B and OUT are 16
+   words (c1, then c2: x, then y), each 8 bytes big endian. The all-zero
+   cipher is the zero (EIP-196). OUT gets 16 zero words when K is not 1 or
+   a point does not decode (R-E6). */
+void tally_add_be(unsigned char *out, const unsigned char *a, const unsigned char *b, uint64_t k);
 
 #endif

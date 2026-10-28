@@ -418,3 +418,19 @@ void scalar_reduce(U256 *out, const U256 *x) {
   while (u256_cmp(out, &r) >= 0)
     u256_sub(out, out, &r);
 }
+
+int g1_from_be(G1 *out, const unsigned char *be) {
+  U256 x;
+  U256 y;
+  u256_from_be(&x, be);
+  u256_from_be(&y, be + 32);
+  return g1_from_words(out, &x, &y);
+}
+
+void g1_to_be(unsigned char *be, const G1 *p) {
+  U256 x;
+  U256 y;
+  g1_to_words(&x, &y, p);
+  u256_to_be(be, &x);
+  u256_to_be(be + 32, &y);
+}

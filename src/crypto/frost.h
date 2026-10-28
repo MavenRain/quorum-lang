@@ -103,4 +103,10 @@ FrostResult frost_aggregate(unsigned char sig[FROST_SIG_BYTES], const Fe z[], co
    FROST_BAD_MSG. */
 FrostResult frost_verify(const unsigned char sig[FROST_SIG_BYTES], const G1 *pk, const unsigned char *msg,
                          size_t msg_len);
+/* NEW (quorum-lang S8, O105, R-C2): frost_verify over the word records of
+   the host import q_frost_verify. PK is x, then y; SIG is R (x, then y),
+   then z; MSG is 32 bytes; each value is 32 big endian bytes.
+   FROST_BAD_POINT when PK or R does not decode (secp_from_xy) or R is the
+   identity. */
+FrostResult frost_verify_xy(const unsigned char pk[64], const unsigned char sig[96], const unsigned char msg[32]);
 #endif

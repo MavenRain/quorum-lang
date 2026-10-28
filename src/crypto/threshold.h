@@ -88,5 +88,17 @@ void thr_lagrange(U256 *out, const ThrPart *parts, uint32_t k, uint32_t i);
    elg_log on C2 - sum lambda_i D_i. A K above T uses all K parts. *M gets m
    on THR_FOUND. */
 ThrResult thr_open(uint64_t *m, const ThrPart *parts, uint32_t k, const G1 *keys, uint32_t t, uint32_t n, const ElgCipher *ct, uint32_t bits);
+/* thr_verify over the host words (R-E8, R-E25): PART is 29 words (x, then
+   d, a, b: x, then y; then z), KEY 8 words, CT 16 words, each 8 bytes big
+   endian. 0 when the part verifies, else 1 (also when x is 0 or above
+   THR_N_MAX, or a point does not decode). */
+int thr_verify_be(const unsigned char *part, const unsigned char *key, const unsigned char *ct);
+/* thr_open over the host words (R-E8, R-E28): PARTS is HAVE_PARTS parts
+   of 29 words, KEYS is HAVE_KEYS keys of 8 words, CT 16 words. *M gets 0
+   first. THR_REFUSED when HAVE_PARTS is not K, HAVE_KEYS is not N, K, T
+   or N is above THR_N_MAX, BITS is above 64, or a point does not decode.
+   A part x of 0 or above THR_N_MAX becomes 0 (thr_open then gives
+   THR_BAD_INDEX). Else the result of thr_open. */
+ThrResult thr_open_be(uint64_t *m, const unsigned char *parts, uint32_t have_parts, const unsigned char *keys, uint32_t have_keys, const unsigned char *ct, uint64_t k, uint64_t t, uint64_t n, uint64_t bits);
 
 #endif
