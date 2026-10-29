@@ -1,0 +1,38 @@
+-- Agent example 4 of 5 (S9 O126): an amendment keeps Core. The rules are
+-- a pair (t , n): the threshold t and the count n of members. Core holds
+-- when 1 is at most t and t is at most n. The amendment adds one member
+-- and adds 1 to the threshold. The laws show that it keeps Core.
+
+-- atMost m n is true when m is at most n.
+atMost : ℕ -> ℕ -> Bool
+atMost m n = elim (\ (k : ℕ) -> ℕ -> Bool) (\ (j : ℕ) -> true) (\ (k : ℕ) (ih : ℕ -> Bool) (j : ℕ) -> elim (\ (i : ℕ) -> Bool) false (\ (i : ℕ) (r : Bool) -> ih i) j) m n
+
+both : Bool -> Bool -> Bool
+both a b = elim (\ (c : Bool) -> Bool) b false a
+
+absurd : false ≡ true -> (C : Type) -> C
+absurd p C = primTransp (\ i -> elim (\ (b : Bool) -> Type) C ℕ (p i)) i0 0
+
+Rules : Type
+Rules = ℕ × ℕ
+
+core : Rules -> Bool
+core s = both (atMost 1 (fst s)) (atMost (fst s) (snd s))
+
+CoreHolds : Rules -> Type
+CoreHolds s = core s ≡ true
+
+amend : Rules -> Rules
+amend s = suc (fst s) , suc (snd s)
+
+-- When both a b is true, b is true.
+bothRight : (a : Bool) -> (b : Bool) -> both a b ≡ true -> b ≡ true
+bothRight a b = elim (\ (c : Bool) -> both c b ≡ true -> b ≡ true) (\ (h : b ≡ true) -> h) (\ (h : false ≡ true) -> absurd h (b ≡ true)) a
+
+-- The amendment of (2 , 3) is (3 , 4), and Core holds for it.
+law amend-example : CoreHolds (amend (2 , 3))
+amend-example = refl
+
+-- The amendment keeps Core.
+law amend-keeps-core : (s : Rules) -> CoreHolds s -> CoreHolds (amend s)
+amend-keeps-core s h = bothRight (atMost 1 (fst s)) (atMost (fst s) (snd s)) h

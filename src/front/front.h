@@ -10,6 +10,11 @@
 extern const unsigned char domain_source[];
 extern const size_t domain_source_len;
 
+/* build/prelude.c holds the bytes of lib/prelude.lang (gen/embed.c).
+   `langc explain` checks it (O119). */
+extern const unsigned char prelude_source[];
+extern const size_t prelude_source_len;
+
 /* Parses the embedded domain file, then the program, into one list. */
 int front_load(Arena *arena, const char *source, const char *text, size_t len, DeclList *out, Diag *diag);
 

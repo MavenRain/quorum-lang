@@ -1,0 +1,1 @@
+{"name":"sym","kind":"defined","type":"(A : Type) → (x : A) → (y : A) → x ≡ y → y ≡ x","class":null,"slice":"S3"}

@@ -22,11 +22,17 @@ run target is a Wasm replica. Each design law is a guest theorem that
 
 ## Status
 
-S1: the kit core on an Agda-like Unicode surface (docs/GRAMMAR.md), with
-`langc fmt`, `langc check --json` and stable diagnostic codes
-(docs/DIAGNOSTICS.md). No design name (Ballot, Quorum, Authorized and
-the others) is in the checker yet. docs/PLAN.md sec 9 lists the slices,
-and docs/PLAN.md sec 7 maps agent adoption to deliverables.
+S1 to S9 are done. The checker has the Agda-like Unicode surface
+(docs/GRAMMAR.md), `langc fmt`, `langc check --json` and stable
+diagnostic codes (docs/DIAGNOSTICS.md). The base names of the design
+(Ballot, Quorum, Authorized and the others) are in the checker, and the
+design laws are guest theorems. S6 and S7 add the cryptography
+(src/crypto/). S8 adds the Wasm replica and self-amendment. S9 adds the
+agent kit: `langc explain`, `langc mcp`, skills/quorum-lang/SKILL.md, the
+5 programs of examples/agent/, docs/TOKEN-BASELINE.md and
+corpus/INDEX.md. docs/PLAN.md sec 9 lists the slices, and docs/PLAN.md
+sec 7 maps agent adoption to deliverables. S10 to S12 are not started.
+The next slice is S10.
 
 ## Tool loop
 
@@ -35,9 +41,16 @@ and docs/PLAN.md sec 7 maps agent adoption to deliverables.
 - `build/langc check --json FILE.lang`: one JSON line for each
   diagnostic, then the parsed and typed counts.
 - `build/langc fmt FILE.lang`: print the canonical text.
+- `build/langc laws FILE.lang`: one line for each law, then `laws: D of
+  T discharged`.
+- `build/langc explain [--json] NAME` and `build/langc list-base`: the
+  base names.
+- `build/langc mcp`: the tools of the loop as a JSON-RPC 2.0 server on
+  stdin and stdout.
 - The kit verbs: `eval`, `ir`, `abi` and `build`.
 
-AGENTS.md gives the loop for an agent.
+AGENTS.md gives the loop for an agent. skills/quorum-lang/SKILL.md gives
+the same loop as a skill.
 
 ## Build and test
 
@@ -58,6 +71,9 @@ The gate needs tcc, clang, node, wasm-validate, wasm-objdump and wasm2c
 - src/crypto/sha256.c, xmd.c, secp256k1.c and frost.c: SHA-256, expand_message_xmd, secp256k1 and FROST(secp256k1, SHA-256) (S7); dkg.c also reshares. test/frosttool.c: their C rows and the `rep` mode.
 - replica/replica.lang: the Wasm replica (S8): the certificate chain check, merge and tip, the FHE tally route and `amend_accept`. test/replicatool.c: the C host that runs build/replica.wasm through wasm2c with the src/crypto host imports; src/w2c-tcc.h is the TCC shim for the translation. test/replica/history.txt, tally.txt and amend.txt: the replica fixtures.
 - examples/, test/: guest programs and gate fixtures.
+- examples/agent/: the 5 programs for an agent (S9). skills/quorum-lang/SKILL.md: the agent skill (S9).
+- docs/TOKEN-BASELINE.md: the token baseline (S9), with test/tokproxy.c (the token proxy) and test/baseline/ (the samples).
+- corpus/INDEX.md: the labels of each `.lang` file in examples/ and test/ (S9).
 
 ## License
 

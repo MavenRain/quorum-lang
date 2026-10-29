@@ -1,0 +1,30 @@
+-- Agent example 3 of 5 (S9 O126): a reveal needs a quorum. A private
+-- tally stays sealed. revealAt opens it only when at least t of the 3 key
+-- holders give their share. A result is a flag and a value. Without a
+-- quorum, the flag is false and the value is 0, thus the result tells
+-- nothing about the tally.
+
+-- flagN b n adds 1 to n when the flag b is true.
+flagN : Bool → ℕ → ℕ
+flagN b n = elim (λ (c : Bool) → ℕ) (suc n) n b
+
+-- atMost m n is true when m is at most n.
+atMost : ℕ → ℕ → Bool
+atMost m n = elim (λ (k : ℕ) → ℕ → Bool) (λ (j : ℕ) → true) (λ (k : ℕ) (ih : ℕ → Bool) (j : ℕ) → elim (λ (i : ℕ) → Bool) false (λ (i : ℕ) (r : Bool) → ih i) j) m n
+
+pick : Bool → ℕ → ℕ → ℕ
+pick b x y = elim (λ (c : Bool) → ℕ) x y b
+
+quorum : ℕ → Bool → Bool → Bool → Bool
+quorum t k1 k2 k3 = atMost t (flagN k1 (flagN k2 (flagN k3 0)))
+
+revealAt : ℕ → Bool → Bool → Bool → ℕ → Bool × ℕ
+revealAt t k1 k2 k3 x = quorum t k1 k2 k3 , pick (quorum t k1 k2 k3) x 0
+
+-- Key holders 1 and 3 give their share: the tally 7 opens.
+law reveal-quorum : revealAt 2 true false true 7 ≡ (true , 7)
+reveal-quorum = refl
+
+-- One share is not a quorum: the result is the same for each tally.
+law sealed-blind : (x : ℕ) → (y : ℕ) → revealAt 2 false false true x ≡ revealAt 2 false false true y
+sealed-blind x y = refl

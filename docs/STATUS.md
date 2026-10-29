@@ -1,6 +1,6 @@
 # quorum-lang status
 
-The build implements slices S1 to S8 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S9 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
@@ -16,8 +16,11 @@ cryptography of sec 4.3 and 4.4 in src/crypto (SHA-256,
 expand_message_xmd, secp256k1, FROST, one DKG for both curves and the
 reshare) and the C tool test/frosttool.c. S8 is the Wasm replica of sec
 5 and the `amend_accept` check of sec 6 in replica/replica.lang, with
-the host-import ABI and the C host test/replicatool.c. Slices S9 to S12
-are not started. The next slice is S9.
+the host-import ABI and the C host test/replicatool.c. S9 is the agent
+kit: `langc explain --json`, `langc mcp`, skills/quorum-lang/SKILL.md,
+the grammar card in docs/GRAMMAR.md, the 5 programs of examples/agent/,
+docs/TOKEN-BASELINE.md, corpus/INDEX.md and the AGENTS.md refresh.
+Slices S10 to S12 are not started. The next slice is S10.
 
 ## Implemented
 
@@ -116,6 +119,18 @@ are not started. The next slice is S9.
   `combine`) and check an amendment (`amend_accept`). The gate compares
   `langc eval` with build/replicatool on the fixtures of test/replica/
   (O113, O114).
+- Agent kit (S9): `langc explain --json NAME` prints one JSON line for a
+  name (O119). `langc mcp` is an MCP stdio server (JSON-RPC 2.0, O121,
+  O122): its tools include `check`, `explain` and `list-base` (the names
+  of src/front/basenames.c), and src/front/jsonin.c reads the requests
+  (O123). skills/quorum-lang/SKILL.md is the agent skill (O124): it has
+  6 byte copies of repo files, and the gate compares each copy with its
+  source. docs/GRAMMAR.md has the grammar card (`## Card`, O125).
+  examples/agent/ has 5 programs, graded 1 to 5 (O126).
+  docs/TOKEN-BASELINE.md gives the token cost of 3 tasks (O127;
+  test/tokproxy.c, test/baseline/). corpus/INDEX.md gives the labels of
+  each `.lang` file in examples/ and test/ (O128). AGENTS.md and
+  README.md have the S9 text (O129).
 - Refusals: `List`, `cons`, `nil` and `unfold` give `REFUSE_CELL` (R1).
   A parameterized declaration that is not a cell signature, a type
   index, a record field of a type-constructor type and a coinductive
@@ -214,15 +229,40 @@ are not started. The next slice is S9.
   not AMEND_CORE), the fragment check skipped (the fragment fold
   replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED). The
   history and amend loops of test/gate.sh kill them.
+- Gate counts at S9: 110 files canonical under `fmt`, 29 JSON fixtures,
+  36 codes with a fixture or a row, 54 check refusals, 9 parse refusals,
+  77 evaluations, 19 examples checked with 0 failed, 10 agent verbs with
+  0 missing, 13 explain fixtures, 152 base names with 0 missing, 15 MCP
+  requests with 0 mismatches, 6 SKILL.md copies with 0 drift, 5 agent
+  examples with 13 of 13 laws, 3 token tasks with 12 cells, 135 corpus
+  files with 0 mismatches, 5 README yes rows with 0 without a slice, the
+  S8 tally, auth, host, input and replica counts (unchanged), 5318
+  differential cases with 0 mismatches, 19 IR lowerings, 22 Wasm modules
+  valid, 12 of 12 laws discharged (examples/threshold.lang) and 1 of 1
+  (examples/denote.lang).
+- Mutants at S9 (3 of 3 killed). Each restore gives cmp rc 0 and the
+  same sha.
+  - M1: the explain printer drops `"type"` (src/main.c). The mcp block
+    of test/gate.sh gives `mcp: 15 requests, 1 mismatches`.
+  - M2: one line of the SKILL.md copy of
+    examples/agent/03-threshold-reveal.lang changes. The skill block
+    gives `skill: 6 copies, 1 drift`.
+  - M3: the list-base table (src/front/basenames.c) loses the row `Set`.
+    The base block gives `base: 152 names, 1 missing`.
+- Speed at S9 (O132): in the CLEAN run of the S9 mutant script
+  (W/mut-s9.py), the mcp block took 0.05 s (target less than 1 s), the
+  explain block 0.27 s (target less than 1 s) and the 9 S9 blocks
+  (test/gate.sh :228 to :419) 2.76 s (target less than 10 s). Each
+  target is met.
 
 ## Remaining work
 
-1. S9 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
+1. S10 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
    Q14 must be ruled before S10 and Q15 before S11.
-2. The O items O14 to O116 (`docs/PLAN.md` sec 10) are Claude readings,
+2. The O items O14 to O134 (`docs/PLAN.md` sec 10) are Claude readings,
    but the USER ruled O109 (i). The USER can rule each one.
-   `docs/PLAN.md` sec 5 (S8 readings) names the S8 session readings that
-   are NOT ruled.
+   `docs/PLAN.md` sec 5 (S8 readings) and sec 7 (S9 readings) name the
+   session readings that are NOT ruled.
 
 ## Known limits
 
@@ -280,6 +320,12 @@ are not started. The next slice is S9.
   the time).
 - Names: S2 has no qualified names. A module name is not a global name
   (O35).
+- Tokens (S9, A13): in each task of docs/TOKEN-BASELINE.md, the
+  quorum-lang file costs more tokens than the Python and the Rust
+  samples (T1 527 / 505 / 253 / 367, T2 435 / 419 / 327 / 413, T3 688 /
+  649 / 274 / 339; quorum-lang / ASCII / Python / Rust). The cause is
+  the helpers by `elim` (no imports) and the proof terms. A13 measures
+  the cost; it does not promise a lower cost.
 
 ## Internal boundaries
 

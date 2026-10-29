@@ -394,6 +394,29 @@ static void print_field(Buf *b, const Field *f) {
   put(b, ")");
 }
 
+/* The type of the constructor CTOR of the family D: the fields, then the
+   path type of a path constructor, or D applied to its parameters and the
+   indices of CTOR. */
+static void print_ctor_type(Buf *b, const Decl *d, const Ctor *ctor) {
+  for (size_t j = 0; j < ctor->field_count; j++) {
+    print_field(b, &ctor->fields[j]);
+    put(b, " → ");
+  }
+  if (ctor->result != NULL) {
+    print_term(b, ctor->result, PREC_TERM);
+    return;
+  }
+  put(b, d->name);
+  for (size_t j = 0; j < d->param_count; j++) {
+    put(b, " ");
+    put(b, d->params[j].name);
+  }
+  for (size_t j = 0; j < d->index_count; j++) {
+    put(b, " ");
+    print_term(b, ctor->indices[j], PREC_ATOM);
+  }
+}
+
 static void print_data(Buf *b, const Decl *d) {
   if (d->is_sealed) put(b, "sealed ");
   put(b, "data ");
@@ -410,28 +433,10 @@ static void print_data(Buf *b, const Decl *d) {
   put_universe(b, d->level);
   put(b, " where\n");
   for (size_t i = 0; i < d->ctor_count; i++) {
-    const Ctor *ctor = &d->ctors[i];
     put(b, "  ");
-    put(b, ctor->name);
+    put(b, d->ctors[i].name);
     put(b, " : ");
-    for (size_t j = 0; j < ctor->field_count; j++) {
-      print_field(b, &ctor->fields[j]);
-      put(b, " → ");
-    }
-    if (ctor->result != NULL) {
-      print_term(b, ctor->result, PREC_TERM);
-      put(b, "\n");
-      continue;
-    }
-    put(b, d->name);
-    for (size_t j = 0; j < d->param_count; j++) {
-      put(b, " ");
-      put(b, d->params[j].name);
-    }
-    for (size_t j = 0; j < d->index_count; j++) {
-      put(b, " ");
-      print_term(b, ctor->indices[j], PREC_ATOM);
-    }
+    print_ctor_type(b, d, &d->ctors[i]);
     put(b, "\n");
   }
 }
@@ -484,6 +489,65 @@ static void put_gap(Buf *b, int prev_end, int line) {
 static void put_comment(Buf *b, const Comment *note) {
   put_bytes(b, note->text, note->len);
   put(b, "\n");
+}
+
+/* The telescope of a family or a record: the parameters, the indices,
+   then the universe. */
+static void print_telescope(Buf *b, const Decl *d) {
+  for (size_t i = 0; i < d->param_count; i++) {
+    print_field(b, &d->params[i]);
+    put(b, " → ");
+  }
+  for (size_t i = 0; i < d->index_count; i++) {
+    print_term(b, d->indices[i], PREC_ATOM);
+    put(b, " → ");
+  }
+  put_universe(b, d->level);
+}
+
+/* Prints the type of NAME when D declares it, and returns 1. A module is
+   not a global. */
+static int print_global(Buf *b, const Decl *d, const char *name) {
+  switch (d->kind) {
+    case DECL_DEF:
+    case DECL_AXIOM:
+      if (strcmp(d->name, name) != 0) return 0;
+      print_term(b, d->type, PREC_TERM);
+      return 1;
+    case DECL_FAMILY:
+      if (strcmp(d->name, name) == 0) {
+        print_telescope(b, d);
+        return 1;
+      }
+      for (size_t i = 0; i < d->ctor_count; i++) {
+        if (strcmp(d->ctors[i].name, name) != 0) continue;
+        for (size_t j = 0; j < d->param_count; j++) {
+          print_field(b, &d->params[j]);
+          put(b, " → ");
+        }
+        print_ctor_type(b, d, &d->ctors[i]);
+        return 1;
+      }
+      return 0;
+    case DECL_RECORD:
+      if (strcmp(d->name, name) != 0) return 0;
+      print_telescope(b, d);
+      return 1;
+    case DECL_MODULE:
+      return 0;
+  }
+  return 0;
+}
+
+int print_global_type(Arena *arena, const DeclList *decls, const char *name, Printed *out, Diag *diag) {
+  Buf b = {.arena = arena, .text = NULL, .len = 0, .cap = 0, .ok = 1};
+  int found = 0;
+  put_bytes(&b, "", 0);
+  for (size_t i = 0; i < decls->count && !found; i++) found = print_global(&b, &decls->items[i], name);
+  if (!b.ok) return diag_fail(diag, "OOM", NULL, "the arena limit is reached while printing");
+  out->text = found ? b.text : NULL;
+  out->len = found ? b.len : 0;
+  return 1;
 }
 
 int print_source(Arena *arena, const TokenList *toks, const DeclList *decls, Printed *out, Diag *diag) {

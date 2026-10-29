@@ -8,7 +8,9 @@
 #include "front/check.h"
 #include "front/lexer.h"
 #include "front/json.h"
+#include "front/jsonin.h"
 #include "front/parser.h"
+#include "front/print.h"
 
 static int domain(const char *text, const char *want) {
   Arena arena;
@@ -132,10 +134,152 @@ static int cli_usage(int extra) {
   return ok;
 }
 
+/* One json_parse case (O123): WANT_OK, or a USAGE refusal. */
+static int json_case(const char *text, size_t len, int want_ok) {
+  Arena arena;
+  Diag diag;
+  JsonValue value;
+  arena_init(&arena, (size_t)1 << 20);
+  diag_init(&diag);
+  int ok = json_parse(&arena, text, len, &value, &diag);
+  int passed = want_ok ? ok : !ok && diag.code != NULL && strcmp(diag.code, "USAGE") == 0;
+  if (!passed) {
+    fprintf(stderr, "FAIL jsonin: wanted %s, got %s: %s\n", want_ok ? "ok" : "USAGE",
+            ok ? "ok" : diag.code == NULL ? "no diagnostic" : diag.code, text);
+  }
+  arena_release(&arena);
+  return passed;
+}
+
+/* The values, the escapes, \u with a surrogate pair, the member lookup. */
+static int json_doc(void) {
+  static const char doc[] = " {\"a\":[1,-2.5e+3,true,false,null],"
+    "\"b\":\"q\\\"\\\\\\/\\b\\f\\n\\r\\t\\u00e9\\ud83d\\ude00\",\"c\":{},\"d\":[],\"e\":\"\\u0000\"} ";
+  static const char want_b[] = "q\"\\/\b\f\n\r\t\xc3\xa9\xf0\x9f\x98\x80";
+  Arena arena;
+  Diag diag;
+  JsonValue v;
+  arena_init(&arena, (size_t)1 << 20);
+  diag_init(&diag);
+  int parsed = json_parse(&arena, doc, sizeof doc - 1, &v, &diag);
+  const JsonValue *a = json_member(&v, "a");
+  const JsonValue *b = json_member(&v, "b");
+  const JsonValue *c = json_member(&v, "c");
+  const JsonValue *e = json_member(&v, "e");
+  int ok = parsed && v.kind == JSON_OBJECT && v.count == 5
+    && a != NULL && a->kind == JSON_ARRAY && a->count == 5
+    && a->first->kind == JSON_NUMBER && strcmp(a->first->text, "1") == 0
+    && a->first->next->kind == JSON_NUMBER && strcmp(a->first->next->text, "-2.5e+3") == 0
+    && a->first->next->next->kind == JSON_TRUE && a->first->next->next->next->kind == JSON_FALSE
+    && a->first->next->next->next->next->kind == JSON_NULL && a->first->next->next->next->next->next == NULL
+    && json_get_string(b) != NULL && b->len == sizeof want_b - 1 && memcmp(b->text, want_b, b->len) == 0
+    && c != NULL && c->kind == JSON_OBJECT && c->count == 0 && c->first == NULL
+    && e != NULL && e->kind == JSON_STRING && e->len == 1 && e->text[0] == '\0' && json_get_string(e) == NULL
+    && json_member(&v, "z") == NULL && json_member(a, "a") == NULL;
+  if (!ok) fputs("FAIL jsonin: the document\n", stderr);
+  arena_release(&arena);
+  return ok;
+}
+
+static int global_type(const char *name, const char *want) {
+  static const char source[] =
+    "data TypeBox (A : Type) : Type where\n"
+    "  typeBox : (element : A) → TypeBox A\n"
+    "  typePath : (x : TypeBox A) → (y : TypeBox A) → x ≡ y\n";
+  Arena arena;
+  Diag diag;
+  TokenList tokens = {0};
+  DeclList decls = {0};
+  Machine machine;
+  Printed printed = {0};
+  arena_init(&arena, (size_t)1 << 20);
+  diag_init(&diag);
+  int ok = lex_source(&arena, "type-domain", source, sizeof source - 1, &tokens, &diag)
+    && parse_source(&arena, "type-domain", ORIGIN_PROGRAM, &tokens, &decls, &diag)
+    && check_program(&arena, &decls, &machine, &diag)
+    && print_global_type(&arena, &decls, name, &printed, &diag)
+    && printed.text != NULL && strcmp(printed.text, want) == 0;
+  if (!ok) fprintf(stderr, "FAIL global type %s: wanted %s, got %s\n", name, want,
+                   printed.text != NULL ? printed.text : diag.msg);
+  arena_release(&arena);
+  return ok;
+}
+
+static int mcp_case(const char *request, const char *want) {
+  FILE *in = tmpfile();
+  FILE *out = tmpfile();
+  if (in == NULL || out == NULL) {
+    if (in != NULL) fclose(in);
+    if (out != NULL) fclose(out);
+    return 0;
+  }
+  if (fputs(request, in) == EOF || fflush(in) != 0) {
+    fclose(in);
+    fclose(out);
+    return 0;
+  }
+  rewind(in);
+  pid_t child = fork();
+  if (child == 0) {
+    if (dup2(fileno(in), STDIN_FILENO) < 0 || dup2(fileno(out), STDOUT_FILENO) < 0
+        || dup2(fileno(out), STDERR_FILENO) < 0) _exit(127);
+    execl("build/langc", "build/langc", "mcp", (char *)NULL);
+    _exit(127);
+  }
+  int status = 0;
+  pid_t waited = -1;
+  if (child > 0) {
+    do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+  }
+  rewind(out);
+  char text[4096];
+  size_t len = fread(text, 1, sizeof text - 1, out);
+  text[len] = '\0';
+  int ok = child > 0 && waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0
+    && !ferror(out) && feof(out) && strcmp(text, want) == 0;
+  if (!ok) fprintf(stderr, "FAIL MCP request %s: wanted %s, got %s\n", request, want, text);
+  fclose(in);
+  fclose(out);
+  return ok;
+}
+
+static int json_in(void) {
+  static const char *const good[] = {
+    "0", "-0.5E-2", "12e3", "[]", "{}", "\"\"", " true ", "null", "[[1],{\"k\":[false]}]", "\"\xce\xb1\""
+  };
+  static const char *const bad[] = {
+    "", " ", "{", "[1,]", "{\"a\":}", "{\"a\" 1}", "{1:2}", "{\"a\":1,}", "01", "1.", "-", "1e", "+1",
+    "tru", "nul", "'a'", "[1] [2]", "{\"a\":1} x", "\"abc", "\"\\x\"", "\"\\u12\"", "\"\\ud83d\"",
+    "\"\\ude00\"", "\"\\ud83d\\u0041\"", "\"\x01\"", "\"\xff\""
+  };
+  int ok = json_doc();
+  for (size_t i = 0; i < sizeof good / sizeof good[0]; i++) ok &= json_case(good[i], strlen(good[i]), 1);
+  for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) ok &= json_case(bad[i], strlen(bad[i]), 0);
+  char deep[2 * JSON_DEPTH_MAX + 3];
+  memset(deep, '[', JSON_DEPTH_MAX + 1);
+  memset(deep + JSON_DEPTH_MAX + 1, ']', JSON_DEPTH_MAX + 1);
+  deep[2 * JSON_DEPTH_MAX + 2] = '\0';
+  ok &= json_case(deep + 1, 2 * JSON_DEPTH_MAX, 1);
+  ok &= json_case(deep, 2 * JSON_DEPTH_MAX + 2, 0);
+  return ok;
+}
+
 int main(void) {
   int ok = encoding() & json_text();
   ok &= cli_usage(0);
   ok &= cli_usage(1);
+  ok &= json_in();
+  ok &= global_type("TypeBox", "(A : Type) → Type");
+  ok &= global_type("typeBox", "(A : Type) → (element : A) → TypeBox A");
+  ok &= global_type("typePath", "(A : Type) → (x : TypeBox A) → (y : TypeBox A) → x ≡ y");
+  ok &= mcp_case("{\"jsonrpc\":\"2.0\",\"id\":\"a\\u0000b\",\"method\":\"ping\"}\n",
+                 "{\"jsonrpc\":\"2.0\",\"id\":\"a\\u0000b\",\"result\":{}}\n");
+  ok &= mcp_case("{\"jsonrpc\":\"2.0\",\"id\":\"\\u03b1\\n\",\"method\":\"ping\"}\n",
+                 "{\"jsonrpc\":\"2.0\",\"id\":\"α\\n\",\"result\":{}}\n");
+  ok &= mcp_case("{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":\"ping\"}\n",
+                 "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Invalid Request\"}}\n");
+  ok &= mcp_case("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\\u0000suffix\"}\n",
+                 "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n");
   ok &= domain("data F : Type where\n  makeF : (field : ℕ) → (field : Bool) → F", "REFUSE_NAME");
   ok &= domain("data F : Type where\n  makeF : (makeF : ℕ) → F", "REFUSE_NAME");
   ok &= domain("data F : Type where\n  makeF : (firstField : ℕ) → (secondField : Bool) → F", NULL);

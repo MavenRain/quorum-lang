@@ -19,5 +19,9 @@ typedef struct {
 void json_diag(const Diag *diag, FILE *out);
 /* Writes the summary object on one line. */
 void json_summary(const Counts *counts, FILE *out);
+/* Writes TEXT as one JSON string. */
+void json_string(const char *text, FILE *out);
+/* Writes LEN bytes as one JSON string, including embedded NUL bytes. */
+void json_string_n(const char *text, size_t len, FILE *out);
 
 #endif

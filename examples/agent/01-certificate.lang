@@ -1,0 +1,33 @@
+-- Agent example 1 of 5 (S9 O126): a certificate check. A certificate
+-- holds the signature flags of the 3 members of a committee. The check
+-- accepts the certificate when at least t members sign. The file has no
+-- imports: it defines each name that it uses.
+
+-- flagN b n adds 1 to n when the flag b is true.
+flagN : Bool → ℕ → ℕ
+flagN b n = elim (λ (c : Bool) → ℕ) (suc n) n b
+
+-- atMost m n is true when m is at most n.
+atMost : ℕ → ℕ → Bool
+atMost m n = elim (λ (k : ℕ) → ℕ → Bool) (λ (j : ℕ) → true) (λ (k : ℕ) (ih : ℕ → Bool) (j : ℕ) → elim (λ (i : ℕ) → Bool) false (λ (i : ℕ) (r : Bool) → ih i) j) m n
+
+Cert : Type
+Cert = Bool × Bool × Bool
+
+signers : Cert → ℕ
+signers c = flagN (fst c) (flagN (fst (snd c)) (flagN (snd (snd c)) 0))
+
+certified : ℕ → Cert → Bool
+certified t c = atMost t (signers c)
+
+-- Members 1 and 3 sign: the certificate is good for t = 2.
+law two-of-three : certified 2 (true , false , true) ≡ true
+two-of-three = refl
+
+-- Only member 3 signs: the certificate is not good for t = 2.
+law one-of-three : certified 2 (false , false , true) ≡ false
+one-of-three = refl
+
+-- Each certificate is good for t = 0.
+law zero-threshold : (c : Cert) → certified 0 c ≡ true
+zero-threshold c = refl

@@ -1,0 +1,27 @@
+-- Agent example 5 of 5 (S9 O126): the merge of two replicas is a join. A
+-- replica keeps 2 flags: flag i is true when the replica has the vote of
+-- member i. mergeRep takes the join (or) of each flag. A join is
+-- commutative, associative and idempotent, thus two replicas agree after
+-- they exchange their states in each order.
+
+joinFlag : Bool → Bool → Bool
+joinFlag a b = elim (λ (c : Bool) → Bool) true b a
+
+Rep : Type
+Rep = Bool × Bool
+
+mergeRep : Rep → Rep → Rep
+mergeRep r s = joinFlag (fst r) (fst s) , joinFlag (snd r) (snd s)
+
+law join-comm : (a : Bool) → (b : Bool) → joinFlag a b ≡ joinFlag b a
+join-comm a b = elim (λ (x : Bool) → joinFlag x b ≡ joinFlag b x) (elim (λ (y : Bool) → joinFlag true y ≡ joinFlag y true) refl refl b) (elim (λ (y : Bool) → joinFlag false y ≡ joinFlag y false) refl refl b) a
+
+law join-assoc : (a : Bool) → (b : Bool) → (c : Bool) → joinFlag (joinFlag a b) c ≡ joinFlag a (joinFlag b c)
+join-assoc a b c = elim (λ (x : Bool) → joinFlag (joinFlag x b) c ≡ joinFlag x (joinFlag b c)) refl refl a
+
+law join-idem : (a : Bool) → joinFlag a a ≡ a
+join-idem a = elim (λ (x : Bool) → joinFlag x x ≡ x) refl refl a
+
+-- The merge of two replicas does not depend on the order.
+law merge-comm : (r : Rep) → (s : Rep) → mergeRep r s ≡ mergeRep s r
+merge-comm r s i = join-comm (fst r) (fst s) i , join-comm (snd r) (snd s) i

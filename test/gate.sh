@@ -166,9 +166,9 @@ code_line 1 OOM build/langc eval "$tmp/oom.lang" grow
 
 # fmt: `langc fmt F` prints F for each committed .lang file. test/parse,
 # test/fmt and the lex, parse and W_NONCANON fixtures of test/json are not
-# canonical on purpose.
+# canonical on purpose, and so are the ASCII files of test/baseline (O127).
 fmts=0
-for f in $(rg --files -g '*.lang' -g '!test/parse/**' -g '!test/fmt/**' -g '!test/json/LEX_*' -g '!test/json/PARSE_*' -g '!test/json/W_NONCANON.lang' . | sort); do
+for f in $(rg --files -g '*.lang' -g '!test/parse/**' -g '!test/fmt/**' -g '!test/json/LEX_*' -g '!test/json/PARSE_*' -g '!test/json/W_NONCANON.lang' -g '!test/baseline/**' . | sort); do
   fmts=$((fmts + 1))
   build/langc fmt "$f" 2>/dev/null | cmp -s - "$f" || { echo "FAIL fmt $f: the output is not the file"; fail=$((fail + 1)); }
 done
@@ -224,6 +224,199 @@ build/langc laws examples/denote.lang >"$tmp/laws-denote" 2>&1 || { echo "FAIL l
 build/langc check --json examples/denote.lang 2>/dev/null | rg -q -F '"laws":{"discharged":1,"total":1}' ||
   { echo "FAIL check --json examples/denote.lang: want laws 1 of 1"; fail=$((fail + 1)); }
 echo "denote.lang $(tail -n 1 "$tmp/laws-denote")"
+
+# S9 O118: `langc --help` and `langc help` print the usage on stdout, exit 0.
+# Each `langc VERB` of AGENTS.md is in it.
+build/langc --help >"$tmp/help" 2>"$tmp/err" || { echo "FAIL langc --help: want exit 0"; fail=$((fail + 1)); }
+[ -s "$tmp/err" ] && { echo "FAIL langc --help: want no stderr"; fail=$((fail + 1)); }
+build/langc help 2>/dev/null | cmp -s - "$tmp/help" || { echo "FAIL langc help: want the --help text"; fail=$((fail + 1)); }
+verbs=0
+verbs_missing=0
+for verb in $(rg -o 'langc ([a-z][a-z-]*)' -r '$1' AGENTS.md | sort -u); do
+  verbs=$((verbs + 1))
+  rg -q "langc $verb( |\$)" "$tmp/help" || { echo "FAIL agents: langc $verb is not in langc --help"; verbs_missing=$((verbs_missing + 1)); }
+done
+fail=$((fail + verbs_missing))
+echo "agents: $verbs verbs, $verbs_missing missing"
+
+# S9 O119: `langc explain --json NAME` prints test/explain/KIND.json byte for
+# byte. NAME is the name of the fixture. KIND is its kind, with - for a space.
+explains=0
+for path in test/explain/*.json; do
+  explains=$((explains + 1))
+  name=$(rg -o '^\{"name":"([^"]*)"' -r '$1' "$path")
+  kind=$(rg -o '"kind":"([^"]*)"' -r '$1' "$path" | tr ' ' '-')
+  [ "$path" = "test/explain/$kind.json" ] || { echo "FAIL explain $path: kind $kind"; fail=$((fail + 1)); }
+  build/langc explain --json "$name" 2>/dev/null | cmp -s - "$path" || { echo "FAIL explain $path"; fail=$((fail + 1)); }
+done
+build/langc explain "$name" >"$tmp/explain" 2>&1 || { echo "FAIL explain $name: want exit 0"; fail=$((fail + 1)); }
+[ "$(wc -l <"$tmp/explain" | tr -d ' ')" = 2 ] || { echo "FAIL explain $name: want 2 text lines"; fail=$((fail + 1)); }
+code_line 1 NAME_UNKNOWN build/langc explain no-such-name
+code_line 2 USAGE build/langc list-base extra
+echo "explain: $explains fixtures"
+
+# S9 O120: the sorted names of the PLAN sec 3 tables equal the sorted
+# `langc list-base` names. A name is a code span of the first cell of a
+# table row. A `X`: prefix makes the names after it X.NAME.
+awk '/^## 3\./ { s = 1; next } /^## 4\./ { s = 0 } s && /^\| `/ {
+  cell = $0; sub(/^\| /, "", cell); sub(/ \|.*/, "", cell)
+  pre = ""; n = split(cell, p, "`")
+  for (i = 2; i <= n; i += 2) { if (substr(p[i + 1], 1, 1) == ":") pre = p[i] "."; else print pre p[i] }
+}' docs/PLAN.md | LC_ALL=C sort >"$tmp/base-plan"
+build/langc list-base | LC_ALL=C sort >"$tmp/base-langc"
+bases=$(wc -l <"$tmp/base-plan" | tr -d ' ')
+[ "$(LC_ALL=C sort -u "$tmp/base-plan" | wc -l | tr -d ' ')" = "$bases" ] || { echo "FAIL base: a PLAN sec 3 name is there 2 times"; fail=$((fail + 1)); }
+base_missing=$(comm -3 "$tmp/base-plan" "$tmp/base-langc" | wc -l | tr -d ' ')
+fail=$((fail + base_missing))
+echo "base: $bases names, $base_missing missing"
+
+# S9 O121, O122: one `langc mcp` process reads test/mcp/requests.jsonl and
+# writes test/mcp/responses.jsonl byte for byte. A notification gets no
+# reply. A mismatch is a response line that is different or missing.
+mcp_requests=$(wc -l <test/mcp/requests.jsonl | tr -d ' ')
+mcp_status=0
+build/langc mcp <test/mcp/requests.jsonl >"$tmp/mcp" 2>"$tmp/mcp.err" || mcp_status=$?
+[ "$mcp_status" -eq 0 ] || { echo "FAIL mcp: exit $mcp_status"; fail=$((fail + 1)); }
+[ -s "$tmp/mcp.err" ] && { echo "FAIL mcp: want no stderr"; fail=$((fail + 1)); }
+mcp_mismatches=0
+cmp -s "$tmp/mcp" test/mcp/responses.jsonl || mcp_mismatches=$(awk 'NR == FNR { want[NR] = $0; n = NR; next }
+  { got = FNR; m += (want[FNR] != $0) } END { d = m + (got > n ? got - n : n - got); print (d > 0 ? d : 1) }' test/mcp/responses.jsonl "$tmp/mcp")
+fail=$((fail + mcp_mismatches))
+echo "mcp: $mcp_requests requests, $mcp_mismatches mismatches"
+
+# S9 O126 (A3): each agent example checks and has at least 2 laws, and
+# `langc laws` gives D of T discharged with D = T.
+agent_files=0
+agent_laws=0
+agent_total=0
+for f in examples/agent/*.lang; do
+  agent_files=$((agent_files + 1))
+  status=0
+  build/langc laws "$f" >"$tmp/laws.txt" 2>"$tmp/laws.err" || status=$?
+  d=$(awk '/^laws: / { d = $2 } END { print d + 0 }' "$tmp/laws.txt")
+  t=$(awk '/^laws: / { t = $4 } END { print t + 0 }' "$tmp/laws.txt")
+  agent_laws=$((agent_laws + d))
+  agent_total=$((agent_total + t))
+  [ "$status" -eq 0 ] && [ "$t" -ge 2 ] && [ "$d" -eq "$t" ] || { echo "FAIL agent $f: exit $status, $d of $t laws: $(head -n 1 "$tmp/laws.err")"; fail=$((fail + 1)); }
+done
+
+# S9 O124 (A16): skills/quorum-lang/SKILL.md has the front matter keys name
+# and description, and each fenced copy (info string `quorum-lang PATH`) is
+# byte equal to its source. The source of docs/GRAMMAR.md#card is the
+# `## Card` section without its first and last empty lines. A missing
+# source is drift. There is one copy for each agent example, plus the card.
+skill=skills/quorum-lang/SKILL.md
+skill_copies=0
+skill_drift=0
+skill_keys=0
+: >"$tmp/skill.paths"
+if [ -f "$skill" ]; then
+  awk -v dir="$tmp" '
+    copy && $0 == "```" { copy = 0; close(out); next }
+    copy { print > out; next }
+    /^```quorum-lang / { n++; out = dir "/skill." n; print $2 >> (dir "/skill.paths"); printf "" > out; copy = 1 }' "$skill"
+  skill_keys=$(awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } $0 == "name: quorum-lang" { k++ } /^description: ./ && length($0) <= 1037 { k++ } END { print k + 0 }' "$skill")
+fi
+[ "$skill_keys" -eq 2 ] || { echo "FAIL skill: want the front matter keys name and description"; skill_drift=$((skill_drift + 1)); }
+while read -r path; do
+  skill_copies=$((skill_copies + 1))
+  case "$path" in
+    docs/GRAMMAR.md#card)
+      awk '/^## / { if (f) exit } f && (seen || $0 != "") { seen = 1; buf = buf $0 "\n"; if ($0 != "") { printf "%s", buf; buf = "" } } $0 == "## Card" { f = 1 }' docs/GRAMMAR.md >"$tmp/skill.src" ;;
+    *)
+      if [ -f "$path" ]; then cp "$path" "$tmp/skill.src"; else rm -f "$tmp/skill.src"; fi ;;
+  esac
+  [ -f "$tmp/skill.src" ] && cmp -s "$tmp/skill.$skill_copies" "$tmp/skill.src" || { echo "FAIL skill $path: the copy is not the source"; skill_drift=$((skill_drift + 1)); }
+done <"$tmp/skill.paths"
+[ "$skill_copies" -eq $((agent_files + 1)) ] || { echo "FAIL skill: $skill_copies copies for $agent_files agent examples and the card"; skill_drift=$((skill_drift + 1)); }
+fail=$((fail + skill_drift))
+echo "skill: $skill_copies copies, $skill_drift drift"
+echo "agent examples: $agent_files files, $agent_laws of $agent_total laws"
+
+# S9 O127 (A13): docs/TOKEN-BASELINE.md has one row for each cell:
+# `| TASK | COLUMN | FILE | TOKENS |`. TOKENS is the output of
+# `build/tokproxy FILE`. Each quorum-lang file checks, and `langc fmt` of
+# each ASCII file is the quorum-lang file of its task. Each task has 4 cells.
+rg '^\| T[0-9]+ \|' docs/TOKEN-BASELINE.md >"$tmp/tok" 2>/dev/null || : >"$tmp/tok"
+tok_cells=0
+tok_bad=0
+while IFS='|' read -r _ task col file want _; do
+  task=$(echo $task)
+  col=$(echo $col)
+  file=$(echo $file)
+  want=$(echo $want)
+  tok_cells=$((tok_cells + 1))
+  [ -f "$file" ] || { echo "FAIL tokens $task $col: no file $file"; tok_bad=$((tok_bad + 1)); continue; }
+  got=$(build/tokproxy "$file")
+  [ "$got" = "$want" ] || { echo "FAIL tokens $task $col: $file has $got tokens, the table has $want"; tok_bad=$((tok_bad + 1)); }
+  case "$col" in
+    "quorum-lang")
+      build/langc check "$file" >/dev/null 2>&1 || { echo "FAIL tokens $task: $file does not check"; tok_bad=$((tok_bad + 1)); } ;;
+    "quorum-lang ASCII")
+      uni=$(rg "^\| $task \| quorum-lang \|" "$tmp/tok" | cut -d'|' -f4)
+      uni=$(echo $uni)
+      build/langc check "$file" >/dev/null 2>&1 || { echo "FAIL tokens $task: $file does not check"; tok_bad=$((tok_bad + 1)); }
+      [ -f "$uni" ] && build/langc fmt "$file" 2>/dev/null | cmp -s - "$uni" || { echo "FAIL tokens $task: langc fmt $file is not the quorum-lang file"; tok_bad=$((tok_bad + 1)); } ;;
+    Python | Rust) ;;
+    *) echo "FAIL tokens $task: unknown column $col"; tok_bad=$((tok_bad + 1)) ;;
+  esac
+done <"$tmp/tok"
+tok_tasks=$(awk -F'|' '!seen[$2]++ { n++ } END { print n + 0 }' "$tmp/tok")
+tok_missing=$((tok_tasks * 4 - tok_cells))
+[ "$tok_missing" -gt 0 ] && { echo "FAIL tokens: $tok_missing missing cells"; tok_bad=$((tok_bad + tok_missing)); }
+[ "$tok_tasks" -gt 0 ] && [ "$tok_missing" -ge 0 ] || { echo "FAIL tokens: $tok_cells cells for $tok_tasks tasks"; tok_bad=$((tok_bad + 1)); }
+fail=$((fail + tok_bad))
+echo "tokens: $tok_tasks tasks, $tok_cells cells"
+
+# S9 O128 (A17): corpus/INDEX.md has one row for each .lang file in
+# examples/ and test/: `| PATH | CODE | PARSED | TYPED | D/T |`, from
+# `langc check --json PATH`. CODE is the code of the first diagnostic, or
+# ok. A mismatch is a path whose row is not the row of `check --json`: a
+# row without a file, a file without a row, or a stale row.
+corpus_n=0
+: >"$tmp/corpus.now"
+for f in $(rg --files -g '*.lang' examples test | LC_ALL=C sort); do
+  corpus_n=$((corpus_n + 1))
+  build/langc check --json "$f" >"$tmp/corpus.json" 2>/dev/null || :
+  last=$(tail -n 1 "$tmp/corpus.json")
+  code=ok
+  [ $(wc -l <"$tmp/corpus.json") -gt 1 ] && { code=$(head -n 1 "$tmp/corpus.json"); code=${code#*\"code\":\"}; code=${code%%\"*}; }
+  parsed=${last#*\"parsed\":}
+  parsed=${parsed%%[!0-9]*}
+  typed=${last#*\"typed\":}
+  typed=${typed%%[!0-9]*}
+  d=${last#*\"discharged\":}
+  d=${d%%[!0-9]*}
+  t=${last#*\"total\":}
+  t=${t%%[!0-9]*}
+  echo "| $f | $code | $parsed | $typed | $d/$t |" >>"$tmp/corpus.now"
+done
+rg '^\| (examples|test)/' corpus/INDEX.md 2>/dev/null | LC_ALL=C sort >"$tmp/corpus.index"
+LC_ALL=C sort "$tmp/corpus.now" >"$tmp/corpus.sorted"
+LC_ALL=C comm -3 "$tmp/corpus.sorted" "$tmp/corpus.index" | cut -d'|' -f2 | LC_ALL=C sort -u >"$tmp/corpus.bad"
+corpus_bad=0
+while read -r path; do
+  echo "FAIL corpus $path: the row is not the check --json row"
+  corpus_bad=$((corpus_bad + 1))
+done <"$tmp/corpus.bad"
+fail=$((fail + corpus_bad))
+[ "$corpus_n" -gt 0 ] || { echo "FAIL corpus: no .lang file"; fail=$((fail + 1)); }
+echo "corpus: $corpus_n files, $corpus_bad mismatches"
+
+# S9 O129 (A19): each "Yes" row of the README table names the slice that
+# lands it: the last cell has a slice `Sn`.
+readme_yes=0
+readme_bad=0
+rg '^\|.*\| Yes \|' README.md >"$tmp/readme.yes" 2>/dev/null || : >"$tmp/readme.yes"
+while IFS= read -r row; do
+  readme_yes=$((readme_yes + 1))
+  lands=${row%|*}
+  lands=${lands##*|}
+  echo "$lands" | rg -q 'S[0-9]+' || { echo "FAIL readme: no slice in the row: $row"; readme_bad=$((readme_bad + 1)); }
+done <"$tmp/readme.yes"
+fail=$((fail + readme_bad))
+[ "$readme_yes" -gt 0 ] || { echo "FAIL readme: the table has no Yes row"; fail=$((fail + 1)); }
+echo "readme: $readme_yes yes rows, $readme_bad without a slice"
 
 # Each code in docs/DIAGNOSTICS.md has a fixture: test/json/CODE.lang or a
 # line of this file or test/review.sh that wants `langc: CODE:`. Each code in

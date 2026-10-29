@@ -1,10 +1,54 @@
-# Grammar (S3 surface)
+# Grammar (S8 surface)
 
 quorum-lang has an Agda-like Unicode surface (ruling Q13 (b),
 2026-10-25). Each operation has one canonical spelling. `langc fmt FILE`
 prints the canonical text of FILE. `langc check` accepts some other
 spellings, and gives the warning W_NONCANON with the canonical text as
 `fix` (docs/DIAGNOSTICS.md).
+
+## Card
+
+One line for each canonical form that `langc fmt` prints. `A` and `B`
+are types, `t` and `u` are terms, `r` and `s` are interval terms. The
+sections below give the full rules.
+
+~~~
+-- text                            a comment, at column 1
+f : (x : A) → (y : B) → C          a signature: one group for each →
+f x y = t                          the clause: it names the parameters
+law name : A                       a law: it is discharged when it checks
+data D (p : P) : A → Type where    an indexed family or a cell signature
+  c : (x : A) → D p a              a constructor, 2 spaces in
+record R (p : P) : Type where      the named Σ of the fields
+  field : A                        a field, 2 spaces in
+module M (p : P) where             a parameter section
+  g : A                            each line of a section, 2 spaces in
+Type   Type₁   Type ℓ              the universes
+Level   lzero   lsuc ℓ   ℓ-max ℓ m the levels (a closed form, at most 1)
+(x : A) → B                        a dependent function type
+A → B                              a function type
+λ x y → t                          nested λ terms as one λ
+λ (x : A) → t                      a λ with a typed binder
+f a (g b)                          an application: ( ) on a non-atom argument
+let x = t in u                     one name, on one line
+Σ A (λ (x : A) → B)                a dependent pair type
+A × B                              a pair type
+a , b                              a pair: fst p and snd p are its parts
+a ≡ b                              a path type: PathP L a b is the full form
+λ i → t                            a path: p r applies the path p to r
+refl                               the constant path
+i0   i1   ~ r   r ∧ s   r ∨ s      the interval: ends, reversal, meet, join
+primTransp (λ i → A) r u           transport along a line
+primHComp (λ j → λ { (i = i0) → a ; (i = i1) → b }) u0   composition
+x ∷ xs   xs ++ ys   f ∘ g   p ∙ q  an operator with 2 arguments: infix
+_∘_ f g n                          an operator with more arguments: prefix
+∥ A ∥₁                             the propositional truncation
+∣_∣₁ A a                           its constructor: prefix, the type first
+∃[ x ꞉ A ] B                       there is an x in A with B
+elim (λ (b : Bool) → P) t f b      Bool: the true case, then the false case
+elim (λ (n : ℕ) → P) z s n         ℕ: s takes (k : ℕ) (ih : P)
+0   1   suc n                      the numerals of ℕ
+~~~
 
 ## Lexical rules
 

@@ -26,9 +26,8 @@ static void put_char(unsigned char c, FILE *out) {
   fputc(c, out);
 }
 
-static void put_string(const char *text, FILE *out) {
+void json_string_n(const char *text, size_t len, FILE *out) {
   fputc('"', out);
-  size_t len = strlen(text);
   for (size_t pos = 0; pos < len;) {
     size_t width = utf8_char_size(text + pos, len - pos);
     /* Paths and truncated diagnostic buffers can contain invalid bytes. */
@@ -41,6 +40,10 @@ static void put_string(const char *text, FILE *out) {
     pos += width;
   }
   fputc('"', out);
+}
+
+static void put_string(const char *text, FILE *out) {
+  json_string_n(text, strlen(text), out);
 }
 
 static void put_field(const char *key, const char *text, int known, FILE *out) {
@@ -62,6 +65,10 @@ static void put_span(const Span *span, FILE *out) {
   put_string(span->file, out);
   fprintf(out, ",\"line\":%d,\"col\":%d,\"endLine\":%d,\"endCol\":%d}",
           span->line, span->col, span->end_line, span->end_col);
+}
+
+void json_string(const char *text, FILE *out) {
+  put_string(text, out);
 }
 
 void json_diag(const Diag *diag, FILE *out) {

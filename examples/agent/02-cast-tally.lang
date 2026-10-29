@@ -1,0 +1,24 @@
+-- Agent example 2 of 5 (S9 O126): cast ballots and tally them into a
+-- bag. A ballot is a Bool vote. A bag of votes is the pair of counts
+-- (yes , no): it keeps each vote but not the order of the votes. The laws
+-- show one tally, and that the order of two casts does not change the bag.
+
+Bag : Type
+Bag = ℕ × ℕ
+
+emptyBag : Bag
+emptyBag = 0 , 0
+
+castVote : Bool → Bag → Bag
+castVote v b = elim (λ (c : Bool) → Bag) (suc (fst b) , snd b) (fst b , suc (snd b)) v
+
+tally3 : Bool → Bool → Bool → Bag
+tally3 v1 v2 v3 = castVote v1 (castVote v2 (castVote v3 emptyBag))
+
+-- Two yes votes and one no vote.
+law tally-two-one : tally3 true false true ≡ (2 , 1)
+tally-two-one = refl
+
+-- The order of two casts does not change the bag.
+law cast-comm : (u : Bool) → (v : Bool) → (b : Bag) → castVote u (castVote v b) ≡ castVote v (castVote u b)
+cast-comm u v b = elim (λ (x : Bool) → castVote x (castVote v b) ≡ castVote v (castVote x b)) (elim (λ (y : Bool) → castVote true (castVote y b) ≡ castVote y (castVote true b)) refl refl v) (elim (λ (y : Bool) → castVote false (castVote y b) ≡ castVote y (castVote false b)) refl refl v) u

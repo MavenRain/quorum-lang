@@ -671,6 +671,16 @@ comes first in the Brief item column.
 | A19 | 4. Agents discover the DSL and default to it when the domain matches | README "When to reach for quorum-lang" table and the AGENTS.md routing rule | S0, S9 | each README "Yes" row names the slice that lands it |
 | A20 | Practical starting sequence, steps 1 to 5 | step 1 = S1; step 2 = S2 to S5 (guest semantics, not a Lean embedding, ruling 2); step 3 = S9; step 4 = S8; step 5 = USER | all | the gates of those slices |
 
+S9 readings. The USER ruled Q-S9-1 to Q-S9-6 (a). The S9 session
+readings (the R-H2 to R-H6 items and O117 to O134) are Claude readings,
+NOT ruled. W/S9-PROGRESS.md records each one. A13 (R-H6-2): in each task
+of docs/TOKEN-BASELINE.md, the quorum-lang file costs more tokens than
+the Python and the Rust samples (T1 527 / 505 / 253 / 367, T2 435 / 419
+/ 327 / 413, T3 688 / 649 / 274 / 339; quorum-lang / ASCII / Python /
+Rust). The cause is the helpers by `elim` (no imports) and the proof
+terms. A13 measures the cost; it does not promise a lower cost. The
+samples stay as they are.
+
 ## 8. Port sources
 
 SHA = `git -C REPO log -1 --format=%h` on 2026-10-25.
@@ -722,7 +732,7 @@ commit message file and the next prompt file. The USER commits.
 | S6 | BN254 ElGamal, Pedersen DKG for the ElGamal key (Q8 (b)), ballot validity proofs, threshold decryption (port intent-lang); kit differential tests of the representation map (Q5 (a)) | GREEN: decrypt of the sum of casts = the bag counts (`build/tallytool rep` against `langc eval` on denCount1 to denCount3): `tally: 14 cases, 28 counts, 0 mismatches`; known-answer vectors equal (O82); each invalid-proof fixture refused (9 rows, O83); each DKG fixture gives its result (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW); `tally regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 75; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5274 cases, 0 mismatches; wasm: 22 modules valid | 3: one slot of `⊕` skipped (`tally_add` bound `j + 1u < k`: 10 of the 28 rep lines differ, the row `tally k 2 slot 1` fails), DLEQ check skipped (the `thr_open` refusal off: the rows `part D + G` and `part z + 1` fail), Lagrange sign flipped (each rep line gives `open-1`, 8 open rows fail); 3 of 3 KILLED | sec 4.2 status; sec 8 note; sec 10 O78 to O89; docs/STATUS.md, README.md |
 | S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | GREEN: FIPS 180-4, RFC 9380 App. K.1 and RFC 9591 App. E.5 vectors byte-equal (signing); the secp256k1 rows pass; each DKG fixture gives its result on secp256k1 (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW) and the DKG key signs; old and new committees sign under one group key after reshare (Q = {1, 3}, (t 2, n 3) to (t' 3, n' 4); a dealing without λ gives DKG_BAD_RESHARE); `frost regressions: passed`; `build/frosttool rep` against `langc eval` on denAuth3 and denAuth4: `auth: 24 cases, 0 mismatches`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: binding factor dropped (`frost_group_commitment` R_i = D_i: none of the 9 V-1 rep lines gives 1; 7 FAIL lines, `e5 P1 sig_share`, `e5 P3 sig_share`, `e5 sig`), one SHA-256 round skipped (round bound `SHA256_ROUNDS - 1u`: 36 FAIL lines, the FIPS, xmd and E.5 rows), reshare coefficient wrong (g_i(0) = (λ + 1) s_i: the 5 V-1 denAuth4 rep lines give 0; 22 FAIL lines, `reshare good` gives DKG_BAD_RESHARE); 3 of 3 KILLED | sec 4.3 and 4.4 status; sec 8 note; sec 10 O90 to O103; docs/STATUS.md, README.md |
 | S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | GREEN: a scripted history of 4 certified steps by the S7 secp256k1 DKG committee (`replica history: 4 steps, tip 4`); two replicas merge to one tip (`replica merge: 3 rows, tip 4`); the refuse fixtures give their codes (bad signature REP_BAD_SIG, fork REP_FORK, ill-typed constitution AMEND_ILL_TYPED, `Core` break AMEND_CORE; also REP_BAD_LINK, AMEND_NOT_FHE, BALLOT_BAD and PARTIAL_BAD: `replica refusals: 8 of 8`); the accept fixture is accepted (`replica accept: 1 of 1`); `langc eval` against build/replicatool: `replica: 25 cases, 0 mismatches`, `replica route: 19 cases, 0 mismatches`, `replica tally: 14 cases, 0 mismatches` (the S6 counts); `replica apply: 3 rows, state 4`; `host: 2 rows`; `input: 4 rows`; make check EXIT 0, gate: 0 failures (serial log); fmt: 104 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: fork check skipped (`mergeCode` without the digest compare: the fork row gives 0, not REP_FORK), `Core` check skipped (`amendCore` gives 0: the corebrk row gives 0, not AMEND_CORE), fragment check skipped (the fragment fold replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED); 3 of 3 KILLED | sec 5 and sec 6 status; sec 10 O104 to O116; docs/STATUS.md, README.md |
-| S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | A3, A4, A5, A8, A13, A16, A17, A19 gates | 3: MCP tool drops a field, a SKILL.md copy drifts, `list-base` misses a name | sec 7 status |
+| S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | GREEN (A3, A4, A5, A8, A13, A16, A17, A19): `agents: 10 verbs, 0 missing`; `explain: 13 fixtures`; `base: 152 names, 0 missing`; `mcp: 15 requests, 0 mismatches`; `skill: 6 copies, 0 drift`; `agent examples: 5 files, 13 of 13 laws`; `tokens: 3 tasks, 12 cells`; `corpus: 135 files, 0 mismatches`; `readme: 5 yes rows, 0 without a slice`; speed (O132): the mcp block 0.05 s, the explain block 0.27 s, the 9 S9 blocks 2.76 s; make check EXIT 0, gate: 0 failures (serial log); fmt: 110 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; the 10 S8 replica, host and input lines as at S8; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: MCP tool drops a field (the explain printer of src/main.c without `"type"`: `mcp: 15 requests, 1 mismatches`), a SKILL.md copy drifts (one line of the copy of examples/agent/03-threshold-reveal.lang changes: `skill: 6 copies, 1 drift`), `list-base` misses a name (the row `Set` of src/front/basenames.c goes: `base: 152 names, 1 missing`); 3 of 3 KILLED | sec 7 status; sec 10 O117 to O134; docs/STATUS.md, README.md, AGENTS.md |
 | S10 | general MPC tally route (Q6 (b)) under the protocol that Q14 rules; the replica runs `tallyᴹ` | `tallyᴹ` = `tallyᶠ` on each fixture, N cases, 0 mismatches; `tallyᴹ-correct` checks | 3: one share dropped from the sum, a reconstruction coefficient wrong, MPC output not checked | sec 5 |
 | S11 | constant-size IVC proof (Q11 (b)) under the scheme that Q15 rules; verifier laws as guest terms (ruling 2) | proof size is the same for histories of 1, 10 and 100 steps; `start✓`, `extend✓` and `IVC.⟦_⟧` check for the new instance; each bad-proof fixture refused | 3: one step not folded, verifier check skipped, state hash not bound | sec 3.4, sec 5 |
 | S12 | close: docs final, mutant sweep of S1 to S11, README status | full gate GREEN; each earlier mutant killed again | sweep | STATUS, README |
@@ -1737,6 +1747,108 @@ commit message file and the next prompt file. The USER commits.
   frost_verify takes about 94 to 113 ms (TCC). A tally combine row takes
   2.64 to 3.05 s of user time on each side, over the budget. The USER
   ruling R-E37 (a) accepts the time.
+- O117. (Claude reading, NOT ruled) Baseline. H2 STEP 0 runs one serial
+  gate into W/S9-base-gate.log. Its count lines (expect fmt 105) are the
+  S9 baseline, not W/S8-gate.log.
+- O118. (Claude reading, NOT ruled) `langc --help` and `langc help`
+  print the usage on stdout and exit 0. The usage adds `langc explain
+  [--json] NAME` and `langc mcp`. A4 gate line: each `langc VERB` in
+  AGENTS.md is in `langc --help` (`agents: V verbs, 0 missing`).
+- O119. (Claude reading, NOT ruled) `langc explain --json NAME` prints
+  one line `{"name":S,"kind":S,"type":S,"class":S|null,"slice":S}` and
+  exits 0. `type` is the canonical (fmt) print of the type. `class` is
+  the R1 class of O25 (`CM`, `indexed family`, `record`, `base type`),
+  null for a term. `kind` and `slice` come from the PLAN sec 3 columns.
+  The text form prints `NAME : TYPE` and one line `kind class slice`. An
+  unknown name gives the existing unbound-name code (no new code; H2
+  names it from docs/DIAGNOSTICS.md). A8 gate: one fixture
+  test/explain/KIND.json for each sec 3 kind (`explain: K fixtures`).
+- O120. (Claude reading, NOT ruled) Names. A new C table
+  src/front/base.c holds each sec 3 name with its kind and slice. `type`
+  and `class` come from the checker environment of lib/prelude.lang and
+  domain/domain.lang. `list-base` prints the table names. A5 gate: the
+  sorted names that gate.sh extracts from the PLAN sec 3 tables equal
+  the sorted `list-base` names (`base: B names, 0 missing`). Then
+  gate.sh reads docs/PLAN.md: the Close runs the gate after the last
+  PLAN edit.
+- O121. (Claude reading, NOT ruled) `langc mcp`: MCP stdio transport,
+  JSON-RPC 2.0, one message on each line, no Content-Length frame.
+  Methods: `initialize` (echo the client protocolVersion; serverInfo
+  {name "quorum-lang", version "S9"}; capabilities {tools {}}),
+  `notifications/initialized` (no reply), `ping`, `tools/list`,
+  `tools/call`. Errors: -32700 parse, -32600 bad request, -32601 unknown
+  method, -32602 bad params. EOF gives exit 0. Same binary build/langc,
+  built by tcc.
+- O122. (Claude reading, NOT ruled) MCP tools (inputSchema in
+  tools/list): `check {path}` gives one text item with the `check
+  --json` lines, isError = exit not 0; `explain {name}` gives the O119
+  line; `list-base {}` gives the names, one on each line; `show-law
+  {path, name}` gives the fmt print of the law and `discharged` or
+  `open`. Output field order is fixed. A5 gate: test/mcp/requests.jsonl
+  through `build/langc mcp` equals test/mcp/responses.jsonl byte for
+  byte (`mcp: N requests, 0 mismatches`).
+- O123. (Claude reading, NOT ruled) A small JSON reader in new C
+  (src/front/jsonin.c: object, array, string with escapes and \u,
+  number, true, false, null). C tests in test/fronttool.c or a new
+  test/mcptool.c (H3 picks the one with less churn).
+- O124. (Claude reading, NOT ruled) skills/quorum-lang/SKILL.md. Front
+  matter: `name: quorum-lang`, `description:` (one line, at most 1024
+  chars). Body: the routing rule, the A6 loop (write, `check --json`,
+  apply `fix`, retry), the verbs, the grammar card, the 5 examples. Each
+  copy is a fenced block whose info string names its source
+  (`quorum-lang examples/agent/NAME.lang`, `quorum-lang
+  docs/GRAMMAR.md#card`). gate.sh extracts each block with awk and
+  compares it with its source (`skill: 6 copies, 0 drift`, plus the two
+  front matter keys: A16).
+- O125. (Claude reading, NOT ruled) Grammar card: a new section `##
+  Card` (at most 60 lines) after the title of docs/GRAMMAR.md, one line
+  for each canonical form. The title changes to the S8 surface. SKILL.md
+  copies the card section.
+- O126. (Claude reading, NOT ruled) examples/agent/ (A3), graded 1 to 5:
+  01-certificate.lang (certificate check), 02-cast-tally.lang (cast and
+  tally into a bag), 03-threshold-reveal.lang (reveal needs a quorum),
+  04-amendment.lang (an amendment keeps Core), 05-replica-merge.lang
+  (merge is a join). Each has at least 2 laws and `langc laws` gives m
+  of m. H4 writes the exact counts (`agent examples: 5 files, L of L
+  laws`). fmt +5.
+- O127. (Claude reading, NOT ruled) TOKEN-BASELINE.md (A13, Q12 (a), Q13
+  (b)). 3 tasks: T1 certificate check, T2 cast and tally, T3 amendment
+  check. 4 columns: quorum-lang (Unicode), quorum-lang ASCII spelling
+  (the :182 forms), Python, Rust. The proxy is new C test/tokproxy.c
+  (build/tokproxy): a run of ASCII letters, digits and `_` costs
+  ceil(len / 4); each other ASCII non-space byte costs 1; each non-ASCII
+  UTF-8 byte costs 1; white space costs 0. The Python and Rust files are
+  text samples in test/baseline/ (not run). Gate: each quorum file
+  checks, fmt of the ASCII file equals the Unicode file, and each table
+  cell equals tokproxy of its file (`tokens: 3 tasks, 12 cells`).
+- O128. (Claude reading, NOT ruled) corpus/INDEX.md (A17, corpus only;
+  the USER trains). One row for each `.lang` file in examples/ and
+  test/: `| path | first code or ok | parsed | typed | laws D/T |`. A
+  gate.sh loop builds the same rows from `check --json` and compares
+  them with the table (`corpus: N files, 0 mismatches`). H5 writes the
+  table once with a W script.
+- O129. (Claude reading, NOT ruled) README and AGENTS (A19, A4). The 5
+  Yes rows already name a slice: gate line `readme: 5 yes rows, 0
+  without a slice`. AGENTS.md: replace "Status at S1" and "Tool loop at
+  S1" with the S9 state; add explain, mcp and the skill path; keep the
+  routing rule. README Status (:23) changes to the S9 text.
+- O130. (Claude reading, NOT ruled) New gate lines (H2 to H5): agents,
+  explain, base, mcp, skill, agent examples, tokens, corpus, readme.
+  Changed counts: fmt 105 + 5 agent + 3 ASCII baseline + new fixtures;
+  json 29 and diagnostics 36 stay if no new code. R-H5-1 changed the fmt
+  count: the gate line stays `fmt: 110 files canonical` (the H5 gate).
+- O131. (Claude reading, NOT ruled) Mutants (W/mut-s9.py, a copy of
+  W/mut-s8.py): M1 the mcp printer of `explain` drops `"type"` (mcp cmp
+  fails); M2 one line of the SKILL.md copy of 03-threshold-reveal
+  changes (skill drift); M3 one row of src/front/base.c goes (base gate
+  fails).
+- O132. (Claude reading, NOT ruled) Speed budget: the mcp transcript and
+  the explain fixtures each under 1 s; the S9 gate lines together under
+  10 s. tallytool time depends on load (STEP 0: 162 s).
+- O133. (Claude reading, NOT ruled) W/bak-s8-h2b (17 files, not in
+  R-E52): Q-S9-5.
+- O134. (Claude reading, NOT ruled) PLAN sec 9 has S10 to S12, so the S9
+  Close writes W/S10-PROMPT.md. S10 needs Q14 (OPEN).
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 
