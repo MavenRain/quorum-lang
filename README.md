@@ -22,7 +22,7 @@ run target is a Wasm replica. Each design law is a guest theorem that
 
 ## Status
 
-S1 to S9 are done. The checker has the Agda-like Unicode surface
+S1 to S10 are done. The checker has the Agda-like Unicode surface
 (docs/GRAMMAR.md), `langc fmt`, `langc check --json` and stable
 diagnostic codes (docs/DIAGNOSTICS.md). The base names of the design
 (Ballot, Quorum, Authorized and the others) are in the checker, and the
@@ -30,9 +30,22 @@ design laws are guest theorems. S6 and S7 add the cryptography
 (src/crypto/). S8 adds the Wasm replica and self-amendment. S9 adds the
 agent kit: `langc explain`, `langc mcp`, skills/quorum-lang/SKILL.md, the
 5 programs of examples/agent/, docs/TOKEN-BASELINE.md and
-corpus/INDEX.md. docs/PLAN.md sec 9 lists the slices, and docs/PLAN.md
-sec 7 maps agent adoption to deliverables. S10 to S12 are not started.
-The next slice is S10.
+corpus/INDEX.md. S10 adds the MPC tally route to the replica:
+a BGW arithmetic model (src/crypto/bgw.c). docs/PLAN.md sec 9 lists the
+slices, and docs/PLAN.md sec 7 maps agent adoption to deliverables.
+S11 and S12 are not started. The next slice is S11.
+
+## MPC security scope
+
+S10 is a BGW arithmetic transcript validation model, not a private ballot
+protocol. Its Feldman commitment `C[0] = b G` reveals a ballot bit: the
+identity point means 0 and the generator means 1. The transcript also
+contains all committee shares, so the host can reconstruct every input
+and intermediate value. Returning only the outcome does not hide them.
+Use the S6 threshold ElGamal route for encrypted ballots. A private MPC
+deployment needs hiding commitments and proofs plus separate member
+execution with private authenticated channels; S10 does not implement
+those requirements.
 
 ## Tool loop
 

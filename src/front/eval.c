@@ -1,5 +1,6 @@
 /* The evaluator, the conversion test, quote and the printer (see
    front/core.h). SHARED by the tcc kits. */
+#include "crypto/bgw.h"
 #include "crypto/elgamal.h"
 #include "crypto/frost.h"
 #include "crypto/sha256.h"
@@ -1472,6 +1473,8 @@ static const Value *reduce_hcomp(Machine *m, const Value *const *a, uint32_t n) 
 }
 
 static uint32_t varied_arity(const Machine *m, Op op, uint32_t inst) {
+  /* The guest arguments of each host import (check.c BUILTINS). */
+  static const uint32_t HOST_ARITY[12] = {2u, 3u, 5u, 3u, 3u, 7u, 3u, 2u, 3u, 6u, 4u, 3u};
   const CtorInfo *c = inst < m->ctor_count ? &m->ctors[inst] : NULL;
   const FamilyInfo *f = inst < m->family_count ? &m->families[inst] : NULL;
   if (op == OP_CTOR && c != NULL && c->family < m->family_count)
@@ -1483,7 +1486,7 @@ static uint32_t varied_arity(const Machine *m, Op op, uint32_t inst) {
   if (op == OP_FOLD_FAMILY && f != NULL)
     return f->ctor_count + 1u;
   if (op == OP_HOST)
-    return inst == 1u || inst == 3u || inst == 4u ? 3u : inst == 2u ? 5u : inst == 5u ? 7u : 2u;
+    return inst < 12u ? HOST_ARITY[inst] : 2u;
   return UINT32_MAX;
 }
 
@@ -1520,12 +1523,15 @@ static int host_words(Machine *m, const Value *r, uint32_t words, unsigned char 
   return 1;
 }
 
-/* The list L (R-E4): nil has no field, a cell ARGC fields, the record of
-   WORDS words first and the rest last. The records go to BYTES, one after
-   the other. *HAVE is the cell count; a list of more than 8 cells gives 9
-   (thr_open_be refuses it). 1 when done; else 0, and *OUT is the stuck
-   call or the error. */
-static int host_list(Machine *m, const Value *l, uint32_t argc, uint32_t words, unsigned char *bytes, uint32_t *have, uint32_t inst, const Value *const *a, uint32_t n, const Value **out) {
+/* The list L (R-E4): nil has no field, a cell ARGC fields, the FIELDS
+   records first (WORDS[f] words for the field f) and the rest last. The
+   records go to BYTES, one after the other. *HAVE is the cell count; a
+   list of more than 8 cells gives 9 (thr_open_be and the bgw `_be`
+   functions refuse it). 1 when done; else 0, and *OUT is the stuck call or
+   the error. */
+static int host_list(Machine *m, const Value *l, uint32_t argc, const uint32_t *words, uint32_t fields, unsigned char *bytes, uint32_t *have, uint32_t inst, const Value *const *a, uint32_t n, const Value **out) {
+  uint32_t at = 0;
+  uint32_t f;
   *have = 0;
   for (;;) {
     if (blocked(m, l, OP_HOST, inst, 0, a, n, out))
@@ -1540,18 +1546,22 @@ static int host_list(Machine *m, const Value *l, uint32_t argc, uint32_t words, 
       *have = 9u;
       return 1;
     }
-    if (!host_words(m, l->args[0], words, bytes + 8u * words * *have, inst, a, n, out))
-      return 0;
+    for (f = 0; f < fields; f++) {
+      if (!host_words(m, l->args[f], words[f], bytes + at, inst, a, n, out))
+        return 0;
+      at += 8u * words[f];
+    }
     *have += 1u;
     l = l->args[argc - 1u];
   }
 }
 
-/* The constructor of the word record W4 (the q_combine result, R-E30). */
-static uint32_t w4_ctor(const Machine *m) {
+/* The constructor of the word record NAME (the result of q_combine, R-E30,
+   and of q_mpc_mul, q_mpc_mulc and q_mpc_open, S10 H3). */
+static uint32_t record_ctor(const Machine *m, const char *name) {
   uint32_t i;
   for (i = 0; i < m->family_count; i++)
-    if (strcmp(m->families[i].name, "W4") == 0 && m->families[i].ctor_count == 1u)
+    if (strcmp(m->families[i].name, name) == 0 && m->families[i].ctor_count == 1u)
       return m->families[i].first_ctor;
   return UINT32_MAX;
 }
@@ -1566,26 +1576,40 @@ static uint32_t w4_ctor(const Machine *m) {
    zero words when k is not 1 or a point does not decode);
    q_partial_verify (4) gives 0 when the part verifies, else 1; q_combine
    (5) walks its two lists and gives the W4 (m, the ThrResult code, 0, 0).
-   A neutral record, word or list gives a stuck call, and the lowering
-   gives IR_STMT_HOST for it. */
+   S10 H3 (bgw.h): q_mpc_check (6) gives the BgwResult code; q_mpc_add (7),
+   q_mpc_affine (8) and q_mpc_mulc (10) give a dealing as a W16; q_mpc_mul
+   (9) gives the new shares and the code (word 12) as a W16; q_mpc_open
+   (11) gives the value and the code (word 4) as a W8. q_mpc_mul and
+   q_mpc_mulc walk their three Prods lists. A neutral record, word or list
+   gives a stuck call, and the lowering gives IR_STMT_HOST for it. */
 static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a, uint32_t n) {
-  static const uint32_t WORDS[6][7] = {{4u, 4u},
-                                       {8u, 12u, 4u},
-                                       {48u, 8u, 16u, 4u, 0u},
-                                       {16u, 16u, 0u},
-                                       {29u, 8u, 16u},
-                                       {UINT32_MAX, 0u, UINT32_MAX, 0u, 0u, 16u, 0u}};
+  static const uint32_t WORDS[12][7] = {{4u, 4u},
+                                        {8u, 12u, 4u},
+                                        {48u, 8u, 16u, 4u, 0u},
+                                        {16u, 16u, 0u},
+                                        {29u, 8u, 16u},
+                                        {UINT32_MAX, 0u, UINT32_MAX, 0u, 0u, 16u, 0u},
+                                        {16u, 16u, 0u},
+                                        {16u, 16u},
+                                        {16u, 4u, 4u},
+                                        {UINT32_MAX, UINT32_MAX, UINT32_MAX, 0u, 16u, 16u},
+                                        {UINT32_MAX, UINT32_MAX, UINT32_MAX, 0u},
+                                        {16u, 16u, 0u}};
+  /* The records of a cell: Parts (the part only), KeyList, Prods. */
+  static const uint32_t CELL_WORDS[3][3] = {{29u}, {8u}, {29u, 8u, 16u}};
   const Value *words[16];
   const Value *out;
-  unsigned char bytes[2560];
+  /* The records from 0, the result at 256, the Prods lists from 512. */
+  unsigned char bytes[512u + 3u * BGW_LIST_BYTES];
   uint64_t num[7];
   uint64_t open = 0;
   uint64_t w;
-  uint32_t have[2] = {0u, 0u};
+  uint32_t have[3] = {0u, 0u, 0u};
   uint32_t at = 0;
+  uint32_t ctor;
   uint32_t i;
   uint32_t k;
-  if (inst > 5u || n != varied_arity(m, OP_HOST, inst))
+  if (inst > 11u || n != varied_arity(m, OP_HOST, inst))
     return internal(m, "a host import with no guest form");
   for (i = 0; i < n; i++) {
     if (blocked(m, a[i], OP_HOST, inst, 0, a, n, &out))
@@ -1610,11 +1634,11 @@ static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a
   if (inst == 4u)
     return val_nat(m, (uint64_t)thr_verify_be(bytes, bytes + 232, bytes + 296));
   if (inst == 5u) {
-    if (!host_list(m, a[0], 3u, 29u, bytes + 128, &have[0], inst, a, n, &out) ||
-        !host_list(m, a[2], 2u, 8u, bytes + 1984, &have[1], inst, a, n, &out))
+    if (!host_list(m, a[0], 3u, CELL_WORDS[0], 1u, bytes + 128, &have[0], inst, a, n, &out) ||
+        !host_list(m, a[2], 2u, CELL_WORDS[1], 1u, bytes + 1984, &have[1], inst, a, n, &out))
       return out;
     w = (uint64_t)thr_open_be(&open, bytes + 128, have[0], bytes + 1984, have[1], bytes, num[1], num[3], num[4], num[6]);
-    k = w4_ctor(m);
+    k = record_ctor(m, "W4");
     if (k == UINT32_MAX)
       return internal(m, "a q_combine call with no W4 record");
     words[0] = val_nat(m, open);
@@ -1623,17 +1647,35 @@ static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a
     words[3] = val_nat(m, 0);
     return val_op(m, VAL_OP, OP_CTOR, k, 0, words, 4u);
   }
+  if (inst == 6u)
+    return val_nat(m, (uint64_t)bgw_check_be(bytes, bytes + 128, num[2]));
+  for (i = 0; i < 3u && (inst == 9u || inst == 10u); i++)
+    if (!host_list(m, a[i], 4u, CELL_WORDS[2], 3u, bytes + 512u + BGW_LIST_BYTES * i, &have[i], inst, a, n, &out))
+      return out;
+  if (inst == 0u)
+    sha256(bytes, 64u, bytes + 256);
   if (inst == 3u)
     tally_add_be(bytes + 256, bytes, bytes + 128, num[2]);
-  else
-    sha256(bytes, 64u, bytes + 256);
-  at = inst == 3u ? 16u : 4u;
+  if (inst == 7u)
+    bgw_add_be(bytes + 256, bytes, bytes + 128);
+  if (inst == 8u)
+    bgw_affine_be(bytes + 256, bytes, bytes + 128, bytes + 160);
+  if (inst == 9u)
+    bgw_mul_be(bytes + 256, bytes + 512, have, num[3], bytes, bytes + 128);
+  if (inst == 10u)
+    bgw_mulc_be(bytes + 256, bytes + 512, have, num[3]);
+  if (inst == 11u)
+    bgw_open_be(bytes + 256, bytes, bytes + 128, num[2]);
+  at = inst == 0u ? 4u : inst == 11u ? 8u : 16u;
+  ctor = inst == 0u || inst == 3u || inst == 7u || inst == 8u ? a[0]->inst : record_ctor(m, at == 8u ? "W8" : "W16");
+  if (ctor == UINT32_MAX)
+    return internal(m, "a host call with no result record");
   for (k = 0; k < at; k++) {
     w = 0;
     for (i = 0; i < 8u; i++) w = w << 8 | bytes[256u + 8u * k + i];
     words[k] = val_nat(m, w);
   }
-  return val_op(m, VAL_OP, OP_CTOR, a[0]->inst, 0, words, at);
+  return val_op(m, VAL_OP, OP_CTOR, ctor, 0, words, at);
 }
 
 static const Value *reduce_op(Machine *m, Op op, uint32_t inst, uint32_t field, const Value *const *a, uint32_t n) {

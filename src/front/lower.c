@@ -750,9 +750,11 @@ static const IrExpr *host_record_flag(Low *l, Operand x, uint32_t words) {
   return f;
 }
 
-/* q_combine reads at most eight heads, as eval.c host_list does. Only
-   the first record and the tail are demanded from a Parts cell. */
-static const IrExpr *host_list_flag(Low *l, Buf *b, Operand x, uint32_t fields, uint32_t words) {
+/* q_combine, q_mpc_mul and q_mpc_mulc read at most eight cells, as
+   eval.c host_list does. Only the HEADS first records (WORDS[K] words in
+   the record K) and the tail are demanded from a cell: the first record
+   of a Parts cell, the 3 records of a Prods cell. */
+static const IrExpr *host_list_flag(Low *l, Buf *b, Operand x, uint32_t fields, const uint32_t *words, uint32_t heads) {
   uint32_t cur = local_new(l);
   uint32_t flag = local_new(l);
   Buf body = buf_under(b);
@@ -760,7 +762,11 @@ static const IrExpr *host_list_flag(Low *l, Buf *b, Operand x, uint32_t fields, 
   Buf none = buf_under(&body);
   Operand head = field_op(l, ex_local(l, cur), 0);
   Operand tail = field_op(l, ex_local(l, cur), fields - 1u);
-  const IrExpr *f = ex_or(l, ex_local(l, flag), ex_or(l, host_record_flag(l, head, words), tail.f));
+  const IrExpr *h = host_record_flag(l, head, words[0]);
+  const IrExpr *f;
+  uint32_t k;
+  for (k = 1; k < heads; k++) h = ex_or(l, h, host_record_flag(l, field_op(l, ex_local(l, cur), k), words[k]));
+  f = ex_or(l, ex_local(l, flag), ex_or(l, h, tail.f));
   if (!set(l, b, cur, x.w) || !set(l, b, flag, x.f) ||
       !set(l, &cell, flag, f) || !set(l, &cell, cur, tail.w) ||
       !st_if(l, &body, ex_bin(l, IR_OP_EQ, ex_load(l, ex_local(l, cur), 0), ex_const(l, 1)), &cell, &none) ||
@@ -770,13 +776,19 @@ static const IrExpr *host_list_flag(Low *l, Buf *b, Operand x, uint32_t fields, 
 }
 
 /* A host import (O105, D5). q_hash2 (import 0) and q_combine (import 5):
-   the out block (tag 0, four words 0 with flag 0; q_tally_add, import 3:
-   16 words), then IR_STMT_HOST with the out address and the argument
-   addresses. The flag is the OR of the argument flags and (result != 0).
-   Imports 1, 2 and 4 go to host_code (R-E6). */
+   the out block (tag 0, four words 0 with flag 0; q_tally_add, import 3,
+   and q_mpc_add to q_mpc_mulc, imports 7 to 10: 16 words; q_mpc_open,
+   import 11: 8 words), then IR_STMT_HOST with the out address and the
+   argument addresses. The flag is the OR of the argument flags and
+   (result != 0). Imports 1, 2, 4 and 6 go to host_code (R-E6). The list
+   arguments: Parts and KeyList of q_combine, the 3 Prods of q_mpc_mul and
+   q_mpc_mulc (S10 H3). */
 static int host_call(Low *l, Buf *b, const Value *v, Operand *out) {
-  static const uint32_t widths[6][7] = {{4u, 4u}, {8u, 12u, 4u}, {48u, 8u, 16u, 4u},
-                                      {16u, 16u}, {29u, 8u, 16u}, {0u, 0u, 0u, 0u, 0u, 16u}};
+  static const uint32_t widths[12][7] = {{4u, 4u}, {8u, 12u, 4u}, {48u, 8u, 16u, 4u},
+                                       {16u, 16u}, {29u, 8u, 16u}, {0u, 0u, 0u, 0u, 0u, 16u},
+                                       {16u, 16u}, {16u, 16u}, {16u, 4u, 4u},
+                                       {0u, 0u, 0u, 0u, 16u, 16u}, {0u}, {16u, 16u}};
+  static const uint32_t heads[3][3] = {{29u}, {8u}, {29u, 8u, 16u}};
   const IrExpr **fields = arena_alloc(l->m->arena, ((size_t)v->argc + 1u) * sizeof *fields);
   Operand zero[16];
   uint32_t width;
@@ -792,16 +804,16 @@ static int host_call(Low *l, Buf *b, const Value *v, Operand *out) {
     if (!lower(l, b, v->args[i], &x))
       return 0;
     fields[1u + i] = x.w;
-    arg_flag = v->inst == 5u && (i == 0u || i == 2u)
-                   ? host_list_flag(l, b, x, i == 0u ? 3u : 2u, i == 0u ? 29u : 8u)
-                   : host_record_flag(l, x, widths[v->inst][i]);
+    arg_flag = v->inst == 5u && (i == 0u || i == 2u) ? host_list_flag(l, b, x, i == 0u ? 3u : 2u, heads[i / 2u], 1u)
+               : (v->inst == 9u || v->inst == 10u) && i < 3u ? host_list_flag(l, b, x, 4u, heads[2], 3u)
+                                                              : host_record_flag(l, x, widths[v->inst][i]);
     if (arg_flag == NULL)
       return 0;
     f = f == NULL ? arg_flag : ex_or(l, f, arg_flag);
   }
-  if (v->inst == 1u || v->inst == 2u || v->inst == 4u)
+  if (v->inst == 1u || v->inst == 2u || v->inst == 4u || v->inst == 6u)
     return host_code(l, b, v, fields + 1, f, out);
-  width = v->inst == 3u ? 16u : 4u;
+  width = v->inst == 3u || (v->inst >= 7u && v->inst <= 10u) ? 16u : v->inst == 11u ? 8u : 4u;
   for (i = 0; i < width; i++) zero[i] = operand(ex_const(l, 0), ex_const(l, 0));
   if (!block_ops(l, b, 0, zero, width, &blk))
     return 0;

@@ -9,10 +9,10 @@
      result is an i64. Each entry first resets the heap pointer to 0, and it
      traps on a Flag argument larger than 1. An entry with an input
      parameter (ADDR, O109 (i)) resets the heap pointer to heap_base.
-   - A module with a host call (IrProgram host, O105) first imports the 6
-     functions of module "q" (HOST_IMPORTS) as functions 0 to 5, and it
-     exports memory 0 as "memory". Then alloc is function 6 and IR entry K
-     is function 7 + K. A module without a host call has no import section.
+   - A module with a host call (IrProgram host, O105) first imports the 12
+     functions of module "q" (HOST_IMPORTS) as functions 0 to 11, and it
+     exports memory 0 as "memory". Then alloc is function 12 and IR entry K
+     is function 13 + K. A module without a host call has no import section.
    - A module with an input parameter (IrProgram input) has a second mutable
      i64 global, heap_base (0 at the start), exported as "heap_base", and it
      exports memory 0 as "memory". The host writes the input blocks below
@@ -114,7 +114,9 @@ typedef struct {
 } HostImport;
 
 static const HostImport HOST_IMPORTS[] = {{"q_hash2", 3},     {"q_frost_verify", 3},   {"q_ballot_verify", 5},
-                                          {"q_tally_add", 4}, {"q_partial_verify", 3}, {"q_combine", 8}};
+                                          {"q_tally_add", 4}, {"q_partial_verify", 3}, {"q_combine", 8},
+                                          {"q_mpc_check", 3}, {"q_mpc_add", 3},        {"q_mpc_affine", 4},
+                                          {"q_mpc_mul", 7},   {"q_mpc_mulc", 5},       {"q_mpc_open", 4}};
 
 #define HOST_COUNT ((uint32_t)(sizeof HOST_IMPORTS / sizeof HOST_IMPORTS[0]))
 

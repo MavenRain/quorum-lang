@@ -7,14 +7,15 @@ FRONT = src/front/base.c src/front/lexer.c src/front/parser.c src/front/front.c 
 TARGET = src/wasm.c
 SRC = src/main.c src/front/basenames.c $(FRONT) $(TARGET)
 FRONT_TOOL = test/fronttool.c $(filter-out src/front/front.c src/front/lower.c,$(FRONT)) $(CRYPTO)
-CRYPTO = src/crypto/keccak.c src/crypto/u256.c src/crypto/bn254.c src/crypto/elgamal.c src/crypto/threshold.c src/crypto/sigma.c src/crypto/dkg.c src/crypto/sha256.c src/crypto/xmd.c src/crypto/secp256k1.c src/crypto/frost.c
+CRYPTO = src/crypto/keccak.c src/crypto/u256.c src/crypto/bn254.c src/crypto/elgamal.c src/crypto/threshold.c src/crypto/sigma.c src/crypto/dkg.c src/crypto/sha256.c src/crypto/xmd.c src/crypto/secp256k1.c src/crypto/frost.c src/crypto/bgw.c
 TALLY_TOOL = test/tallytool.c $(CRYPTO)
 FROST_TOOL = test/frosttool.c $(CRYPTO)
+MPC_TOOL = test/mpctool.c $(CRYPTO)
 HEADERS = $(wildcard src/*.h src/front/*.h src/crypto/*.h)
 
 .PHONY: build check check-clang clean
 
-build: build/langc build/fronttool build/tallytool build/frosttool build/replicatool build/tokproxy
+build: build/langc build/fronttool build/tallytool build/frosttool build/mpctool build/replicatool build/tokproxy
 
 build/domain.c: domain/domain.lang gen/embed.c
 	mkdir -p build
@@ -38,6 +39,10 @@ build/tallytool: $(TALLY_TOOL) $(HEADERS)
 build/frosttool: $(FROST_TOOL) $(HEADERS)
 	mkdir -p build
 	$(TCC) $(CFLAGS) -o build/frosttool $(FROST_TOOL)
+
+build/mpctool: $(MPC_TOOL) $(HEADERS)
+	mkdir -p build
+	$(TCC) $(CFLAGS) -o build/mpctool $(MPC_TOOL)
 
 # The token proxy of docs/TOKEN-BASELINE.md (O127).
 build/tokproxy: test/tokproxy.c
@@ -88,11 +93,12 @@ check-clang: build/domain.c build/prelude.c build/hostflags.c build/replica.c
 	$(CC) $(CLANG_FLAGS) $(FRONT_TOOL)
 	$(CC) $(CLANG_FLAGS) $(TALLY_TOOL)
 	$(CC) $(CLANG_FLAGS) $(FROST_TOOL)
+	$(CC) $(CLANG_FLAGS) $(MPC_TOOL)
 	$(CC) $(CLANG_FLAGS) test/tokproxy.c
 	$(CC) $(CLANG_FLAGS) -Ibuild $(WASM2C_INC) test/hostflagtool.c
 	$(CC) $(CLANG_FLAGS) -Ibuild $(WASM2C_INC) test/replicaparse.c
 
-check: build/langc build/fronttool build/tallytool build/frosttool build/replicatool build/hostflagtool build/replicaparse build/tokproxy check-clang
+check: build/langc build/fronttool build/tallytool build/frosttool build/mpctool build/replicatool build/hostflagtool build/replicaparse build/tokproxy check-clang
 	sh test/gate.sh
 	sh test/review.sh
 	build/fronttool
@@ -100,6 +106,7 @@ check: build/langc build/fronttool build/tallytool build/frosttool build/replica
 	build/replicaparse
 	build/tallytool
 	build/frosttool
+	build/mpctool
 
 clean:
 	rm -rf build

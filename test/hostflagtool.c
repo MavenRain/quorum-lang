@@ -31,6 +31,30 @@ u64 w2c_q_q_combine(struct w2c_q *q, u64 out, u64 parts, u64 k, u64 keys, u64 t,
   (void)q; (void)out; (void)parts; (void)k; (void)keys; (void)t; (void)n; (void)ct; (void)bits;
   return 0;
 }
+u64 w2c_q_q_mpc_check(struct w2c_q *q, u64 d, u64 s, u64 n) {
+  (void)q; (void)d; (void)s; (void)n;
+  return 0;
+}
+u64 w2c_q_q_mpc_add(struct w2c_q *q, u64 out, u64 a, u64 b) {
+  (void)q; (void)out; (void)a; (void)b;
+  return 0;
+}
+u64 w2c_q_q_mpc_affine(struct w2c_q *q, u64 out, u64 d, u64 w, u64 k) {
+  (void)q; (void)out; (void)d; (void)w; (void)k;
+  return 0;
+}
+u64 w2c_q_q_mpc_mul(struct w2c_q *q, u64 out, u64 pa, u64 pb, u64 pc, u64 m, u64 da, u64 db) {
+  (void)q; (void)out; (void)pa; (void)pb; (void)pc; (void)m; (void)da; (void)db;
+  return 0;
+}
+u64 w2c_q_q_mpc_mulc(struct w2c_q *q, u64 out, u64 pa, u64 pb, u64 pc, u64 m) {
+  (void)q; (void)out; (void)pa; (void)pb; (void)pc; (void)m;
+  return 0;
+}
+u64 w2c_q_q_mpc_open(struct w2c_q *q, u64 out, u64 d, u64 s, u64 n) {
+  (void)q; (void)out; (void)d; (void)s; (void)n;
+  return 0;
+}
 
 typedef u64 (*EntryFn)(w2c_hostflags *, u64);
 
@@ -44,7 +68,10 @@ static int check(w2c_hostflags *inst, EntryFn fn, u64 arg, int trap) {
 int main(void) {
   static EntryFn const entries[] = {w2c_hostflags_hashFlag, w2c_hostflags_frostFlag,
       w2c_hostflags_ballotFlag, w2c_hostflags_tallyFlag, w2c_hostflags_partialFlag,
-      w2c_hostflags_partsFlag, w2c_hostflags_keysFlag, w2c_hostflags_scalarFlag};
+      w2c_hostflags_partsFlag, w2c_hostflags_keysFlag, w2c_hostflags_scalarFlag,
+      w2c_hostflags_mpcCheckFlag, w2c_hostflags_mpcAddFlag, w2c_hostflags_mpcAffineFlag,
+      w2c_hostflags_prodPartFlag, w2c_hostflags_prodC1Flag, w2c_hostflags_prodSubsFlag,
+      w2c_hostflags_mpcMulFlag, w2c_hostflags_mpcOpenFlag};
   w2c_hostflags inst;
   struct w2c_q q = {0};
   unsigned i;

@@ -1,6 +1,6 @@
 # quorum-lang status
 
-The build implements slices S1 to S9 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S10 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
@@ -19,8 +19,24 @@ reshare) and the C tool test/frosttool.c. S8 is the Wasm replica of sec
 the host-import ABI and the C host test/replicatool.c. S9 is the agent
 kit: `langc explain --json`, `langc mcp`, skills/quorum-lang/SKILL.md,
 the grammar card in docs/GRAMMAR.md, the 5 programs of examples/agent/,
-docs/TOKEN-BASELINE.md, corpus/INDEX.md and the AGENTS.md refresh.
-Slices S10 to S12 are not started. The next slice is S10.
+docs/TOKEN-BASELINE.md, corpus/INDEX.md and the AGENTS.md refresh. S10
+is the MPC tally arithmetic model of sec 5 under Q14 (a), BGW:
+src/crypto/bgw.c and bgw.h, the host imports `q_mpc_check`,
+`q_mpc_add`, `q_mpc_mul`, `q_mpc_mulc`, `q_mpc_affine` and `q_mpc_open`
+(in `langc eval` and in test/replicatool.c), the entries `mpc_tally`,
+`mpc_route` and `tally_decide` of replica/replica.lang, and the
+generator test/mpctool.c with the fixture test/replica/mpc.txt. Slices
+S11 and S12 are not started. The next slice is S11.
+
+## MPC security limitation
+
+S10 validates BGW arithmetic and transcript consistency. It provides no
+ballot or count privacy: each Feldman constant commitment `C[0] = b G`
+reveals a bit by comparison with the identity point or generator, and
+the host receives all members' shares. The fixtures and outcome equality
+checks establish functional agreement, not simulation-based MPC
+security. Hiding commitments, compatible proofs and distributed member
+execution with private authenticated channels remain unimplemented.
 
 ## Implemented
 
@@ -85,7 +101,9 @@ Slices S10 to S12 are not started. The next slice is S10.
   `record Private`, `_≼_`, `module Round`, `module Aggregate`, `record
   ZK`, `record IVC` and `record Sharing` (O74). The 12 laws check, with
   the 5 new laws `app-cons`, `ivc-prove`, `tallyᴹ-correct`,
-  `tallyᶠ-correct` and `mpc≼fhe` (O73). examples/denote.lang holds the
+  `tallyᶠ-correct` and `mpc≼fhe` (O73). At S10 the replica runs
+  `tallyᴹ`, and the mpc block of test/gate.sh checks `tallyᴹ-correct`
+  on the fixtures (O135, O136). examples/denote.lang holds the
   denotational instances and `law den-private` (O75).
 - Cryptography (S6): src/crypto holds BN254 G1, exponential ElGamal, the
   ballot proofs (`sig_or_*`, `sig_onehot_*`), threshold decryption with
@@ -229,14 +247,17 @@ Slices S10 to S12 are not started. The next slice is S10.
   not AMEND_CORE), the fragment check skipped (the fragment fold
   replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED). The
   history and amend loops of test/gate.sh kill them.
-- Gate counts at S9: 110 files canonical under `fmt`, 29 JSON fixtures,
+- Gate counts at S10: 110 files canonical under `fmt`, 29 JSON fixtures,
   36 codes with a fixture or a row, 54 check refusals, 9 parse refusals,
   77 evaluations, 19 examples checked with 0 failed, 10 agent verbs with
   0 missing, 13 explain fixtures, 152 base names with 0 missing, 15 MCP
   requests with 0 mismatches, 6 SKILL.md copies with 0 drift, 5 agent
   examples with 13 of 13 laws, 3 token tasks with 12 cells, 135 corpus
   files with 0 mismatches, 5 README yes rows with 0 without a slice, the
-  S8 tally, auth, host, input and replica counts (unchanged), 5318
+  S8 tally, auth, host and input counts (unchanged), the S8 replica
+  counts (unchanged, but 11 of 11 replica refusals, 8 of 8 at S9), 38
+  replica mpc cases (15 by langc eval) with 0 mismatches, 34 replica
+  decide cases with 0 mismatches, the bgw regressions passed, 5318
   differential cases with 0 mismatches, 19 IR lowerings, 22 Wasm modules
   valid, 12 of 12 laws discharged (examples/threshold.lang) and 1 of 1
   (examples/denote.lang).
@@ -249,6 +270,21 @@ Slices S10 to S12 are not started. The next slice is S10.
     gives `skill: 6 copies, 1 drift`.
   - M3: the list-base table (src/front/basenames.c) loses the row `Set`.
     The base block gives `base: 152 names, 1 missing`.
+- Mutants at S10 (3 of 3 killed, src/crypto/bgw.c). After the restore,
+  make EXIT 0 and bgw.c has the saved sha.
+  - M1: the bgw_sum loop drops the last share. The mpc block of
+    test/gate.sh gives `FAIL replica mpc: build/mpctool lang is not
+    test/replica/mpc.txt`, and build/mpctool gives `FAIL bgw mutant 1:
+    each sum share checks`. The mismatches stay 0: replicatool reads
+    the fixture.
+  - M2: bgw_open gives a wrong x to the Lagrange call. The mpc block
+    gives `replica mpc: 38 cases (15 by langc eval), 19 mismatches`,
+    and build/mpctool gives `FAIL bgw mutant 2: open at each pair of
+    members`.
+  - M3: bgw_open does not check the output shares. The mpc block gives
+    `FAIL replica mpc badout mpc_route: want 12, ...` and `FAIL replica
+    refusals: 10 of 11`, and build/mpctool gives `FAIL bgw mutant 3:
+    open with a bad output share rejects`.
 - Speed at S9 (O132): in the CLEAN run of the S9 mutant script
   (W/mut-s9.py), the mcp block took 0.05 s (target less than 1 s), the
   explain block 0.27 s (target less than 1 s) and the 9 S9 blocks
@@ -257,9 +293,9 @@ Slices S10 to S12 are not started. The next slice is S10.
 
 ## Remaining work
 
-1. S10 to S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26).
-   Q14 must be ruled before S10 and Q15 before S11.
-2. The O items O14 to O134 (`docs/PLAN.md` sec 10) are Claude readings,
+1. S11 and S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26)
+   and Q14 is ruled (a) (2026-10-28). Q15 must be ruled before S11.
+2. The O items O14 to O143 (`docs/PLAN.md` sec 10) are Claude readings,
    but the USER ruled O109 (i). The USER can rule each one.
    `docs/PLAN.md` sec 5 (S8 readings) and sec 7 (S9 readings) name the
    session readings that are NOT ruled.

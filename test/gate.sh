@@ -627,6 +627,51 @@ while read -r row entry want x0 x1 x2 x3 y0 y1 y2 y3 tb tp tk; do
     "badballot ballot_verify 7" | "badpart partial_verify 8") refused=$((refused + 1)) ;;
   esac
 done < test/replica/tally.txt
+# The MPC tally route (O141, S10 H4). build/mpctool lang writes the 38
+# lines of test/replica/mpc.txt: ROW ENTRY WANT K B P1 P2 P3 OS (B to OS
+# are list texts). build/replicatool mpc gives WANT for each line. langc
+# eval gives WANT for the 15 rows of the V 1 and V 2 ballots, mc3_6_2 and
+# the 4 route rows (Q-S10-5 (b): one V 3 langc eval takes about 15 s). For
+# each row mcV_C_K, build/replicatool decide K on the WANT of the tally.txt
+# row tcV_C (the count of the ballots C) gives WANT. The rows badin,
+# badproof and badout are the reject rows (codes 9, 10 and 12).
+build/mpctool lang > "$tmp/mpc.txt" 2>&1 || true
+cmp -s "$tmp/mpc.txt" test/replica/mpc.txt ||
+  { echo "FAIL replica mpc: build/mpctool lang is not test/replica/mpc.txt"; fail=$((fail + 1)); }
+mpcs=0
+mevals=0
+mpc_bad=0
+decides=0
+decide_bad=0
+while read -r row entry want mk mb mp1 mp2 mp3 mos; do
+  a=$want
+  case "$row" in
+    mc1_* | mc2_* | mc3_6_2 | mr | badin | badproof | badout)
+      a=$(build/langc eval replica/replica.lang "$entry" "$mk" "$mb" "$mp1" "$mp2" "$mp3" "$mos" < /dev/null 2>&1) || true
+      mevals=$((mevals + 1))
+      ;;
+  esac
+  b=$(build/replicatool mpc "$entry" "$mk" "$mb" "$mp1" "$mp2" "$mp3" "$mos" < /dev/null 2>&1) || true
+  mpcs=$((mpcs + 1))
+  if [ "$a" != "$want" ] || [ "$b" != "$want" ]; then
+    echo "FAIL replica mpc $row $entry: want $want, langc eval $a, replicatool $b"
+    mpc_bad=$((mpc_bad + 1))
+    fail=$((fail + 1))
+  fi
+  case "$row" in
+    mc*)
+      mcase=${row#mc}
+      mcount=$(awk -v r="tc${mcase%_*}" '$1 == r && $2 == "combine" { print $3 }' test/replica/tally.txt)
+      md=$(build/replicatool decide "${mcase##*_}" "$mcount" < /dev/null 2>&1) || true
+      decides=$((decides + 1))
+      [ "$md" = "$want" ] ||
+        { echo "FAIL replica decide $row: want $want, count $mcount, replicatool decide $md"; decide_bad=$((decide_bad + 1)); fail=$((fail + 1)); }
+      ;;
+  esac
+  case "$row $entry $b" in
+    "badin mpc_route 9" | "badproof mpc_route 10" | "badout mpc_route 12") refused=$((refused + 1)) ;;
+  esac
+done < test/replica/mpc.txt
 # The amend check (R-E19, R-E20). Each line of test/replica/amend.txt is
 # ROW WANT TEXT: TEXT is the eval text of a Stack of opcode words, the
 # last opcode first (R-E14). langc eval and build/replicatool amend give
@@ -652,17 +697,22 @@ done < test/replica/amend.txt
 [ "$arows $astate" = "3 4" ] || { echo "FAIL replica apply: $arows rows, state $astate, want 3 rows, state 4"; fail=$((fail + 1)); }
 [ "$routes" = 19 ] || { echo "FAIL replica route: $routes lines, want 19"; fail=$((fail + 1)); }
 [ "$tallies" = 14 ] || { echo "FAIL replica tally: $tallies combine rows, want 14"; fail=$((fail + 1)); }
+[ "$mpcs" = 38 ] || { echo "FAIL replica mpc: $mpcs lines, want 38"; fail=$((fail + 1)); }
+[ "$mevals" = 15 ] || { echo "FAIL replica mpc: $mevals langc eval rows, want 15"; fail=$((fail + 1)); }
+[ "$decides" = 34 ] || { echo "FAIL replica decide: $decides mc rows, want 34"; fail=$((fail + 1)); }
 [ "$amends" = 4 ] || { echo "FAIL replica amend: $amends lines, want 4"; fail=$((fail + 1)); }
 [ "$accepted" = 1 ] || { echo "FAIL replica accept: $accepted of 1"; fail=$((fail + 1)); }
-[ "$refused" = 8 ] || { echo "FAIL replica refusals: $refused of 8"; fail=$((fail + 1)); }
+[ "$refused" = 11 ] || { echo "FAIL replica refusals: $refused of 11"; fail=$((fail + 1)); }
 echo "replica: $replicas cases, $replica_bad mismatches"
 echo "replica history: $((hrows - 1)) steps, tip $tip"
 echo "replica merge: $mrows rows, tip $mtip"
 echo "replica apply: $arows rows, state $astate"
 echo "replica route: $routes cases, $route_bad mismatches"
 echo "replica tally: $tallies cases, $tally_bad mismatches"
+echo "replica mpc: $mpcs cases ($mevals by langc eval), $mpc_bad mismatches"
+echo "replica decide: $decides cases, $decide_bad mismatches"
 echo "replica accept: $accepted of 1"
-echo "replica refusals: $refused of 8"
+echo "replica refusals: $refused of 11"
 rm -rf "$tmp"
 
 # design/DESIGN.md is verbatim and can hold a dash (as bridge-lang, ruling 2026-10-09).

@@ -1,7 +1,8 @@
 /* The replica host of S8 (O104, O105). It runs build/replica.wasm through
-   the wasm2c translation build/replica.c, and it gives the 6 imports of
-   module "q". q_hash2 (H2b) and q_frost_verify (H3) have a body, and H5a
-   gives the other 4 imports a body (R-E12).
+   the wasm2c translation build/replica.c, and it gives the 12 imports of
+   module "q". q_hash2 (H2b) and q_frost_verify (H3) have a body, H5a
+   gives 4 more imports a body (R-E12), and S10 H3c gives the 6 imports
+   q_mpc_check to q_mpc_open a body (bgw.h).
 
    Usage: replicatool hash X. It prints the 4 words of
    q_hash2 (w4 X X X X) (w4 X X X X) (the entries hash0 to hash3 of
@@ -14,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "crypto/bgw.h"
 #include "crypto/elgamal.h"
 #include "crypto/frost.h"
 #include "crypto/sha256.h"
@@ -213,6 +215,132 @@ u64 w2c_q_q_combine(struct w2c_q *q, u64 out, u64 parts, u64 k, u64 keys, u64 t,
   return 0;
 }
 
+/* S10 H3c (bgw.h): the q_mpc imports call the _be functions of bgw.c. A
+   record that does not fit gives 1 (refused), as q_hash2. A dealing and a
+   share list are W16 records. */
+
+/* The 3 Prods lists LISTS as bgw_mul_be reads them (as eval.c): the list
+   of the member i at PRODS + BGW_LIST_BYTES (i - 1), BGW_CELL_BYTES for
+   each cell (prodCons: the part, C[1], the sub-shares, then the rest).
+   HAVE[i - 1] is the walked cell count, or THR_N_MAX + 1 when the list
+   has more cells (as walk_list). */
+static void walk_prods(const struct w2c_q *q, const u64 *lists, unsigned char *prods, uint32_t *have) {
+  static const unsigned WORDS[3] = {29u, 8u, 16u};
+  unsigned i;
+  unsigned k;
+  unsigned at;
+  u64 a;
+  int more;
+  memset(prods, 0, 3u * BGW_LIST_BYTES);
+  for (i = 0; i < 3u; i++) {
+    a = lists[i];
+    more = rec_fits(q, a, 4u) && rec_tag(q, a) == 1;
+    for (have[i] = 0; more && have[i] < THR_N_MAX; have[i]++) {
+      for (k = 0, at = 0; k < 3u; at += 8u * WORDS[k], k++)
+        if (rec_fits(q, rec_word(q, a, k), WORDS[k]))
+          rec_bytes(q, rec_word(q, a, k), WORDS[k], prods + BGW_LIST_BYTES * i + BGW_CELL_BYTES * have[i] + at);
+      a = rec_word(q, a, 3u);
+      more = rec_fits(q, a, 4u) && rec_tag(q, a) == 1;
+    }
+    have[i] = more ? THR_N_MAX + 1u : have[i];
+  }
+}
+
+/* q_mpc_check: the BgwResult code of the shares S of the members 1 to N of
+   the dealing D. 0 is BGW_OK. */
+u64 w2c_q_q_mpc_check(struct w2c_q *q, u64 d, u64 s, u64 n) {
+  unsigned char d_b[128];
+  unsigned char s_b[128];
+  if (!rec_fits(q, d, 16u) || !rec_fits(q, s, 16u))
+    return 1;
+  rec_bytes(q, d, 16u, d_b);
+  rec_bytes(q, s, 16u, s_b);
+  return (u64)bgw_check_be(d_b, s_b, n);
+}
+
+/* q_mpc_add: OUT is the dealing of the sum of the dealings A and B. The
+   result is 0. */
+u64 w2c_q_q_mpc_add(struct w2c_q *q, u64 out, u64 a, u64 b) {
+  unsigned char a_b[128];
+  unsigned char b_b[128];
+  unsigned char sum[128];
+  if (!rec_fits(q, out, 16u) || !rec_fits(q, a, 16u) || !rec_fits(q, b, 16u))
+    return 1;
+  rec_bytes(q, a, 16u, a_b);
+  rec_bytes(q, b, 16u, b_b);
+  bgw_add_be(sum, a_b, b_b);
+  rec_put(q, out, 16u, sum);
+  return 0;
+}
+
+/* q_mpc_affine: OUT is the dealing of W D + K (W and K are W4 scalars).
+   The result is 0. */
+u64 w2c_q_q_mpc_affine(struct w2c_q *q, u64 out, u64 d, u64 w, u64 k) {
+  unsigned char d_b[128];
+  unsigned char w_b[32];
+  unsigned char k_b[32];
+  unsigned char res[128];
+  if (!rec_fits(q, out, 16u) || !rec_fits(q, d, 16u) || !rec_fits(q, w, 4u) || !rec_fits(q, k, 4u))
+    return 1;
+  rec_bytes(q, d, 16u, d_b);
+  rec_bytes(q, w, 4u, w_b);
+  rec_bytes(q, k, 4u, k_b);
+  bgw_affine_be(res, d_b, w_b, k_b);
+  rec_put(q, out, 16u, res);
+  return 0;
+}
+
+/* q_mpc_mul: OUT is the share list of bgw_mul_be for the step M (the code
+   in word 12) over the Prods lists PA, PB and PC and the dealings DA and
+   DB. The result is 0. */
+u64 w2c_q_q_mpc_mul(struct w2c_q *q, u64 out, u64 pa, u64 pb, u64 pc, u64 m, u64 da, u64 db) {
+  unsigned char prods[3u * BGW_LIST_BYTES];
+  unsigned char da_b[128];
+  unsigned char db_b[128];
+  unsigned char res[128];
+  uint32_t have[3];
+  const u64 lists[3] = {pa, pb, pc};
+  if (!rec_fits(q, out, 16u) || !rec_fits(q, da, 16u) || !rec_fits(q, db, 16u))
+    return 1;
+  walk_prods(q, lists, prods, have);
+  rec_bytes(q, da, 16u, da_b);
+  rec_bytes(q, db, 16u, db_b);
+  bgw_mul_be(res, prods, have, m, da_b, db_b);
+  rec_put(q, out, 16u, res);
+  return 0;
+}
+
+/* q_mpc_mulc: OUT is the dealing of bgw_mulc_be for the step M over the
+   Prods lists PA, PB and PC. The result is 0. */
+u64 w2c_q_q_mpc_mulc(struct w2c_q *q, u64 out, u64 pa, u64 pb, u64 pc, u64 m) {
+  unsigned char prods[3u * BGW_LIST_BYTES];
+  unsigned char res[128];
+  uint32_t have[3];
+  const u64 lists[3] = {pa, pb, pc};
+  if (!rec_fits(q, out, 16u))
+    return 1;
+  walk_prods(q, lists, prods, have);
+  bgw_mulc_be(res, prods, have, m);
+  rec_put(q, out, 16u, res);
+  return 0;
+}
+
+/* q_mpc_open: OUT (a W8) is the value of the dealing D from the shares S
+   of the members 1 to N (words 0 to 3) and the code (word 4) of
+   bgw_open_be. The result is 0. */
+u64 w2c_q_q_mpc_open(struct w2c_q *q, u64 out, u64 d, u64 s, u64 n) {
+  unsigned char d_b[128];
+  unsigned char s_b[128];
+  unsigned char res[64];
+  if (!rec_fits(q, out, 8u) || !rec_fits(q, d, 16u) || !rec_fits(q, s, 16u))
+    return 1;
+  rec_bytes(q, d, 16u, d_b);
+  rec_bytes(q, s, 16u, s_b);
+  bgw_open_be(res, d_b, s_b, n);
+  rec_put(q, out, 8u, res);
+  return 0;
+}
+
 /* Word W at address A of MEM: 8 bytes, little-endian. */
 static void put_word(wasm_rt_memory_t *mem, u64 a, u64 w) {
   unsigned i;
@@ -409,9 +537,10 @@ static int run_chain(int argc, char **argv) {
 #define LIST_WORDS (LIST_MAX * 67u + 1u)
 
 /* R-E12: the records of one cons of Ballots (W16, BitProof), Parts
-   (DecPart, W8) and KeyList (W8), and their widths in words. */
-static const unsigned LIST_FIELDS[3] = {2u, 2u, 1u};
-static const unsigned LIST_WIDTH[3][2] = {{16u, 48u}, {29u, 8u}, {8u, 0u}};
+   (DecPart, W8), KeyList (W8), Sharings (W16, W16) and Prods (DecPart, W8,
+   W16; S10 H3c), and their widths in words. */
+static const unsigned LIST_FIELDS[5] = {2u, 2u, 1u, 2u, 3u};
+static const unsigned LIST_WIDTH[5][3] = {{16u, 48u}, {29u, 8u}, {8u, 0u}, {16u, 16u}, {29u, 8u, 16u}};
 
 /* The words of one cons of family F in the eval text: 1, then each record
    as a tag 0 and its words. */
@@ -455,7 +584,7 @@ static int parse_list(const char *p, unsigned f, u64 words[]) {
    address 0. It gives the address of the head cons block (0 when COUNT is
    0) and moves *A to the next free address. */
 static u64 put_list(wasm_rt_memory_t *mem, u64 *a, unsigned f, const u64 words[], unsigned count) {
-  u64 at[3];
+  u64 at[4];
   u64 head = 0;
   unsigned e = cons_words(f);
   unsigned c;
@@ -524,6 +653,89 @@ static int run_tally(int argc, char **argv) {
         : e == 1 ? w2c_replica_tally_sum(&inst, x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], head[0], head[1], head[2])
         : e == 2 ? w2c_replica_partial_verify(&inst, x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], head[0], head[1], head[2])
                  : w2c_replica_combine(&inst, x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], head[0], head[1], head[2]);
+  printf("%llu\n", (unsigned long long)got);
+  wasm2c_replica_free(&inst);
+  wasm_rt_free();
+  return 0;
+}
+
+/* The entries of `mpc ENTRY K B P1 P2 P3 OS` (H4, O141) and the LIST
+   family of each list argument: B and OS are Sharings, P1 to P3 are Prods. */
+static const char *const MPC_ENTRIES[2] = {"mpc_route", "mpc_tally"};
+static const unsigned MPC_LISTS[5] = {3u, 4u, 4u, 4u, 3u};
+
+/* `mpc ENTRY K B P1 P2 P3 OS` writes nil at address 0, then the lists B,
+   P1, P2, P3 and OS by put_list, below heap_base. It prints ENTRY of the
+   threshold K in decimal: the route code (mpc_route) or the outcome bit
+   (mpc_tally) of the BGW tally (O141). */
+static int run_mpc(int argc, char **argv) {
+  w2c_replica inst;
+  struct w2c_q q;
+  wasm_rt_memory_t *mem;
+  u64 k;
+  u64 words[5][LIST_WORDS];
+  u64 head[5] = {0, 0, 0, 0, 0};
+  u64 a = 8;
+  u64 got;
+  int count[5] = {0, 0, 0, 0, 0};
+  int e = -1;
+  int i;
+  for (i = 0; argc >= 3 && i < 2; i++)
+    if (strcmp(argv[2], MPC_ENTRIES[i]) == 0) e = i;
+  if (e < 0 || argc != 9) {
+    fputs("usage: replicatool mpc mpc_route|mpc_tally K B P1 P2 P3 OS\n", stderr);
+    return 2;
+  }
+  if (!number(argv[3], &k)) {
+    fprintf(stderr, "replicatool: '%s' is not a number\n", argv[3]);
+    return 2;
+  }
+  for (i = 0; i < 5; i++) {
+    count[i] = parse_list(argv[4 + i], MPC_LISTS[i], words[i]);
+    if (count[i] < 0) {
+      fputs("replicatool: B, P1, P2, P3 or OS is not the eval text of its list\n", stderr);
+      return 2;
+    }
+  }
+  memset(&q, 0, sizeof q);
+  wasm_rt_init();
+  wasm2c_replica_instantiate(&inst, &q);
+  q.mem = w2c_replica_memory(&inst);
+  mem = q.mem;
+  put_word(mem, 0, 0);
+  for (i = 0; i < 5; i++) head[i] = put_list(mem, &a, MPC_LISTS[i], words[i], (unsigned)count[i]);
+  *w2c_replica_heap_base(&inst) = a;
+  got = e == 0 ? w2c_replica_mpc_route(&inst, k, head[0], head[1], head[2], head[3], head[4])
+               : w2c_replica_mpc_tally(&inst, k, head[0], head[1], head[2], head[3], head[4]);
+  printf("%llu\n", (unsigned long long)got);
+  wasm2c_replica_free(&inst);
+  wasm_rt_free();
+  return 0;
+}
+
+/* `decide K C` prints tally_decide of the threshold K and the count C in
+   decimal: 1 when K is not 0 and K is at most C, else 0 (O141). */
+static int run_decide(int argc, char **argv) {
+  w2c_replica inst;
+  struct w2c_q q;
+  u64 x[2];
+  u64 got;
+  int i;
+  if (argc != 4) {
+    fputs("usage: replicatool decide K C\n", stderr);
+    return 2;
+  }
+  for (i = 0; i < 2; i++) {
+    if (!number(argv[2 + i], &x[i])) {
+      fprintf(stderr, "replicatool: '%s' is not a number\n", argv[2 + i]);
+      return 2;
+    }
+  }
+  memset(&q, 0, sizeof q);
+  wasm_rt_init();
+  wasm2c_replica_instantiate(&inst, &q);
+  q.mem = w2c_replica_memory(&inst);
+  got = w2c_replica_tally_decide(&inst, x[0], x[1]);
   printf("%llu\n", (unsigned long long)got);
   wasm2c_replica_free(&inst);
   wasm_rt_free();
@@ -600,9 +812,13 @@ int main(int argc, char **argv) {
     return run_tally(argc, argv);
   if (argc >= 2 && strcmp(argv[1], "amend") == 0)
     return run_amend(argc, argv);
+  if (argc >= 2 && strcmp(argv[1], "mpc") == 0)
+    return run_mpc(argc, argv);
+  if (argc >= 2 && strcmp(argv[1], "decide") == 0)
+    return run_decide(argc, argv);
   if (argc != 3 || strcmp(argv[1], "hash") != 0) {
     fputs("usage: replicatool hash X | stack X1 ... XN | chain ENTRY X0 .. Y3 [S] PRE [PREB] |\n"
-          "       tally ENTRY X0 .. Y3 B P K | amend TEXT\n",
+          "       tally ENTRY X0 .. Y3 B P K | amend TEXT | mpc ENTRY K B P1 P2 P3 OS | decide K C\n",
           stderr);
     return 2;
   }

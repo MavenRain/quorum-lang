@@ -86,6 +86,15 @@ data Parts : Type where
 data KeyList : Type where
   noKey : KeyList
   keyCons : (kHead : W8) → (kRest : KeyList) → KeyList
+-- The lists of the MPC route (S10 H3): the ballot sharings (the dealing,
+-- then the shares of the members 1 to 3) and the product messages of one
+-- member (the part, the reshare C[1], the sub-shares), one cell per step.
+data Sharings : Type where
+  noSharing : Sharings
+  sharingCons : (shDeal : W16) → (shVals : W16) → (shRest : Sharings) → Sharings
+data Prods : Type where
+  noProd : Prods
+  prodCons : (prPart : DecPart) → (prC1 : W8) → (prSubs : W16) → (prRest : Prods) → Prods
 -- The type stack of the amend check (H5b, R-E16): the depth, 1 when a step
 -- is ill-typed, then at most 4 code pairs (a, b), the top first.
 data Frag : Type where

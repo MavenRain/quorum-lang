@@ -24,5 +24,21 @@ keysFlag : ℕ → ℕ
 keysFlag x = w4a (q_combine noPart 0 (keyCons (word8 x) noKey) 1 1 (word16 0) 8)
 scalarFlag : ℕ → ℕ
 scalarFlag x = w16a (q_tally_add (word16 0) (word16 0) (natAdd x 1))
+mpcCheckFlag : ℕ → ℕ
+mpcCheckFlag x = q_mpc_check (word16 0) (word16 x) 2
+mpcAddFlag : ℕ → ℕ
+mpcAddFlag x = w16a (q_mpc_add (word16 0) (word16 x))
+mpcAffineFlag : ℕ → ℕ
+mpcAffineFlag x = w16a (q_mpc_affine (word16 0) (word4 0) (word4 x))
+prodPartFlag : ℕ → ℕ
+prodPartFlag x = w16a (q_mpc_mul (prodCons (partWord x) (word8 0) (word16 0) noProd) noProd noProd 0 (word16 0) (word16 0))
+prodC1Flag : ℕ → ℕ
+prodC1Flag x = w16a (q_mpc_mulc noProd (prodCons (partWord 0) (word8 x) (word16 0) noProd) noProd 0)
+prodSubsFlag : ℕ → ℕ
+prodSubsFlag x = w16a (q_mpc_mul noProd noProd (prodCons (partWord 0) (word8 0) (word16 x) noProd) 0 (word16 0) (word16 0))
+mpcMulFlag : ℕ → ℕ
+mpcMulFlag x = w16a (q_mpc_mul noProd noProd noProd 0 (word16 0) (word16 x))
+mpcOpenFlag : ℕ → ℕ
+mpcOpenFlag x = w8a (q_mpc_open (word16 x) (word16 0) 2)
 unusedKey : ℕ → ℕ
 unusedKey x = w4a (q_combine (partCons (partWord 0) (word8 x) noPart) 1 noKey 1 0 (word16 0) 8)

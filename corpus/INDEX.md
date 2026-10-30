@@ -112,7 +112,7 @@ you add, remove or change a `.lang` file, change its row.
 | test/fmt/next.lang | TYPE_MISMATCH | 1 | 0 | 0/0 |
 | test/fmt/path-lambda.lang | W_NONCANON | 1 | 1 | 0/0 |
 | test/fmt/type-n.lang | W_NONCANON | 1 | 1 | 0/0 |
-| test/host-flags.lang | ok | 14 | 14 | 0/0 |
+| test/host-flags.lang | ok | 22 | 22 | 0/0 |
 | test/ir/closure.lang | ok | 1 | 1 | 0/0 |
 | test/ir/lazy.lang | ok | 1 | 1 | 0/0 |
 | test/ir/proof-trap.lang | ok | 10 | 10 | 0/0 |

@@ -51,6 +51,7 @@ USER ruling on Q7, 2026-10-26 (S5 close, AskUserQuestion), verbatim:
 | Q11 | (b) | v1 keeps the certificate chain. The slice S11 adds a constant-size proof (sec 5, Q15, O13). |
 | Q12 | (a) | One fixed offline proxy gives the token counts (A13, S9). |
 | Q13 | (b) | The surface is Agda-like Unicode with the design names (sec 3, A1, docs/GRAMMAR.md, S1). |
+| Q14 | (a) | Honest-majority BGW over the committee's Shamir shares. Ruled 2026-10-28 at S10 (sec 5, O135 to O143, S10). |
 | Q16 | (b) | Ruled 2026-10-26 at S3 (AskUserQuestion), verbatim "(b) Guest proof". The kernel has a dependent eliminator `elim` for ℕ and Bool. Discreteness and Hedberg are guest laws in lib/prelude.lang. The kernel has no constant for `isSet` (sec 3.1, O37, O44). |
 
 ### 1.3 Readings (Claude, NOT ruled)
@@ -538,10 +539,35 @@ program and the kit runtime.
 - FHE route (real in v1): verify each ballot proof, add the ciphertexts
   (`⊕`), collect partial decryptions with DLEQ proofs, combine, then run
   `decide` in public on the counts. Law: `tallyᶠ-correct`.
-- MPC route (law-only until a later MPC slice, Q6 (b)): `tallyᴹ` and
-  `tallyᴹ-correct` are guest theorems at the denotation. Until S10 the
-  replica does not run general MPC. S10 adds the MPC route under the
-  protocol that Q14 rules.
+- MPC route (arithmetic model since S10, Q6 (b), Q14 (a)): BGW
+  over degree-1 Shamir shares in Fr of BN254 (n = 3 members, 1 corrupt
+  member at most). Each ballot is a Feldman dealing of its bit, with
+  the commitments in G1. The members check each share, add the shares,
+  and do the bit check and the compare with the public threshold k by
+  BGW multiplication with degree reduction. Each local product has a
+  Chaum-Pedersen proof (Q-S10-4 (b)). The tally entry returns only the
+  decision bit; bit checks also open `b (b - 1)` zero-test results
+  (O135 to O140). The replica calls the host imports
+  `q_mpc_check`, `q_mpc_add`, `q_mpc_mul`, `q_mpc_mulc`, `q_mpc_affine`
+  and `q_mpc_open`. `langc eval` (src/front/eval.c) and the C host
+  test/replicatool.c do the field and group work with
+  src/crypto/bgw.c. The new replica entries are `mpc_tally`,
+  `mpc_route` and `tally_decide`. Law: `tallyᴹ-correct`. The gate gives
+  `replica mpc: 38 cases (15 by langc eval), 0 mismatches` (`tallyᴹ`)
+  and `replica decide: 34 cases, 0 mismatches` (`tallyᶠ` on the same
+  ballots): `tallyᴹ` = `tallyᶠ` on each fixture.
+- S10 security scope: this is a BGW arithmetic transcript validation
+  model, not a private MPC deployment. Each Feldman constant commitment
+  is `C[0] = b G`: a bit is public by comparison with the identity point
+  and generator. Summing those commitments also reveals the small tally
+  by enumeration. In addition, the host receives every committee share
+  in the transcript and can reconstruct inputs and intermediates.
+  Opening only the outcome refers to the return value, not secrecy of
+  the transcript. The fixture comparisons establish functional agreement
+  only. Ballot privacy requires hiding commitments with compatible
+  proofs and separate member execution over private authenticated
+  channels. S10 does not implement those requirements; the private
+  ballot route remains threshold ElGamal (S6).
 - Exports (S8 fixes the names): `cert_verify`, `rep_merge`, `rep_tip`,
   `ballot_verify`, `tally_add`, `partial_verify`, `combine`,
   `step_apply`, `amend_accept`.
@@ -733,7 +759,7 @@ commit message file and the next prompt file. The USER commits.
 | S7 | SHA-256 (FIPS 180-4), expand_message_xmd (RFC 9380), secp256k1 point operations, FROST key generation by Pedersen DKG (Q8 (b)), commit, sign, aggregate, verify (RFC 9591), reshare | GREEN: FIPS 180-4, RFC 9380 App. K.1 and RFC 9591 App. E.5 vectors byte-equal (signing); the secp256k1 rows pass; each DKG fixture gives its result on secp256k1 (good dealing: QUAL {1, 2, 3}; bad share: DKG_BAD_SHARE, QUAL {1, 3}; bad proof of knowledge: DKG_BAD_PROOF, QUAL {2, 3}; DKG_BAD_INDEX; DKG_TOO_FEW) and the DKG key signs; old and new committees sign under one group key after reshare (Q = {1, 3}, (t 2, n 3) to (t' 3, n' 4); a dealing without λ gives DKG_BAD_RESHARE); `frost regressions: passed`; `build/frosttool rep` against `langc eval` on denAuth3 and denAuth4: `auth: 24 cases, 0 mismatches`; make check EXIT 0, gate: 0 failures (serial log); fmt: 103 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: binding factor dropped (`frost_group_commitment` R_i = D_i: none of the 9 V-1 rep lines gives 1; 7 FAIL lines, `e5 P1 sig_share`, `e5 P3 sig_share`, `e5 sig`), one SHA-256 round skipped (round bound `SHA256_ROUNDS - 1u`: 36 FAIL lines, the FIPS, xmd and E.5 rows), reshare coefficient wrong (g_i(0) = (λ + 1) s_i: the 5 V-1 denAuth4 rep lines give 0; 22 FAIL lines, `reshare good` gives DKG_BAD_RESHARE); 3 of 3 KILLED | sec 4.3 and 4.4 status; sec 8 note; sec 10 O90 to O103; docs/STATUS.md, README.md |
 | S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | GREEN: a scripted history of 4 certified steps by the S7 secp256k1 DKG committee (`replica history: 4 steps, tip 4`); two replicas merge to one tip (`replica merge: 3 rows, tip 4`); the refuse fixtures give their codes (bad signature REP_BAD_SIG, fork REP_FORK, ill-typed constitution AMEND_ILL_TYPED, `Core` break AMEND_CORE; also REP_BAD_LINK, AMEND_NOT_FHE, BALLOT_BAD and PARTIAL_BAD: `replica refusals: 8 of 8`); the accept fixture is accepted (`replica accept: 1 of 1`); `langc eval` against build/replicatool: `replica: 25 cases, 0 mismatches`, `replica route: 19 cases, 0 mismatches`, `replica tally: 14 cases, 0 mismatches` (the S6 counts); `replica apply: 3 rows, state 4`; `host: 2 rows`; `input: 4 rows`; make check EXIT 0, gate: 0 failures (serial log); fmt: 104 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: fork check skipped (`mergeCode` without the digest compare: the fork row gives 0, not REP_FORK), `Core` check skipped (`amendCore` gives 0: the corebrk row gives 0, not AMEND_CORE), fragment check skipped (the fragment fold replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED); 3 of 3 KILLED | sec 5 and sec 6 status; sec 10 O104 to O116; docs/STATUS.md, README.md |
 | S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | GREEN (A3, A4, A5, A8, A13, A16, A17, A19): `agents: 10 verbs, 0 missing`; `explain: 13 fixtures`; `base: 152 names, 0 missing`; `mcp: 15 requests, 0 mismatches`; `skill: 6 copies, 0 drift`; `agent examples: 5 files, 13 of 13 laws`; `tokens: 3 tasks, 12 cells`; `corpus: 135 files, 0 mismatches`; `readme: 5 yes rows, 0 without a slice`; speed (O132): the mcp block 0.05 s, the explain block 0.27 s, the 9 S9 blocks 2.76 s; make check EXIT 0, gate: 0 failures (serial log); fmt: 110 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; the 10 S8 replica, host and input lines as at S8; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: MCP tool drops a field (the explain printer of src/main.c without `"type"`: `mcp: 15 requests, 1 mismatches`), a SKILL.md copy drifts (one line of the copy of examples/agent/03-threshold-reveal.lang changes: `skill: 6 copies, 1 drift`), `list-base` misses a name (the row `Set` of src/front/basenames.c goes: `base: 152 names, 1 missing`); 3 of 3 KILLED | sec 7 status; sec 10 O117 to O134; docs/STATUS.md, README.md, AGENTS.md |
-| S10 | general MPC tally route (Q6 (b)) under the protocol that Q14 rules; the replica runs `tallyᴹ` | `tallyᴹ` = `tallyᶠ` on each fixture, N cases, 0 mismatches; `tallyᴹ-correct` checks | 3: one share dropped from the sum, a reconstruction coefficient wrong, MPC output not checked | sec 5 |
+| S10 | BGW arithmetic transcript validation model for the MPC tally route (Q6 (b)) (Q14 (a), ruled 2026-10-28): src/crypto/bgw.c and bgw.h, the host imports `q_mpc_check`, `q_mpc_add`, `q_mpc_mul`, `q_mpc_mulc`, `q_mpc_affine` and `q_mpc_open`, the replica entries `mpc_tally`, `mpc_route` and `tally_decide`, the generator test/mpctool.c and the fixture test/replica/mpc.txt; the replica runs `tallyᴹ` | GREEN: `replica mpc: 38 cases (15 by langc eval), 0 mismatches` (`tallyᴹ`); `replica decide: 34 cases, 0 mismatches` (`tallyᶠ` on the same ballots, N = 34): `tallyᴹ` = `tallyᶠ` on each fixture, so `tallyᴹ-correct` checks; `replica refusals: 11 of 11`; `bgw regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); all other count lines as at S9 | 3: one share dropped from the sum (the bgw_sum loop stops at count - 1: `FAIL replica mpc: build/mpctool lang is not test/replica/mpc.txt`, `FAIL bgw mutant 1: each sum share checks`; the mismatches stay 0, because replicatool reads the fixture), a reconstruction coefficient wrong (bgw_open gives a wrong x to the Lagrange call: `replica mpc: 38 cases (15 by langc eval), 19 mismatches`, `FAIL bgw mutant 2: open at each pair of members`), MPC output not checked (bgw_open does not check the output shares: `FAIL replica mpc badout mpc_route: want 12, ...`, `FAIL replica refusals: 10 of 11`, `FAIL bgw mutant 3: open with a bad output share rejects`); 3 of 3 KILLED | sec 1.2 Q14 row; sec 5 MPC route; sec 10 O135 to O143; sec 11 Q14 RULED; docs/STATUS.md, README.md |
 | S11 | constant-size IVC proof (Q11 (b)) under the scheme that Q15 rules; verifier laws as guest terms (ruling 2) | proof size is the same for histories of 1, 10 and 100 steps; `start✓`, `extend✓` and `IVC.⟦_⟧` check for the new instance; each bad-proof fixture refused | 3: one step not folded, verifier check skipped, state hash not bound | sec 3.4, sec 5 |
 | S12 | close: docs final, mutant sweep of S1 to S11, README status | full gate GREEN; each earlier mutant killed again | sweep | STATUS, README |
 
@@ -1849,6 +1875,76 @@ commit message file and the next prompt file. The USER commits.
   R-E52): Q-S9-5.
 - O134. (Claude reading, NOT ruled) PLAN sec 9 has S10 to S12, so the S9
   Close writes W/S10-PROMPT.md. S10 needs Q14 (OPEN).
+- O135. (Claude reading; the USER ruled Q-S10-1 (a1)) The replica runs
+  the decide part under MPC and returns only the `Maybe Edit` outcome,
+  as the denotation `reveal (evalR (constitution σ a) box)`. Bit checks
+  also open `b (b - 1)` zero-test results. This model does not hide the
+  transcript (sec 5, S10 security scope). The compare
+  of the shared count c (0 to V) with a public threshold k is an
+  indicator polynomial f_k(c) = [c >= k] on 0 .. V with public
+  coefficients (Lagrange on V+1 points). It needs c^2 .. c^V: V-1
+  multiplications, each one degree reduction. V <= 3 in the fixtures:
+  2 multiplications at most.
+- O136. (Claude reading, NOT ruled) `tallyᶠ` in the replica is a new
+  `decide k` in the clear on the S8 `combine` count: the threshold
+  template of R-E18 with k >= 1, outcome 1 (`Just edit`) when count >=
+  k, else 0 (`Nothing`). The MPC route opens the same outcome code, so
+  `tallyᴹ` = `tallyᶠ` compares at the outcome type.
+- O137. (Claude reading, NOT ruled) The MPC input. Each ballot is a
+  degree-1 Shamir sharing of its bit to the 3 committee members (x =
+  1, 2, 3), dealt with Feldman commitments (the DkgDealing form, t 2).
+  Each member checks its share with `dkg_check_share` (the analogue of
+  `ballot_verify`). Local add: each member sums its shares mod r
+  (mutant 1 drops one share from this sum). The commitments of the sum
+  are the point sums of the dealing commitments.
+- O138. (Claude reading, NOT ruled) Multiply with degree reduction
+  (BGW). Member i forms its degree-2 product share and reshares it
+  with a degree-1 Feldman dealing. The new share of member j is the sum
+  over i of lambda_i s_ij, lambda_i = `thr_lagrange` over all 3
+  members (degree 2 needs 3 points). Each sub-share is checked with
+  `dkg_check_share`. The commitments of the new sharing are the sum
+  over i of lambda_i C_i (point ops). The local product has no check
+  without a pairing. The USER ruled Q-S10-4 (b): each member proves
+  its local product with a Chaum-Pedersen proof (`thr_partial`), and
+  the reduce rejects a bad product proof.
+- O139. (Claude reading, NOT ruled) Open. The members give their
+  output shares. The replica checks each against the commitments of
+  the output sharing (the `dkg_check_share` form; mutant 3 turns this
+  check off), then reconstructs at 0 with `thr_lagrange` over 2 shares
+  (mutant 2 makes one coefficient wrong). n = 3 >= 2t + 1 = 3 holds
+  for degree 1 (t = 1 corrupt member).
+- O140. (Claude reading; the USER ruled Q-S10-3 (a)) Bit check of each
+  ballot: one multiplication b (b - 1) for each ballot, and the opened
+  value must be 0, else the route rejects (a code, the badballot 7
+  model). Without it, a ballot of 5 passes the share check, and the
+  FHE route (BitProof) and the MPC route can give different outcomes.
+  With O135, V = 3 costs 3 + 2 = 5 multiplications.
+- O141. (Claude reading; the USER ruled Q-S10-2 (b), N = 34) Fixtures.
+  test/replica/mpc.txt has 38 lines: 34 `mpc_tally` rows on the ballot
+  vectors of the tally.txt `combine` rows (V 1 to 3; the 34 cases of
+  `replica decide`), each with a public k and the MPC transcript words
+  (input dealings, product proofs and reshare dealings, output
+  shares), and 4 `mpc_route` rows: `mr`, `badin` (a bad input share,
+  code 9), `badproof` (a bad product proof, code 10) and `badout` (a
+  bad output share, code 12). The generator
+  `build/mpctool lang` (test/mpctool.c, the tallytool model) writes
+  it, and the gate compares it.
+- O142. (Claude reading, NOT ruled) The MPC route enters the replica
+  as host imports (the S8 model: C does the field and group work, the
+  guest calls it): `q_mpc_check`, `q_mpc_add`, `q_mpc_mul` (one degree
+  reduction), `q_mpc_mulc`, `q_mpc_affine` and `q_mpc_open` (check,
+  then Lagrange). The new replica entries are `mpc_tally`, `mpc_route`
+  and `tally_decide`. `langc eval` (src/front/eval.c) and the C host
+  test/replicatool.c both call the byte forms of src/crypto/bgw.c.
+- O143. (Claude reading, NOT ruled) Each S10 mutant is KILLED by a
+  named mpc gate line and by one named C regression row of
+  build/mpctool. M1 (a share dropped from the local sum): the gate
+  line `FAIL replica mpc: build/mpctool lang is not
+  test/replica/mpc.txt`. The mismatches stay 0 under M1: replicatool
+  reads the fixture, and `q_mpc_add` does not call bgw_sum. M2 (a
+  wrong x at the Lagrange call of the open): mismatches > 0. M3 (the
+  output check off): `FAIL replica mpc badout mpc_route` and `FAIL
+  replica refusals: 10 of 11`.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 
@@ -1883,7 +1979,7 @@ commit message file and the next prompt file. The USER commits.
   (b) API counts only.
 - Q13. Surface. RULED (b) 2026-10-25. (a) An ASCII verbose-keyword surface with a name map from
   the design's Unicode (sec 3). (b) An Agda-like Unicode surface.
-- Q14. MPC protocol (S10, Q6 (b)). (a) Honest-majority BGW over the
+- Q14. MPC protocol (S10, Q6 (b)). RULED (a) 2026-10-28. (a) Honest-majority BGW over the
   committee's Shamir shares. (b) SPDZ-style with preprocessing (dishonest
   majority). Needed before S10.
 - Q15. Constant-size IVC proof scheme (S11, Q11 (b), O13). (a) A folding

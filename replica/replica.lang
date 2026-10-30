@@ -102,6 +102,100 @@ partial_verify : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ →
 partial_verify x0 x1 x2 x3 y0 y1 y2 y3 b p k = routeCode (w8 x0 x1 x2 x3 y0 y1 y2 y3) b p (sumOf b)
 combine : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → Ballots → Parts → KeyList → ℕ
 combine x0 x1 x2 x3 y0 y1 y2 y3 b p k = (λ (s : W16) → flagIf (natEq (routeCode (w8 x0 x1 x2 x3 y0 y1 y2 y3) b p s) 0) ((λ (o : W4) → flagIf (natEq (w4b o) 0) (w4a o) 0) (openOf p k s)) 0) (sumOf b)
+-- S10 H3 (O135 to O141): the replica checks the BGW tally transcript and
+-- opens the outcome only. Codes: 9 MPC_SHARE_BAD (a ballot share fails
+-- q_mpc_check), 10 MPC_MUL_BAD (a q_mpc_mul code is not 0), 11 MPC_BIT_BAD
+-- (the open of b(b - 1) has a code or a value that is not 0), 12
+-- MPC_OPEN_BAD (the open of the outcome has a code), 13 MPC_SHAPE_BAD (V
+-- outside 1 to 3, or k outside 1 to V). The fold reads the last ballot
+-- first: the bit check of the ballot at text position p is step m = V - 1 -
+-- p. The steps m = V to 2V - 2 are the Horner multiplies. A W16 is not an
+-- entry parameter, thus the output shares come in a Sharings list of one
+-- cell (shVals; shDeal is not used).
+-- The coefficients (O135): f_k(c) = [c >= k] on c = 0 to V, f_k = a1 c +
+-- ... + aV c^V with a0 = 0, solved over Q, then mod r (r the BN254 scalar
+-- order, 1/q = q^(r - 2) mod r). V 1 k 1: a = (1). V 2 k 1: (3/2, -1/2). V
+-- 2 k 2: (-1/2, 1/2). V 3 k 1: (11/6, -1, 1/6). V 3 k 2: (-7/6, 3/2,
+-- -1/3). V 3 k 3: (1/3, -1/2, 1/6). Check V 3 k 2: (-2c^3 + 9c^2 - 7c)/6
+-- gives 0, 0, 1, 1 at c = 0 to 3. Horner: f_k(c) = c(a1 + c(a2 + c a3)),
+-- thus V - 1 multiplies. The values mod r and the W4 words (word 0 the most
+-- significant limb). mpcCoefIx gives the index, mpcW0 to mpcW3 the words:
+-- 1: 1 = 1 = w4 0 0 0 1
+-- 2: -1 = 21888242871839275222246405745257275088548364400416034343698204186575808495616 = w4 3486998266802970665 13281191951274694749 2896914383306846353 4891460686036598784
+-- 3: 1/2 = 10944121435919637611123202872628637544274182200208017171849102093287904247809 = w4 1743499133401485332 15863968012492123182 10671829228508198984 11669102379873075201
+-- 4: -1/2 = 10944121435919637611123202872628637544274182200208017171849102093287904247808 = w4 1743499133401485332 15863968012492123182 10671829228508198984 11669102379873075200
+-- 5: 3/2 = 10944121435919637611123202872628637544274182200208017171849102093287904247810 = w4 1743499133401485332 15863968012492123182 10671829228508198984 11669102379873075202
+-- 6: 1/6 = 18240202393199396018538671454381062573790303667013361953081836822146507079681 = w4 2905831889002475554 14142117305013837560 5488552665040630563 13299589275218608129
+-- 7: 11/6 = 3648040478639879203707734290876212514758060733402672390616367364429301415938 = w4 581166377800495110 17585818719970408804 15855105791975767405 10038615484527542274
+-- 8: -7/6 = 3648040478639879203707734290876212514758060733402672390616367364429301415935 = w4 581166377800495110 17585818719970408804 15855105791975767405 10038615484527542271
+-- 9: 1/3 = 14592161914559516814830937163504850059032242933610689562465469457717205663745 = w4 2324665511201980443 15003042658752980371 8080190946774414774 3260973790691065857
+-- 10: -1/3 = 7296080957279758407415468581752425029516121466805344781232734728858602831872 = w4 1162332755600990221 16724893366231265993 13263467510241983195 1630486895345532928
+mpcOne : W4
+mpcOne = w4 0 0 0 1
+mpcMinusOne : W4
+mpcMinusOne = w4 3486998266802970665 13281191951274694749 2896914383306846353 4891460686036598784
+decideK : ℕ → ℕ → ℕ
+decideK k c = flagIf (natEq k 0) 0 (flagIf (natLe k c) 1 0)
+mpcCoefIx : ℕ → ℕ → ℕ → ℕ
+mpcCoefIx v k e = flagIf (natEq v 1) (flagIf (natEq k 1) (flagIf (natEq e 1) 1 0) 0) (flagIf (natEq v 2) (flagIf (natEq k 1) (flagIf (natEq e 1) 5 (flagIf (natEq e 2) 4 0)) (flagIf (natEq k 2) (flagIf (natEq e 1) 4 (flagIf (natEq e 2) 3 0)) 0)) (flagIf (natEq v 3) (flagIf (natEq k 1) (flagIf (natEq e 1) 7 (flagIf (natEq e 2) 2 (flagIf (natEq e 3) 6 0))) (flagIf (natEq k 2) (flagIf (natEq e 1) 8 (flagIf (natEq e 2) 5 (flagIf (natEq e 3) 10 0))) (flagIf (natEq k 3) (flagIf (natEq e 1) 9 (flagIf (natEq e 2) 4 (flagIf (natEq e 3) 6 0))) 0))) 0))
+mpcW0 : ℕ → ℕ
+mpcW0 i = flagIf (natEq i 1) 0 (flagIf (natEq i 2) 3486998266802970665 (flagIf (natEq i 3) 1743499133401485332 (flagIf (natEq i 4) 1743499133401485332 (flagIf (natEq i 5) 1743499133401485332 (flagIf (natEq i 6) 2905831889002475554 (flagIf (natEq i 7) 581166377800495110 (flagIf (natEq i 8) 581166377800495110 (flagIf (natEq i 9) 2324665511201980443 (flagIf (natEq i 10) 1162332755600990221 0)))))))))
+mpcW1 : ℕ → ℕ
+mpcW1 i = flagIf (natEq i 1) 0 (flagIf (natEq i 2) 13281191951274694749 (flagIf (natEq i 3) 15863968012492123182 (flagIf (natEq i 4) 15863968012492123182 (flagIf (natEq i 5) 15863968012492123182 (flagIf (natEq i 6) 14142117305013837560 (flagIf (natEq i 7) 17585818719970408804 (flagIf (natEq i 8) 17585818719970408804 (flagIf (natEq i 9) 15003042658752980371 (flagIf (natEq i 10) 16724893366231265993 0)))))))))
+mpcW2 : ℕ → ℕ
+mpcW2 i = flagIf (natEq i 1) 0 (flagIf (natEq i 2) 2896914383306846353 (flagIf (natEq i 3) 10671829228508198984 (flagIf (natEq i 4) 10671829228508198984 (flagIf (natEq i 5) 10671829228508198984 (flagIf (natEq i 6) 5488552665040630563 (flagIf (natEq i 7) 15855105791975767405 (flagIf (natEq i 8) 15855105791975767405 (flagIf (natEq i 9) 8080190946774414774 (flagIf (natEq i 10) 13263467510241983195 0)))))))))
+mpcW3 : ℕ → ℕ
+mpcW3 i = flagIf (natEq i 1) 1 (flagIf (natEq i 2) 4891460686036598784 (flagIf (natEq i 3) 11669102379873075201 (flagIf (natEq i 4) 11669102379873075200 (flagIf (natEq i 5) 11669102379873075202 (flagIf (natEq i 6) 13299589275218608129 (flagIf (natEq i 7) 10038615484527542274 (flagIf (natEq i 8) 10038615484527542271 (flagIf (natEq i 9) 3260973790691065857 (flagIf (natEq i 10) 1630486895345532928 0)))))))))
+mpcCoef : ℕ → ℕ → ℕ → W4
+mpcCoef v k e = (λ (i : ℕ) → w4 (mpcW0 i) (mpcW1 i) (mpcW2 i) (mpcW3 i)) (mpcCoefIx v k e)
+mpcFirst : ℕ → ℕ → ℕ
+mpcFirst a b = flagIf (natEq a 0) b a
+mpcSum : Sharings → W16
+mpcSum bs = fold zero16 (λ (d : W16) (s : W16) (acc : W16) → q_mpc_add acc d) bs
+mpcCount : Sharings → ℕ
+mpcCount bs = fold 0 (λ (d : W16) (s : W16) (acc : ℕ) → natAdd acc 1) bs
+mpcOut : Sharings → W16
+mpcOut os = fold zero16 (λ (d : W16) (s : W16) (acc : W16) → s) os
+mpcShareCode : Sharings → ℕ
+mpcShareCode bs = fold 0 (λ (d : W16) (s : W16) (acc : ℕ) → flagIf (natEq acc 0) (flagIf (natEq (q_mpc_check d s 3) 0) 0 9) acc) bs
+mpcShapeCode : ℕ → ℕ → ℕ
+mpcShapeCode v k = flagIf (natLe 1 v) (flagIf (natLe v 3) (flagIf (natLe 1 k) (flagIf (natLe k v) 0 13) 13) 13) 13
+mpcMulCode : W16 → ℕ
+mpcMulCode s = flagIf (natEq (w16m s) 0) 0 10
+mpcZeroCode : W8 → ℕ
+mpcZeroCode o = flagIf (natEq (w8e o) 0) (flagIf (natEq (w8a o) 0) (flagIf (natEq (w8b o) 0) (flagIf (natEq (w8c o) 0) (flagIf (natEq (w8d o) 0) 0 11) 11) 11) 11) 11
+mpcBitStep : Prods → Prods → Prods → W16 → W4 → W4
+mpcBitStep p1 p2 p3 d acc = (λ (s : W16) → w4 (natAdd (w4a acc) 1) (mpcFirst (w4b acc) (mpcFirst (mpcMulCode s) (mpcZeroCode (q_mpc_open (q_mpc_mulc p1 p2 p3 (w4a acc)) s 3)))) 0 0) (q_mpc_mul p1 p2 p3 (w4a acc) d (q_mpc_affine d mpcOne mpcMinusOne))
+mpcBitCode : Prods → Prods → Prods → Sharings → ℕ
+mpcBitCode p1 p2 p3 bs = w4b (fold (w4 0 0 0 0) (λ (d : W16) (s : W16) (acc : W4) → mpcBitStep p1 p2 p3 d acc) bs)
+mpcCode2 : ℕ → Prods → Prods → Prods → W16 → ℕ
+mpcCode2 k p1 p2 p3 c = mpcMulCode (q_mpc_mul p1 p2 p3 2 (q_mpc_affine c (mpcCoef 2 k 2) (mpcCoef 2 k 1)) c)
+mpcCode3 : ℕ → Prods → Prods → Prods → W16 → ℕ
+mpcCode3 k p1 p2 p3 c = mpcFirst (mpcMulCode (q_mpc_mul p1 p2 p3 3 (q_mpc_affine c (mpcCoef 3 k 3) (mpcCoef 3 k 2)) c)) (mpcMulCode (q_mpc_mul p1 p2 p3 4 (q_mpc_affine (q_mpc_mulc p1 p2 p3 3) mpcOne (mpcCoef 3 k 1)) c))
+mpcHornerCode : ℕ → ℕ → Prods → Prods → Prods → W16 → ℕ
+mpcHornerCode v k p1 p2 p3 c = flagIf (natEq v 2) (mpcCode2 k p1 p2 p3 c) (flagIf (natEq v 3) (mpcCode3 k p1 p2 p3 c) 0)
+mpcFinal1 : ℕ → W16 → W16
+mpcFinal1 k c = q_mpc_affine c (mpcCoef 1 k 1) (mpcCoef 1 k 0)
+mpcFinal2 : ℕ → Prods → Prods → Prods → W16
+mpcFinal2 k p1 p2 p3 = q_mpc_affine (q_mpc_mulc p1 p2 p3 2) mpcOne (mpcCoef 2 k 0)
+mpcFinal3 : ℕ → Prods → Prods → Prods → W16
+mpcFinal3 k p1 p2 p3 = q_mpc_affine (q_mpc_mulc p1 p2 p3 4) mpcOne (mpcCoef 3 k 0)
+mpcPick : ℕ → W8 → ℕ
+mpcPick j x = flagIf (natEq j 3) (w8d x) (w8e x)
+mpcOpenWord : ℕ → ℕ → ℕ → Prods → Prods → Prods → W16 → W16 → ℕ
+mpcOpenWord j v k p1 p2 p3 c o = flagIf (natEq v 1) (mpcPick j (q_mpc_open (mpcFinal1 k c) o 3)) (flagIf (natEq v 2) (mpcPick j (q_mpc_open (mpcFinal2 k p1 p2 p3) o 3)) (mpcPick j (q_mpc_open (mpcFinal3 k p1 p2 p3) o 3)))
+mpcRouteCode : ℕ → Sharings → Prods → Prods → Prods → Sharings → ℕ
+mpcRouteCode k b p1 p2 p3 os = (λ (v : ℕ) → (λ (c : W16) → mpcFirst (mpcShapeCode v k) (mpcFirst (mpcShareCode b) (mpcFirst (mpcBitCode p1 p2 p3 b) (mpcFirst (mpcHornerCode v k p1 p2 p3 c) (flagIf (natEq (mpcOpenWord 4 v k p1 p2 p3 c (mpcOut os)) 0) 0 12))))) (mpcSum b)) (mpcCount b)
+mpcOutcome : ℕ → Sharings → Prods → Prods → Prods → Sharings → ℕ
+mpcOutcome k b p1 p2 p3 os = flagIf (natEq (mpcRouteCode k b p1 p2 p3 os) 0) (mpcOpenWord 3 (mpcCount b) k p1 p2 p3 (mpcSum b) (mpcOut os)) 0
+-- H4 (O141): the entries of the BGW tally (design sec 6). replicatool runs
+-- mpc_route and mpc_tally in the mode mpc and tally_decide in the mode decide.
+mpc_route : ℕ → Sharings → Prods → Prods → Prods → Sharings → ℕ
+mpc_route k b p1 p2 p3 os = mpcRouteCode k b p1 p2 p3 os
+mpc_tally : ℕ → Sharings → Prods → Prods → Prods → Sharings → ℕ
+mpc_tally k b p1 p2 p3 os = mpcOutcome k b p1 p2 p3 os
+tally_decide : ℕ → ℕ → ℕ
+tally_decide k c = decideK k c
 -- H5b (R-E14 to R-E20): the amend check of a new constitution, a Stack of
 -- opcode words in postfix order. The fold reads the last item of the text
 -- first, so the text gives the opcodes in reverse order. A word is tag + 16

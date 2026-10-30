@@ -157,7 +157,13 @@ static const Builtin BUILTINS[] = {
   {"q_ballot_verify", 5, RULE_HOST, OP_HOST, OP_NAT, 2},
   {"q_tally_add", 3, RULE_HOST, OP_HOST, OP_NAT, 3},
   {"q_partial_verify", 3, RULE_HOST, OP_HOST, OP_NAT, 4},
-  {"q_combine", 7, RULE_HOST, OP_HOST, OP_NAT, 5}
+  {"q_combine", 7, RULE_HOST, OP_HOST, OP_NAT, 5},
+  {"q_mpc_check", 3, RULE_HOST, OP_HOST, OP_NAT, 6},
+  {"q_mpc_add", 2, RULE_HOST, OP_HOST, OP_NAT, 7},
+  {"q_mpc_affine", 3, RULE_HOST, OP_HOST, OP_NAT, 8},
+  {"q_mpc_mul", 6, RULE_HOST, OP_HOST, OP_NAT, 9},
+  {"q_mpc_mulc", 4, RULE_HOST, OP_HOST, OP_NAT, 10},
+  {"q_mpc_open", 3, RULE_HOST, OP_HOST, OP_NAT, 11}
 };
 
 #define BUILTIN_COUNT ((uint32_t)(sizeof BUILTINS / sizeof BUILTINS[0]))
@@ -1824,7 +1830,7 @@ static const Value *list_family(Checker *c, const char *name, uint32_t ctors) {
     if (strcmp(f->name, name) == 0 && f->param_count == 0u && f->index_count == 0u && f->ctor_count == ctors)
       return val_make(c->m, OP_FAMILY, i, 0, NULL, NULL, NULL);
   }
-  FAIL(c, "DOMAIN_FAMILY", "a host call needs its lists (`data Parts`, `data KeyList`) in domain/domain.lang");
+  FAIL(c, "DOMAIN_FAMILY", "a host call needs its lists (`data Parts`, `data KeyList`, `data Prods`) in domain/domain.lang");
   return NULL;
 }
 
@@ -1871,6 +1877,40 @@ static int host_types(Checker *c, uint32_t part, const Value **t, uint32_t *n) {
     *n = 7u;
     return t[2] != NULL;
   }
+  if (part == 6u || part == 11u) {
+    t[0] = w16;
+    t[1] = w16;
+    t[2] = nat;
+    t[3] = part == 6u ? nat : word_record(c, "W8", 8u);
+    *n = 3u;
+    return t[3] != NULL;
+  }
+  if (part == 7u) {
+    t[0] = w16;
+    t[1] = w16;
+    t[2] = w16;
+    *n = 2u;
+    return 1;
+  }
+  if (part == 8u) {
+    t[0] = w16;
+    t[1] = w4;
+    t[2] = w4;
+    t[3] = w16;
+    *n = 3u;
+    return 1;
+  }
+  if (part == 9u || part == 10u) {
+    t[0] = list_family(c, "Prods", 2u);
+    t[1] = t[0];
+    t[2] = t[0];
+    t[3] = nat;
+    t[4] = w16;
+    t[5] = w16;
+    t[6] = w16;
+    *n = part == 9u ? 6u : 4u;
+    return t[0] != NULL;
+  }
   t[0] = part == 2u ? word_record(c, "BitProof", 48u) : word_record(c, "DecPart", 29u);
   t[1] = t[0] == NULL ? NULL : word_record(c, "W8", 8u);
   t[2] = w16;
@@ -1887,9 +1927,15 @@ static int host_types(Checker *c, uint32_t part, const Value **t, uint32_t *n) {
    → ℕ, the SigResult code; q_tally_add (3) : W16 → W16 → ℕ → W16;
    q_partial_verify (4) : DecPart → W8 → W16 → ℕ (0 when the part
    verifies, else 1); q_combine (5) : Parts → ℕ → KeyList → ℕ → ℕ → W16 →
-   ℕ → W4 (m, the ThrResult code, 0, 0). The node has one child for each
-   argument (core_op, R-E23). The checker treats the call as opaque. langc
-   eval and the Wasm host call the same C function. */
+   ℕ → W4 (m, the ThrResult code, 0, 0). S10 H3 (the BGW route, bgw.h):
+   q_mpc_check (6) : W16 → W16 → ℕ → ℕ, the BgwResult code; q_mpc_add (7)
+   : W16 → W16 → W16; q_mpc_affine (8) : W16 → W4 → W4 → W16; q_mpc_mul
+   (9) : Prods → Prods → Prods → ℕ → W16 → W16 → W16 (the new shares, the
+   code in word 12); q_mpc_mulc (10) : Prods → Prods → Prods → ℕ → W16;
+   q_mpc_open (11) : W16 → W16 → ℕ → W8 (the value, then the code). The
+   node has one child for each argument (core_op, R-E23). The checker
+   treats the call as opaque. langc eval and the Wasm host call the same C
+   function. */
 static const Core *rule_host(Call *k) {
   Checker *c = k->c;
   const Value *t[8];

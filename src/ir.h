@@ -72,7 +72,8 @@ typedef enum {
   IR_STMT_TRAP,   /* stop the call: Wasm unreachable, EVM REVERT */
   IR_STMT_RETURN, /* return expr */
   IR_STMT_HOST    /* local := host import COUNTER (O105) over the fields: the
-                     out address (q_hash2 only), then the argument addresses */
+                     out address (a record result: imports 0, 3, 5 and 7 to
+                     11), then the argument addresses */
 } IrStmtKind;
 
 struct IrStmt {
