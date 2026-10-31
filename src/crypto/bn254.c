@@ -110,17 +110,96 @@ void fe_neg(Fe *out, const Fe *a, const Modulus *f) {
   fe_sub(out, &zero, a, f);
 }
 
-/* The product of A and B, then the remainder modulo m by shift and subtract,
-   from the top bit of the 512-bit product. The remainder stays below m, so
-   2 rem + 1 < 2m. For a modulus near 2^256 (secp256k1, S7 b4) the shift can
-   carry out of the top limb (TOP); the wrapping subtraction is then exact. */
+/* The number of zero bits above the top 1 bit of X (X is not 0). */
+static unsigned top_zeros(uint32_t x) {
+  unsigned n;
+  for (n = 0; n < 32u && (x & 0x80000000u) == 0; n++)
+    x <<= 1;
+  return n;
+}
+
+/* OUT = U modulo F for the 512-bit U (2 BN_LIMBS limbs, least significant
+   first), by Knuth algorithm D (TAOCP vol. 2, 4.3.1; divmnu of Hacker's
+   Delight) on 32-bit limbs with uint64_t intermediates. F has N limbs below
+   its top zero limbs; F is not 0. D1 shifts F and U left by S bits, so that
+   the top bit of F is 1. For each quotient limb from the top, D3 estimates
+   the limb from the top 2 limbs of the partial remainder and corrects it
+   with the third limb; the estimate is then the true limb or 1 more. D4
+   subtracts the estimate times F. On a borrow (the estimate is 1 more), D6
+   adds F back. The quotient is not kept. D8 shifts the remainder right by S
+   bits. For N = 1 a short division by 64-bit words does the work. */
+static void rem_words(Fe *out, const uint32_t *u, const Modulus *f) {
+  uint32_t vn[BN_LIMBS];
+  uint32_t un[2u * BN_LIMBS + 1u];
+  unsigned n = BN_LIMBS;
+  unsigned s;
+  unsigned i;
+  unsigned j;
+  memset(out, 0, sizeof *out);
+  while (n > 0 && f->w[n - 1u] == 0)
+    n--;
+  if (n == 0)
+    return;
+  if (n == 1u) {
+    uint64_t r = 0;
+    for (i = 2u * BN_LIMBS; i > 0; i--)
+      r = ((r << 32) | u[i - 1u]) % f->w[0];
+    out->w[0] = (uint32_t)r;
+    return;
+  }
+  s = top_zeros(f->w[n - 1u]);
+  for (i = n - 1u; i > 0; i--)
+    vn[i] = (uint32_t)(((uint64_t)f->w[i] << s) | ((uint64_t)f->w[i - 1u] >> (32u - s)));
+  vn[0] = f->w[0] << s;
+  un[2u * BN_LIMBS] = (uint32_t)((uint64_t)u[2u * BN_LIMBS - 1u] >> (32u - s));
+  for (i = 2u * BN_LIMBS - 1u; i > 0; i--)
+    un[i] = (uint32_t)(((uint64_t)u[i] << s) | ((uint64_t)u[i - 1u] >> (32u - s)));
+  un[0] = u[0] << s;
+  for (j = 2u * BN_LIMBS - n + 1u; j > 0; j--) {
+    unsigned k = j - 1u;
+    uint64_t num = ((uint64_t)un[k + n] << 32) | un[k + n - 1u];
+    uint64_t qhat = num / vn[n - 1u];
+    uint64_t rhat = num % vn[n - 1u];
+    uint64_t borrow = 0;
+    while (qhat > 0xffffffffu || qhat * vn[n - 2u] > ((rhat << 32) | un[k + n - 2u])) {
+      qhat--;
+      rhat += vn[n - 1u];
+      if (rhat > 0xffffffffu)
+        break;
+    }
+    for (i = 0; i < n; i++) {
+      uint64_t p = qhat * vn[i] + borrow;
+      uint32_t lo = (uint32_t)p;
+      borrow = (p >> 32) + (un[i + k] < lo ? 1u : 0u);
+      un[i + k] -= lo;
+    }
+    if ((uint64_t)un[k + n] < borrow) {
+      uint64_t carry = 0;
+      un[k + n] = (uint32_t)((uint64_t)un[k + n] - borrow);
+      for (i = 0; i < n; i++) {
+        uint64_t t = (uint64_t)un[i + k] + vn[i] + carry;
+        un[i + k] = (uint32_t)t;
+        carry = t >> 32;
+      }
+      un[k + n] += (uint32_t)carry;
+    } else {
+      un[k + n] -= (uint32_t)borrow;
+    }
+  }
+  for (i = 0; i < n; i++)
+    out->w[i] = (uint32_t)(((uint64_t)un[i] >> s) | ((uint64_t)un[i + 1u] << (32u - s)));
+}
+
+/* The product of A and B (schoolbook), then the remainder by rem_words. Up
+   to S10 the remainder was bit-serial (512 shift and subtract steps). S11 H2
+   (Q-S11-6 ruling (a), O157) put the word-wise remainder in its place. Both
+   give the exact remainder, so each result is the same. test/ivccrypto.c
+   keeps the old code (ref_mul) and compares the two. */
 void fe_mul(Fe *out, const Fe *a, const Fe *b, const Modulus *f) {
   uint32_t p[2u * BN_LIMBS];
-  Fe rem;
   unsigned i;
   unsigned j;
   memset(p, 0, sizeof p);
-  memset(&rem, 0, sizeof rem);
   for (i = 0; i < BN_LIMBS; i++) {
     uint64_t carry = 0;
     for (j = 0; j < BN_LIMBS; j++) {
@@ -130,16 +209,7 @@ void fe_mul(Fe *out, const Fe *a, const Fe *b, const Modulus *f) {
     }
     p[i + BN_LIMBS] = (uint32_t)carry;
   }
-  for (i = 2u * BN_LIMBS * 32u; i > 0; i--) {
-    uint32_t bit = (p[(i - 1) / 32u] >> ((i - 1) % 32u)) & 1u;
-    uint32_t top = rem.w[BN_LIMBS - 1] >> 31;
-    for (j = BN_LIMBS - 1; j > 0; j--)
-      rem.w[j] = (rem.w[j] << 1) | (rem.w[j - 1] >> 31);
-    rem.w[0] = (rem.w[0] << 1) | bit;
-    if (top != 0 || cmp_limbs(rem.w, f->w) >= 0)
-      sub_limbs(rem.w, f->w);
-  }
-  *out = rem;
+  rem_words(out, p, f);
 }
 
 /* Square and multiply over fe_mul, from the top bit of E. */
@@ -274,23 +344,16 @@ void ec0_add(G1 *out, const G1 *a, const G1 *b, const Modulus *f) {
   chord(out, &num, a, &b->x, f);
 }
 
-/* The scalar mul keeps a Jacobian point (X, Y, Z), the affine point
-   (X / Z^2, Y / Z^3), so a product takes one inverse, not one per step.
-   Z = 0 is the point at infinity. */
-typedef struct {
-  Fe x;
-  Fe y;
-  Fe z;
-} Jac;
+/* The Jacobian operations (EcJac, crypto/bn254.h; public from S11 H2). */
 
 /* S = 4 X Y^2, M = 3 X^2, X3 = M^2 minus 2 S, Y3 = M (S minus X3) minus
    8 Y^4, Z3 = 2 Y Z. */
-static void jac_double(Jac *out, const Jac *a, const Modulus *f) {
+void ec0_jac_double(EcJac *out, const EcJac *a, const Modulus *f) {
   Fe yy;
   Fe s;
   Fe mm;
   Fe t;
-  Jac r;
+  EcJac r;
   if (is_zero(&a->z) || is_zero(&a->y)) {
     memset(out, 0, sizeof *out);
     return;
@@ -320,7 +383,7 @@ static void jac_double(Jac *out, const Jac *a, const Modulus *f) {
 /* A plus the affine point B. U = b.x Z^2, S = b.y Z^3, H = U minus X,
    R = S minus Y; X3 = R^2 minus H^3 minus 2 X H^2,
    Y3 = R (X H^2 minus X3) minus Y H^3, Z3 = Z H. */
-static void jac_add_affine(Jac *out, const Jac *a, const G1 *b, const Modulus *f) {
+void ec0_jac_add_affine(EcJac *out, const EcJac *a, const G1 *b, const Modulus *f) {
   Fe zz;
   Fe u;
   Fe s;
@@ -329,7 +392,7 @@ static void jac_add_affine(Jac *out, const Jac *a, const G1 *b, const Modulus *f
   Fe hhh;
   Fe v;
   Fe t;
-  Jac r;
+  EcJac r;
   if (is_infinity(b)) {
     *out = *a;
     return;
@@ -348,7 +411,7 @@ static void jac_add_affine(Jac *out, const Jac *a, const G1 *b, const Modulus *f
   fe_sub(&s, &s, &a->y, f);
   if (is_zero(&h)) {
     if (is_zero(&s))
-      jac_double(out, a, f);
+      ec0_jac_double(out, a, f);
     else
       memset(out, 0, sizeof *out);
     return;
@@ -368,28 +431,91 @@ static void jac_add_affine(Jac *out, const Jac *a, const G1 *b, const Modulus *f
   *out = r;
 }
 
-void ec0_mul(G1 *out, const G1 *p, const U256 *k, const Modulus *f) {
-  uint32_t e[BN_LIMBS];
-  Jac acc;
+/* A plus B, both in Jacobian form (S11 H2, for crypto/msm.c).
+   U1 = X1 Z2^2, U2 = X2 Z1^2, S1 = Y1 Z2^3, S2 = Y2 Z1^3, H = U2 minus U1,
+   R = S2 minus S1; X3 = R^2 minus H^3 minus 2 U1 H^2,
+   Y3 = R (U1 H^2 minus X3) minus S1 H^3, Z3 = Z1 Z2 H. */
+void ec0_jac_add(EcJac *out, const EcJac *a, const EcJac *b, const Modulus *f) {
+  Fe z1z1;
+  Fe z2z2;
+  Fe u1;
+  Fe u2;
+  Fe s1;
+  Fe s2;
+  Fe h;
+  Fe hh;
+  Fe hhh;
+  Fe v;
+  Fe t;
+  EcJac r;
+  if (is_zero(&b->z)) {
+    *out = *a;
+    return;
+  }
+  if (is_zero(&a->z)) {
+    *out = *b;
+    return;
+  }
+  fe_mul(&z1z1, &a->z, &a->z, f);
+  fe_mul(&z2z2, &b->z, &b->z, f);
+  fe_mul(&u1, &a->x, &z2z2, f);
+  fe_mul(&u2, &b->x, &z1z1, f);
+  fe_mul(&s1, &a->y, &z2z2, f);
+  fe_mul(&s1, &s1, &b->z, f);
+  fe_mul(&s2, &b->y, &z1z1, f);
+  fe_mul(&s2, &s2, &a->z, f);
+  fe_sub(&h, &u2, &u1, f);
+  fe_sub(&s2, &s2, &s1, f);
+  if (is_zero(&h)) {
+    if (is_zero(&s2))
+      ec0_jac_double(out, a, f);
+    else
+      memset(out, 0, sizeof *out);
+    return;
+  }
+  fe_mul(&hh, &h, &h, f);
+  fe_mul(&hhh, &h, &hh, f);
+  fe_mul(&v, &u1, &hh, f);
+  fe_mul(&r.x, &s2, &s2, f);
+  fe_sub(&r.x, &r.x, &hhh, f);
+  fe_sub(&r.x, &r.x, &v, f);
+  fe_sub(&r.x, &r.x, &v, f);
+  fe_sub(&t, &v, &r.x, f);
+  fe_mul(&r.y, &s2, &t, f);
+  fe_mul(&t, &s1, &hhh, f);
+  fe_sub(&r.y, &r.y, &t, f);
+  fe_mul(&r.z, &a->z, &b->z, f);
+  fe_mul(&r.z, &r.z, &h, f);
+  *out = r;
+}
+
+/* X / Z^2 and Y / Z^3 with one inverse; (0, 0) for Z = 0. */
+void ec0_jac_affine(G1 *out, const EcJac *a, const Modulus *f) {
   Fe zi;
   Fe zi2;
+  if (is_zero(&a->z)) {
+    infinity(out);
+    return;
+  }
+  fe_inv(&zi, &a->z, f);
+  fe_mul(&zi2, &zi, &zi, f);
+  fe_mul(&out->x, &a->x, &zi2, f);
+  fe_mul(&zi2, &zi2, &zi, f);
+  fe_mul(&out->y, &a->y, &zi2, f);
+}
+
+void ec0_mul(G1 *out, const G1 *p, const U256 *k, const Modulus *f) {
+  uint32_t e[BN_LIMBS];
+  EcJac acc;
   unsigned i;
   u256_limbs(e, k);
   memset(&acc, 0, sizeof acc);
   for (i = BN_LIMBS * 32u; i > 0; i--) {
-    jac_double(&acc, &acc, f);
+    ec0_jac_double(&acc, &acc, f);
     if ((e[(i - 1) / 32u] >> ((i - 1) % 32u)) & 1u)
-      jac_add_affine(&acc, &acc, p, f);
+      ec0_jac_add_affine(&acc, &acc, p, f);
   }
-  if (is_zero(&acc.z)) {
-    infinity(out);
-    return;
-  }
-  fe_inv(&zi, &acc.z, f);
-  fe_mul(&zi2, &zi, &zi, f);
-  fe_mul(&out->x, &acc.x, &zi2, f);
-  fe_mul(&zi2, &zi2, &zi, f);
-  fe_mul(&out->y, &acc.y, &zi2, f);
+  ec0_jac_affine(out, &acc, f);
 }
 
 void g1_double(G1 *out, const G1 *a) {

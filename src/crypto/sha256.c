@@ -1,4 +1,6 @@
 /* Source: cairn-lang 6748510 src/sha256.c (sha256_words cut). */
+/* Changed (quorum-lang S11 H3a P3): sha256_round_constant, sha256_initial
+   and sha256_compress are exported for sha256gadget.c. */
 /* SHA-256 (FIPS 180-4 sections 4.2.2, 5.1.1, 5.3.3 and 6.2). Words are
  * read and written big-endian byte by byte, so the result does not depend
  * on the byte order of the host. */
@@ -7,7 +9,7 @@
 
 enum { SHA256_BLOCK = 64, SHA256_ROUNDS = 64 };
 
-static const uint32_t round_constant[SHA256_ROUNDS] = {
+const uint32_t sha256_round_constant[SHA256_ROUNDS] = {
   0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u, 0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
   0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u, 0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
   0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu, 0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
@@ -23,12 +25,17 @@ static const uint32_t initial_hash[8] = {
   0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
 };
 
+void sha256_initial(uint32_t state[8]) {
+  for (unsigned i = 0; i < 8; i++)
+    state[i] = initial_hash[i];
+}
+
 static uint32_t rotate(uint32_t value, unsigned bits) {
   return (value >> bits) | (value << (32 - bits));
 }
 
 /* One 64-byte block into STATE (section 6.2.2). */
-static void compress(uint32_t state[8], const unsigned char *block) {
+void sha256_compress(uint32_t state[8], const unsigned char block[64]) {
   uint32_t w[SHA256_ROUNDS];
   uint32_t v[8];
   for (unsigned t = 0; t < 16; t++)
@@ -46,7 +53,7 @@ static void compress(uint32_t state[8], const unsigned char *block) {
     uint32_t e = v[4];
     uint32_t ch = (e & v[5]) ^ (~e & v[6]);
     uint32_t maj = (a & v[1]) ^ (a & v[2]) ^ (v[1] & v[2]);
-    uint32_t t1 = v[7] + (rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25)) + ch + round_constant[t] + w[t];
+    uint32_t t1 = v[7] + (rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25)) + ch + sha256_round_constant[t] + w[t];
     uint32_t t2 = (rotate(a, 2) ^ rotate(a, 13) ^ rotate(a, 22)) + maj;
     v[7] = v[6];
     v[6] = v[5];
@@ -70,7 +77,7 @@ void sha256(const unsigned char *data, size_t size, unsigned char digest[32]) {
   for (unsigned i = 0; i < 8; i++)
     state[i] = initial_hash[i];
   for (; size - done >= SHA256_BLOCK; done += SHA256_BLOCK)
-    compress(state, data + done);
+    sha256_compress(state, data + done);
   /* The pad (section 5.1.1): 0x80, zero bytes, then the 64-bit length in
      bits. A tail of 56 bytes or more leaves no room for the length, so the
      pad takes a second block. */
@@ -81,13 +88,13 @@ void sha256(const unsigned char *data, size_t size, unsigned char digest[32]) {
   for (size_t i = rest + 1; i < SHA256_BLOCK; i++)
     block[i] = 0;
   if (rest + 9 > SHA256_BLOCK) {
-    compress(state, block);
+    sha256_compress(state, block);
     for (size_t i = 0; i < SHA256_BLOCK; i++)
       block[i] = 0;
   }
   for (unsigned i = 0; i < 8; i++)
     block[SHA256_BLOCK - 1 - i] = (unsigned char)(bits >> (8 * i));
-  compress(state, block);
+  sha256_compress(state, block);
   for (unsigned i = 0; i < 32; i++)
     digest[i] = (unsigned char)(state[i / 4] >> (24 - 8 * (i % 4)));
 }

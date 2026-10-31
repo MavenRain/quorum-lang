@@ -84,4 +84,22 @@ void ec0_double(G1 *out, const G1 *a, const Modulus *f);
 void ec0_add(G1 *out, const G1 *a, const G1 *b, const Modulus *f);
 void ec0_mul(G1 *out, const G1 *p, const U256 *k, const Modulus *f);
 
+/* A point (X, Y, Z) in Jacobian form: the affine point (X / Z^2, Y / Z^3)
+   on a curve with a = 0 over F. Z = 0 is the point at infinity. A sum or a
+   product in this form takes one inverse at the end, not one for each step
+   (public from S11 H2, for crypto/msm.h). */
+typedef struct {
+  Fe x;
+  Fe y;
+  Fe z;
+} EcJac;
+
+/* Each operation takes points on the curve. OUT can be A or B. */
+void ec0_jac_double(EcJac *out, const EcJac *a, const Modulus *f);
+/* A plus the affine point B. */
+void ec0_jac_add_affine(EcJac *out, const EcJac *a, const G1 *b, const Modulus *f);
+void ec0_jac_add(EcJac *out, const EcJac *a, const EcJac *b, const Modulus *f);
+/* The affine form of A; (0, 0) for Z = 0. */
+void ec0_jac_affine(G1 *out, const EcJac *a, const Modulus *f);
+
 #endif
