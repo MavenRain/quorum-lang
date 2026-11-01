@@ -10,7 +10,9 @@
 
 #include "crypto/ec7gadget.h"
 #include "crypto/frost.h"
+#include "crypto/ipa.h"
 #include "crypto/nova.h"
+#include "crypto/novacomp.h"
 #include "crypto/novagadget.h"
 #include "crypto/novaivc.h"
 #include "crypto/poseidongadget.h"
@@ -19,6 +21,7 @@
 #include "crypto/secq256k1.h"
 #include "crypto/sha256.h"
 #include "crypto/sha256gadget.h"
+#include "crypto/spartan.h"
 #include "crypto/stepgadget.h"
 
 #include "stepcase.h"
@@ -1442,6 +1445,427 @@ static void nova_ivc_side(NovaIvcSide *sd, G1 *g, size_t g_cap, U256 *k, EcJac *
   sd->t = t;
 }
 
+/* S11 H4a C3: the Spartan rows. The IPA key of a system has c = the c of
+   its pad (spartan_dims), at most 16 here (F_t: c = 15 on P). */
+#define SPARTAN_TN 65536u
+#define SPARTAN_TB 16384u
+static G1 spartan_g_space[SPARTAN_TN];
+static G1 spartan_gw_space[SPARTAN_TN / 2];
+static U256 spartan_k_space[SPARTAN_TN];
+static EcJac spartan_bucket_space[SPARTAN_TB];
+static Fe spartan_fe_space[SPARTAN_TN * 5u];
+static Fe spartan_hz[8];
+static size_t spartan_hrow[8];
+static R1csTerm spartan_hterm[32];
+static PoseidonParams spartan_params;
+static SpartanProof spartan_pf;
+static SpartanProof spartan_pf2;
+
+static void spartan_space(SpartanWork *wk) {
+  wk->fe = spartan_fe_space;
+  wk->fe_len = SPARTAN_TN * 5u;
+  wk->gw = spartan_gw_space;
+  wk->gw_len = SPARTAN_TN / 2u;
+}
+
+/* OUT = the IPA key of CS: the first points from NOVA (the commitment key
+   of the instances), c = the c of the pad of CS. */
+static int spartan_key(IpaKey *out, const NovaKey *nova, const R1cs *cs) {
+  SpartanDims d;
+  return spartan_dims(&d, cs) && d.c <= 16u &&
+         ipa_key(out, nova, d.c, spartan_g_space, spartan_k_space, spartan_bucket_space,
+                 SPARTAN_TB);
+}
+
+/* The prover with a new transcript (the domain of ipa_ts_domain). */
+static int spartan_make(SpartanProof *pf, const IpaKey *key, const PoseidonParams *params,
+                        const R1cs *cs, const NovaInstance *u, const Fe *z, const Fe *e) {
+  SpartanWork wk;
+  IpaTranscript ts;
+  Fe dom;
+  spartan_space(&wk);
+  ipa_ts_domain(&dom);
+  ipa_ts_start(&ts, params, &dom);
+  return spartan_prove(pf, key, &ts, cs, u, z, e, &wk);
+}
+
+/* The spartan_verify value with a new transcript (as the prover). */
+static int spartan_check(const IpaKey *key, const PoseidonParams *params, const R1cs *cs,
+                         const NovaInstance *u, const SpartanProof *pf) {
+  SpartanWork wk;
+  IpaTranscript ts;
+  Fe dom;
+  spartan_space(&wk);
+  ipa_ts_domain(&dom);
+  ipa_ts_start(&ts, params, &dom);
+  return spartan_verify(key, &ts, cs, u, pf, &wk);
+}
+
+/* The first C term of CS, or the term count when CS has none. */
+static size_t spartan_c_term(const R1cs *cs) {
+  size_t i;
+  for (i = 0; i < cs->used.terms; i++)
+    if (cs->term[i].side == R1CS_C)
+      return i;
+  return cs->used.terms;
+}
+
+/* The rows of the proof PF (MADE 0: the prover failed): good (0), bad E
+   (ve + 1: 3) and bad C (the first C coefficient of the shape + 1: 5;
+   then the coefficient is restored). */
+static void spartan_proof_rows(Tally *t, const char *name, const char *tag, const IpaKey *key,
+                               const PoseidonParams *params, R1cs *cs, const NovaInstance *u,
+                               const SpartanProof *pf, int made) {
+  SpartanProof bad;
+  Fe one = small(1);
+  Fe keep;
+  char label[48];
+  size_t i = spartan_c_term(cs);
+  int good;
+  snprintf(label, sizeof label, "spartan %s good", tag);
+  row(t, name, label, made && spartan_check(key, params, cs, u, pf) == 0);
+  bad = *pf;
+  fe_add(&bad.ve, &pf->ve, &one, cs->f);
+  snprintf(label, sizeof label, "spartan %s bad E", tag);
+  row(t, name, label, made && spartan_check(key, params, cs, u, &bad) == 3);
+  good = made && i < cs->used.terms;
+  if (good) {
+    keep = cs->term[i].coeff;
+    fe_add(&cs->term[i].coeff, &keep, &one, cs->f);
+    good = spartan_check(key, params, cs, u, pf) == 5;
+    cs->term[i].coeff = keep;
+  }
+  snprintf(label, sizeof label, "spartan %s bad C", tag);
+  row(t, name, label, good);
+}
+
+/* E[k] = (A_k z)(B_k z) - u (C_k z) for each row of CS (u = Z[0]). */
+static int spartan_error(Fe *e, const R1cs *cs, const Fe *z) {
+  Fe a;
+  Fe b;
+  Fe c;
+  Fe ab;
+  Fe uc;
+  size_t k;
+  for (k = 0; k < cs->used.rows; k++) {
+    if (!nova_row(&a, &b, &c, cs, z, k))
+      return 0;
+    fe_mul(&ab, &a, &b, cs->f);
+    fe_mul(&uc, &z[0], &c, cs->f);
+    fe_sub(&e[k], &ab, &uc, cs->f);
+  }
+  return 1;
+}
+
+/* The hand system: z = (u, X_0, X_1, W_0 .. W_3) and 4 rows. */
+static void spartan_hand(R1cs *cs, const Modulus *f) {
+  uint32_t v[7];
+  Fe x;
+  size_t i;
+  r1cs_init(cs, f, spartan_hz, 8u, spartan_hrow, 8u, spartan_hterm, 32u);
+  v[0] = 0;
+  for (i = 1; i < 7u; i++) {
+    x = small(3u + 2u * i);
+    v[i] = r1cs_var(cs, &x);
+  }
+  r1cs_row(cs);
+  r1cs_term_int(cs, R1CS_A, v[3], 1);
+  r1cs_term_int(cs, R1CS_B, v[4], 1);
+  r1cs_term_int(cs, R1CS_C, v[5], 1);
+  r1cs_row(cs);
+  r1cs_term_int(cs, R1CS_A, v[1], 1);
+  r1cs_term_int(cs, R1CS_A, v[6], 1);
+  r1cs_term_int(cs, R1CS_B, v[0], 1);
+  r1cs_term_int(cs, R1CS_C, v[3], 1);
+  r1cs_row(cs);
+  r1cs_term_int(cs, R1CS_A, v[5], 1);
+  r1cs_term_int(cs, R1CS_B, v[5], 1);
+  r1cs_term_int(cs, R1CS_B, v[2], 1);
+  r1cs_term_int(cs, R1CS_C, v[0], 3);
+  r1cs_row(cs);
+  r1cs_term_int(cs, R1CS_A, v[4], 1);
+  r1cs_term_int(cs, R1CS_B, v[1], 1);
+  r1cs_term_int(cs, R1CS_C, v[6], 1);
+  r1cs_term_int(cs, R1CS_C, v[2], -2);
+}
+
+/* The hand rows (a = b = c = 2): u = 2, and E (from the relaxed relation)
+   is not 0 on rows 0 and 1. `spartan hand bad witness`: a second proof
+   with W_0 + 1, the E of z and the comW of the changed W (the relation
+   fails: 2). */
+static void spartan_hand_rows(Tally *t, const char *name, const Modulus *f) {
+  GensCurve curve;
+  NovaKey nk;
+  IpaKey key;
+  NovaInstance u;
+  NovaInstance u2;
+  R1cs cs;
+  Fe z[7];
+  Fe z2[7];
+  Fe e[4];
+  Fe zero = small(0);
+  Fe one = small(1);
+  size_t i;
+  int made;
+  if (!nova_curve(&curve, f)) {
+    row(t, name, "spartan curve", 0);
+    return;
+  }
+  poseidon_params(&spartan_params, f);
+  spartan_hand(&cs, f);
+  z[0] = small(2);
+  for (i = 1; i < 7u; i++)
+    r1cs_value(&z[i], &cs, (uint32_t)i);
+  nk.curve = curve;
+  nk.g = spartan_g_space;
+  nk.n = 0;
+  nk.k = spartan_k_space;
+  nk.bucket = spartan_bucket_space;
+  nk.buckets = SPARTAN_TB;
+  made = spartan_key(&key, &nk, &cs);
+  nk.n = made ? (size_t)1 << key.c : 0u;
+  made = made && key.c == 2u && spartan_error(e, &cs, z) && !fe_eq(&e[0], &zero) &&
+         !fe_eq(&e[1], &zero) && nova_instance(&u, &nk, &cs, z, e) &&
+         spartan_make(&spartan_pf, &key, &spartan_params, &cs, &u, z, e);
+  spartan_proof_rows(t, name, "hand", &key, &spartan_params, &cs, &u, &spartan_pf, made);
+  for (i = 0; i < 7u; i++)
+    z2[i] = z[i];
+  fe_add(&z2[3], &z[3], &one, f);
+  made = made && nova_instance(&u2, &nk, &cs, z2, e) &&
+         spartan_make(&spartan_pf2, &key, &spartan_params, &cs, &u2, z2, e);
+  row(t, name, "spartan hand bad witness",
+      made && spartan_check(&key, &spartan_params, &cs, &u2, &spartan_pf2) == 2);
+}
+
+/* The F_t rows of one side of the IVC chain (OK 0: the chain failed): ONE
+   proof of the running instance U with (Z, E), then 4 verifies. `spartan
+   F_t bad v_W` is vw + 1 (5). */
+static void spartan_ivc_side(Tally *t, const char *name, NovaIvcSide *sd, const NovaInstance *u,
+                             const Fe *z, const Fe *e, int ok) {
+  IpaKey key;
+  SpartanProof bad;
+  Fe one = small(1);
+  int made = ok && spartan_key(&key, &sd->key, &sd->cs) &&
+             spartan_make(&spartan_pf, &key, &sd->params, &sd->cs, u, z, e);
+  spartan_proof_rows(t, name, "F_t", &key, &sd->params, &sd->cs, u, &spartan_pf, made);
+  bad = spartan_pf;
+  fe_add(&bad.vw, &spartan_pf.vw, &one, sd->cs.f);
+  row(t, name, "spartan F_t bad v_W",
+      made && spartan_check(&key, &sd->params, &sd->cs, u, &bad) == 5);
+}
+
+/* S11 H4a C4: the compressed proof. The key has the buffers of the 2 sides
+   at the same time (c <= 16 on each side). The COMP_PIN values are pinned
+   from a first run (a failed pin prints `comp pin NAME VALUE`). */
+#define COMP_BUF 32768u
+#define COMP_PIN_HASH {0x981b611au, 0x8eb27190u, 0x7982015eu, 0xd21ebf05u, 0x2d2a3daau, 0x3dcaee07u, 0x4e7c1a66u, 0x6ced7e7eu}
+#define COMP_PIN_SECONDARY 28
+#define COMP_PIN_BYTE 12
+#define COMP_PIN_IPA 18
+static G1 comp_g_p[SPARTAN_TN];
+static U256 comp_k_p[SPARTAN_TN];
+static EcJac comp_b_p[SPARTAN_TB];
+static Fe comp_fe_p[SPARTAN_TN * 5u];
+static G1 comp_gw_p[SPARTAN_TN / 2];
+static G1 comp_g_s[SPARTAN_TN];
+static U256 comp_k_s[SPARTAN_TN];
+static EcJac comp_b_s[SPARTAN_TB];
+static Fe comp_fe_s[SPARTAN_TN * 5u];
+static G1 comp_gw_s[SPARTAN_TN / 2];
+static Fe comp_z[NOVA_IVARS];
+static Fe comp_e[NOVA_IROWS];
+static NovaCompKey comp_key;
+static NovaCompProof comp_pf;
+static NovaCompProof comp_pf2;
+static unsigned char comp_buf[COMP_BUF];
+static unsigned char comp_buf2[COMP_BUF];
+
+static void comp_side(NovaCompSide *sd, G1 *g, U256 *k, EcJac *bucket, Fe *fe, G1 *gw) {
+  sd->g = g;
+  sd->g_cap = SPARTAN_TN;
+  sd->k = k;
+  sd->k_cap = SPARTAN_TN;
+  sd->bucket = bucket;
+  sd->buckets = SPARTAN_TB;
+  sd->fe = fe;
+  sd->fe_len = SPARTAN_TN * 5u;
+  sd->gw = gw;
+  sd->gw_len = SPARTAN_TN / 2u;
+}
+
+/* Sets the buffers of comp_key, then nova_comp_setup for KEY. */
+static int comp_start(const NovaIvcKey *key) {
+  comp_side(&comp_key.p, comp_g_p, comp_k_p, comp_b_p, comp_fe_p, comp_gw_p);
+  comp_side(&comp_key.s, comp_g_s, comp_k_s, comp_b_s, comp_fe_s, comp_gw_s);
+  comp_key.z = comp_z;
+  comp_key.var_cap = NOVA_IVARS;
+  comp_key.e = comp_e;
+  comp_key.row_cap = NOVA_IROWS;
+  return nova_comp_setup(&comp_key, key);
+}
+
+/* comp_pf = the compressed proof of PF; 1 when prove holds and verify
+   returns 0. */
+static int comp_good(const NovaIvcKey *key, const NovaIvcProof *pf) {
+  return nova_comp_prove(&comp_pf, &comp_key, key, pf) &&
+         nova_comp_verify(&comp_key, key, &comp_pf) == 0;
+}
+
+/* H = the hash of the LEN bytes IN: LEN, then 8-byte chunks (little-endian,
+   the last chunk padded with 0) into a transcript of PARAMS (the domain of
+   ipa_ts_domain), then one challenge. */
+static void comp_hash(Fe *h, const unsigned char *in, size_t len, const PoseidonParams *params) {
+  IpaTranscript ts;
+  Fe dom;
+  Fe x;
+  size_t i;
+  size_t j;
+  uint64_t v;
+  ipa_ts_domain(&dom);
+  ipa_ts_start(&ts, params, &dom);
+  x = small((uint64_t)len);
+  ipa_ts_fe(&ts, &x);
+  for (i = 0; i < len; i += 8u) {
+    v = 0;
+    for (j = 0; j < 8u && i + j < len; j++)
+      v |= (uint64_t)in[i + j] << (8u * j);
+    x = small(v);
+    ipa_ts_fe(&ts, &x);
+  }
+  ipa_ts_challenge(&ts, h);
+}
+
+/* 1 when H = COMP_PIN_HASH, else 0 (and the pin line). */
+static int comp_hash_is(const Fe *h) {
+  static const uint32_t want[BN_LIMBS] = COMP_PIN_HASH;
+  size_t i;
+  int same = 1;
+  for (i = 0; i < BN_LIMBS; i++)
+    same = same && h->w[i] == want[i];
+  if (!same) {
+    printf("comp pin HASH {");
+    for (i = 0; i < BN_LIMBS; i++)
+      printf("%s0x%08xu", i ? ", " : "", (unsigned)h->w[i]);
+    printf("}\n");
+  }
+  return same;
+}
+
+/* 1 when GOT = WANT and LO <= GOT <= HI, else 0 (and the pin line when GOT
+   is not WANT). */
+static int comp_pin(const char *tag, int got, int want, int lo, int hi) {
+  if (got != want)
+    printf("comp pin %s %d\n", tag, got);
+  return got == want && got >= lo && got <= hi;
+}
+
+/* The verify code of the N bytes of comp_pf (in comp_buf) with one bit
+   changed in the first byte where the bytes of CP differ, or -1 when the
+   bytes do not differ or encode or decode fails. */
+static int comp_flip(const NovaIvcKey *key, const NovaCompProof *cp, size_t n) {
+  size_t i = 0;
+  if (!nova_comp_encode(comp_buf2, n, &comp_key, cp))
+    return -1;
+  while (i < n && comp_buf[i] == comp_buf2[i])
+    i++;
+  if (i == n)
+    return -1;
+  memcpy(comp_buf2, comp_buf, n);
+  comp_buf2[i] = (unsigned char)(comp_buf2[i] ^ 1u);
+  return nova_comp_decode(&comp_pf2, &comp_key, key, comp_buf2, n)
+             ? nova_comp_verify(&comp_key, key, &comp_pf2)
+             : -1;
+}
+
+/* The byte offsets of the decode rows (the encode order of novacomp.c: k
+   in 8 bytes, then z_0 and z_k with 32 bytes for each value, then r_U_p
+   with comW first). A point has 65 bytes: 0x04, x (32 bytes) and y (32
+   bytes). COMP_AT_W is the first byte of comW of r_U_p. */
+#define COMP_AT_Z0 8u
+#define COMP_AT_W (8u + 2u * STEP_GADGET_Z * 32u)
+#define COMP_AT_X (COMP_AT_W + 1u)
+#define COMP_AT_Y_END (COMP_AT_W + 64u)
+
+/* The decode result of the first LEN bytes of comp_buf2, after comp_buf2 =
+   the N bytes of comp_pf (in comp_buf) with the CNT bytes from AT set to
+   V. */
+static int comp_decode_bad(const NovaIvcKey *key, size_t n, size_t len, size_t at, size_t cnt,
+                           unsigned char v) {
+  memcpy(comp_buf2, comp_buf, n);
+  memset(comp_buf2 + at, v, cnt);
+  return nova_comp_decode(&comp_pf2, &comp_key, key, comp_buf2, len);
+}
+
+/* The comp rows of the 3-step proof PF (OK: the chain and the setup hold).
+   `comp good 3`: prove and verify 0. `comp bytes`: encode, decode and
+   encode again give the same bytes, and the hash of the bytes is
+   COMP_PIN_HASH (thus a change of the bytes or of the transcript fails).
+   `comp bad z_k` and `comp bad k`: a changed count in z_k, and k + 1;
+   verify returns 2 (the H_p bind). `comp bad secondary` (O154 (2)): the
+   compressed proof of PF with a changed l_u_s.comW; the primary side
+   holds and verify returns 20 + n (the IPA of the secondary side).
+   `comp bad byte` (O153 (5)): one bit of the first sum-check value of the
+   primary part; decode holds and verify returns 10 + n (a round of
+   sum-check 1). `comp bad IPA byte`: one bit of the IPA value A of the
+   primary part; verify returns 18 (the IPA). The 6 `comp decode` rows
+   change the good bytes, and decode must return 0. Each change fails one
+   check only: `bad len` gives n - 1 bytes; `bad value` sets z_0[0] to
+   2^256 - 1 (not below the modulus); the other 4 change comW of r_U_p
+   (not the identity: the first byte is 0x04). `bad prefix`: the first
+   byte is 0x02. `big coordinate`: x is 2^256 - 1. `off curve`: the last
+   bit of y changes. `bad identity`: the first byte is 0x00 and x and y do
+   not change (thus not 65 zero bytes). */
+static void comp_rows(Tally *t, const char *name, const NovaIvcKey *key, const NovaIvcProof *pf,
+                      int ok) {
+  NovaCompProof cp;
+  NovaIvcProof bad;
+  Fe h;
+  size_t n = ok ? nova_comp_size(&comp_key) : 0u;
+  int good;
+  int pt;
+  good = ok && comp_good(key, pf);
+  row(t, name, "comp good 3", good);
+  good = good && n <= COMP_BUF && nova_comp_encode(comp_buf, n, &comp_key, &comp_pf) &&
+         nova_comp_decode(&comp_pf2, &comp_key, key, comp_buf, n) &&
+         nova_comp_encode(comp_buf2, n, &comp_key, &comp_pf2) &&
+         memcmp(comp_buf, comp_buf2, n) == 0;
+  comp_hash(&h, comp_buf, good ? n : 0u, &key->p.params);
+  row(t, name, "comp bytes", good && comp_hash_is(&h));
+  row(t, name, "comp decode bad len", good && comp_decode_bad(key, n, n - 1u, 0u, 0u, 0u) == 0);
+  row(t, name, "comp decode bad value",
+      good && comp_decode_bad(key, n, n, COMP_AT_Z0, 32u, 0xffu) == 0);
+  pt = good && comp_buf[COMP_AT_W] == 0x04u;
+  row(t, name, "comp decode bad prefix",
+      pt && comp_decode_bad(key, n, n, COMP_AT_W, 1u, 0x02u) == 0);
+  row(t, name, "comp decode big coordinate",
+      pt && comp_decode_bad(key, n, n, COMP_AT_X, 32u, 0xffu) == 0);
+  row(t, name, "comp decode off curve",
+      pt && comp_decode_bad(key, n, n, COMP_AT_Y_END, 1u,
+                            (unsigned char)(comp_buf[COMP_AT_Y_END] ^ 1u)) == 0);
+  row(t, name, "comp decode bad identity",
+      pt && comp_decode_bad(key, n, n, COMP_AT_W, 1u, 0x00u) == 0);
+  cp = comp_pf;
+  cp.zk[2] = small(106);
+  row(t, name, "comp bad z_k", good && nova_comp_verify(&comp_key, key, &cp) == 2);
+  cp = comp_pf;
+  cp.k = comp_pf.k + 1u;
+  row(t, name, "comp bad k", good && nova_comp_verify(&comp_key, key, &cp) == 2);
+  bad = *pf;
+  bad.l_u_s.com_w = pf->r_u_s.com_w;
+  row(t, name, "comp bad secondary",
+      good && nova_comp_prove(&cp, &comp_key, key, &bad) &&
+          comp_pin("SECONDARY", nova_comp_verify(&comp_key, key, &cp), COMP_PIN_SECONDARY, 20,
+                   29));
+  cp = comp_pf;
+  cp.p.sc1[0][0] = small(7);
+  row(t, name, "comp bad byte",
+      good && comp_pin("BYTE", comp_flip(key, &cp, n), COMP_PIN_BYTE, 10, 19));
+  cp = comp_pf;
+  cp.p.ipa.a = small(7);
+  row(t, name, "comp bad IPA byte",
+      good && comp_pin("IPA", comp_flip(key, &cp, n), COMP_PIN_IPA, 18, 28));
+}
+
 /* The IVC chain rows. `nova ivc step 1`: setup, prove step 0 with F_t
    (z_0[k] = 100 + k), and verify returns 0 (all 4 checks pass), with
    k = 1 and the count of z_1 = 103. `nova ivc step 2` and `nova ivc
@@ -1449,7 +1873,8 @@ static void nova_ivc_side(NovaIvcSide *sd, G1 *g, size_t g_cap, U256 *k, EcJac *
    `nova ivc keeps U` (O154 (1)): the 3-step proof with r_U_p, r_W_p and
    r_E_p from before the last fold; verify returns 2 (the H_n bind of
    r_U_p). `nova ivc z changed` (O154 (3)): the 3-step proof with a
-   changed count in z_3; verify returns 2 (the H_p bind of z_k). */
+   changed count in z_3; verify returns 2 (the H_p bind of z_k). The comp rows (S11 H4a C4): `comp
+   good 1` after step 1, then comp_rows. */
 static void nova_ivc_chain_rows(Tally *t, const char *name) {
   NovaIvcKey *key = &nova_ckey;
   NovaIvcProof *pf = &nova_cpf;
@@ -1460,6 +1885,7 @@ static void nova_ivc_chain_rows(Tally *t, const char *name) {
   size_t terms;
   size_t k;
   int ok;
+  int cok;
   nova_ivc_side(&key->p, nova_cg_p, NOVA_CN_P, nova_ck_p, nova_cb_p, nova_iz, nova_irow,
                 nova_iterm, nova_ct_p, &SECP_FN);
   nova_ivc_side(&key->s, nova_cg_s, NOVA_CN_S, nova_ck_s, nova_cb_s, nova_sz, nova_srow,
@@ -1477,6 +1903,8 @@ static void nova_ivc_chain_rows(Tally *t, const char *name) {
        nova_ivc_prove_step(pf, key, nova_step_t, &key->p.params) && nova_ivc_verify(key, pf) == 0 &&
        pf->k == 1u && fe_eq(&pf->zk[2], &want);
   row(t, name, "nova ivc step 1", ok);
+  cok = ok && comp_start(key);
+  row(t, name, "comp good 1", cok && comp_good(key, pf));
   want = small(104);
   ok = ok && nova_ivc_prove_step(pf, key, nova_step_t, &key->p.params) &&
        nova_ivc_verify(key, pf) == 0 && pf->k == 2u && fe_eq(&pf->zk[2], &want);
@@ -1490,6 +1918,11 @@ static void nova_ivc_chain_rows(Tally *t, const char *name) {
   ok = ok && nova_ivc_prove_step(pf, key, nova_step_t, &key->p.params) &&
        nova_ivc_verify(key, pf) == 0 && pf->k == 3u && fe_eq(&pf->zk[2], &want);
   row(t, name, "nova ivc step 3", ok);
+  comp_rows(t, name, key, pf, ok && cok);
+  /* S11 H4a C3: the Spartan rows of the 3-step proof (both sides have
+     u != 1 and E != 0). */
+  spartan_ivc_side(t, "p", &key->p, &pf->r_u_p, pf->r_w_p, pf->r_e_p, ok);
+  spartan_ivc_side(t, "n", &key->s, &pf->r_u_s, pf->r_w_s, pf->r_e_s, ok);
   bad = *pf;
   bad.r_u_p = keep_u;
   bad.r_w_p = nova_kwp;
@@ -1536,6 +1969,143 @@ static void nova_rows(Tally *t, const char *name, const Modulus *f) {
     nova_ivc_chain_rows(t, name);
 }
 
+/* S11 H4a C2: the IPA rows of one side (F_p: secq256k1 points; F_n:
+   secp256k1 points). BIG is the round count of the measurement row. */
+#define IPA_TN 32768u
+#define IPA_TB 4096u
+static G1 ipa_g_space[IPA_TN];
+static G1 ipa_gw_space[IPA_TN / 2];
+static U256 ipa_k_space[IPA_TN];
+static EcJac ipa_bucket_space[IPA_TB];
+static Fe ipa_a_space[IPA_TN];
+static Fe ipa_b_space[IPA_TN];
+static Fe ipa_w_space[IPA_TN];
+static PoseidonParams ipa_params;
+
+static void ipa_value(Fe *out, uint64_t i, const Modulus *f) {
+  Fe x;
+  fe_from_u64(&x, i * 0x9e3779b97f4a7c15ull + 0x632be59bd9b4e019ull);
+  fe_mul(out, &x, &x, f);
+}
+
+/* MODE 0: good; 1: V + 1; 2: L[0] + G[0]. Returns the ipa_verify value,
+   or -1 when the prover fails. */
+static int ipa_case(const IpaKey *key, uint64_t seed, int mode) {
+  const Modulus *f = key->f;
+  size_t n = (size_t)1 << key->c;
+  size_t j;
+  unsigned i;
+  Fe rho[IPA_C_MAX];
+  Fe v;
+  Fe one;
+  Fe dom;
+  G1 com;
+  G1 bad;
+  IpaProof pf;
+  IpaTranscript ts;
+  for (j = 0; j < n; j++)
+    ipa_value(&ipa_a_space[j], seed + j, f);
+  for (i = 0; i < key->c; i++)
+    ipa_value(&rho[i], seed + 7919u * (i + 1u), f);
+  if (!ipa_com(&com, key, ipa_a_space, n) ||
+      !ipa_mle(&v, ipa_a_space, n, rho, key->c, ipa_w_space, f))
+    return -1;
+  ipa_ts_domain(&dom);
+  ipa_ts_start(&ts, &ipa_params, &dom);
+  if (!ipa_prove(&pf, key, &ts, &com, ipa_a_space, ipa_b_space, rho, &v, ipa_gw_space))
+    return -1;
+  fe_from_u64(&one, 1);
+  if (mode == 1)
+    fe_add(&v, &v, &one, f);
+  if (mode == 2 && pf.c > 0) {
+    nova_add(&bad, &pf.l[0], &key->g[0], key->curve);
+    pf.l[0] = bad;
+  }
+  ipa_ts_start(&ts, &ipa_params, &dom);
+  return ipa_verify(key, &ts, &com, rho, &v, &pf, ipa_w_space);
+}
+
+/* The eq table of 4 variables = ipa_eq_at at the bits of each index. */
+static int ipa_eq_check(const Modulus *f) {
+  Fe r[4];
+  Fe bits[4];
+  Fe e;
+  unsigned i;
+  size_t j;
+  int good;
+  for (i = 0; i < 4u; i++)
+    ipa_value(&r[i], 61u + i, f);
+  good = ipa_eq(ipa_w_space, r, 4u, f);
+  for (j = 0; j < 16u; j++) {
+    for (i = 0; i < 4u; i++)
+      fe_from_u64(&bits[i], (uint64_t)((j >> (3u - i)) & 1u));
+    ipa_eq_at(&e, r, bits, 4u, f);
+    good = good && fe_eq(&e, &ipa_w_space[j]);
+  }
+  return good;
+}
+
+static void ipa_rows(Tally *t, const char *name, const Modulus *f, unsigned big) {
+  GensCurve curve;
+  NovaKey nk;
+  NovaKey n5;
+  IpaKey ikb;
+  IpaKey iks;
+  IpaKey ikp;
+  G1 g5[5];
+  G1 gp[8];
+  G1 c1;
+  G1 c2;
+  Fe v5[5];
+  char label[32];
+  unsigned c;
+  size_t i;
+  int big_ok;
+  int good;
+  if (!nova_curve(&curve, f)) {
+    row(t, name, "ipa curve", 0);
+    return;
+  }
+  poseidon_params(&ipa_params, f);
+  nk.curve = curve;
+  nk.g = ipa_g_space;
+  nk.n = 0;
+  nk.k = ipa_k_space;
+  nk.bucket = ipa_bucket_space;
+  nk.buckets = IPA_TB;
+  /* The big key first (each point from gens_point); the small keys take
+     its points as the Nova key prefix. */
+  big_ok = ipa_key(&ikb, &nk, big, ipa_g_space, ipa_k_space, ipa_bucket_space, IPA_TB);
+  nk.n = (size_t)1 << big;
+  for (c = 0; c <= 4u; c++) {
+    snprintf(label, sizeof label, "ipa 2^%u", c);
+    good = big_ok && ipa_key(&iks, &nk, c, ipa_g_space, ipa_k_space, ipa_bucket_space, IPA_TB) &&
+           ipa_case(&iks, 11u + c, 0) == 0;
+    row(t, name, label, good && (c < 4u || ipa_eq_check(f)));
+  }
+  good = big_ok && ipa_key(&iks, &nk, 4u, ipa_g_space, ipa_k_space, ipa_bucket_space, IPA_TB);
+  row(t, name, "ipa bad value", good && ipa_case(&iks, 29u, 1) == 4);
+  row(t, name, "ipa bad L", good && ipa_case(&iks, 31u, 2) == 4);
+  /* The first n IPA points = nova_gens(n), Q = the point 2^c, and the Nova
+     commitment = the IPA commitment (Q-S11-11 (a)). */
+  nova_gens(g5, curve, 5u);
+  n5 = nk;
+  n5.g = g5;
+  n5.n = 5u;
+  good = big_ok && ipa_key(&ikp, &n5, 3u, gp, ipa_k_space, ipa_bucket_space, IPA_TB);
+  for (i = 0; i < 8u; i++)
+    good = good && nova_point_is(&gp[i], &ipa_g_space[i]);
+  good = good && nova_point_is(&ikp.q, &ipa_g_space[8]);
+  for (i = 0; i < 5u; i++)
+    ipa_value(&v5[i], 41u + i, f);
+  good = good && nova_com(&c1, &n5, v5, 5u) && ipa_com(&c2, &ikb, v5, 5u) &&
+         nova_point_is(&c1, &c2);
+  row(t, name, "ipa key prefix", good);
+  /* The measurement row: 2^BIG values (F_t: 2^15 on P, 2^14 on S). */
+  snprintf(label, sizeof label, "ipa 2^%u", big);
+  row(t, name, label, big_ok && ipa_case(&ikb, 53u, 0) == 0);
+}
+
 int main(void) {
   Tally t = {0, 0};
   Curve secp = {secp_gen, secp_add, secp_mul};
@@ -1552,6 +2122,10 @@ int main(void) {
   poseidon_rows(&t, "n", &SECP_FN);
   ec7_rows(&t, "n", &SECP_FN, &secq);
   nova_rows(&t, "n", &SECP_FN);
+  ipa_rows(&t, "p", &SECP_FP, 15u);
+  ipa_rows(&t, "n", &SECP_FN, 14u);
+  spartan_hand_rows(&t, "p", &SECP_FP);
+  spartan_hand_rows(&t, "n", &SECP_FN);
   printf("crypto r1cs: %u rows, %u mismatches\n", (unsigned)t.rows, (unsigned)t.mismatches);
   return t.mismatches == 0 ? 0 : 1;
 }
