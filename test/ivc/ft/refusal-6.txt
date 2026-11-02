@@ -1,0 +1,5 @@
+case 6 bad certificate at step 5 of a 10-step input (host input check at the prover callback)
+prove ft 0 10 <out> 5
+result rc 1, no proof file
+result ivc tool: the bad certificate of step 5 reached the ft callback 2 times (host input check: the ft callback verifies it natively)
+result ivc tool: host input check: the ft callback refused the certificate of step 5 (frost_verify_xy, 2 calls), not a circuit constraint

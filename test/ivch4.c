@@ -2,10 +2,11 @@
    (step 0, the oldest) with F = step_f of test/stepcase.h:
    nova_ivc_setup, nova_ivc_start, nova_ivc_prove_step and
    nova_ivc_verify, with P on N_P = 2^19 generators. The storage is static
-   (Q-S11-8 (a)): about 310 MB. The run takes about 40 minutes with TCC,
-   thus `make ivc-h4` runs it and `make check` does not. A failed row
-   writes `FAIL ivc h4 <name>` to stderr. The last line gives the number
-   of rows and the number of mismatches. */
+   (Q-S11-8 (a)): about 310 MB. The run takes about 72 minutes with TCC
+   (measured with other runs in parallel), thus `make ivc-h4` runs it
+   and `make check` does not. A failed row writes `FAIL ivc h4 <name>`
+   to stderr. The last line gives the number of rows and the number of
+   mismatches. */
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
