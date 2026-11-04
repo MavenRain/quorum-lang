@@ -1,5 +1,5 @@
 /* NEW (quorum-lang S11 H3c, C4d): the IVC on the real F. One step of h4
-   (step 0, the oldest) with F = step_f of test/stepcase.h:
+   (step 0, the oldest) with F = step_f of src/crypto/stepcase.h:
    nova_ivc_setup, nova_ivc_start, nova_ivc_prove_step and
    nova_ivc_verify, with P on N_P = 2^19 generators. The storage is static
    (Q-S11-8 (a)): about 310 MB. The run takes about 72 minutes with TCC
@@ -22,7 +22,7 @@
 #include "crypto/stepgadget.h"
 #include "crypto/u256.h"
 
-#include "stepcase.h"
+#include "crypto/stepcase.h"
 
 /* P: N_P = 2^19 generators, variables and rows, and 3 * 2^20 terms (the
    row `nova p size h4` of test/ivcr1cs.c: P on the real F has 367831

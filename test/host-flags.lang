@@ -4,6 +4,8 @@ word8 : ℕ → W8
 word8 x = w8 (natAdd x 1) 0 0 0 0 0 0 0
 word16 : ℕ → W16
 word16 x = w16 (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+word20 : ℕ → W20
+word20 x = w20 (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 partWord : ℕ → DecPart
 partWord x = decPart (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 proofWord : ℕ → BitProof
@@ -40,5 +42,15 @@ mpcMulFlag : ℕ → ℕ
 mpcMulFlag x = w16a (q_mpc_mul noProd noProd noProd 0 (word16 0) (word16 x))
 mpcOpenFlag : ℕ → ℕ
 mpcOpenFlag x = w8a (q_mpc_open (word16 x) (word16 0) 2)
+ivcFlag : ℕ → ℕ
+ivcFlag x = q_ivc_verify (natAdd x 2) (word8 0) (word20 0) (word20 0) 0 noWord
+ivcWordFlag : ℕ → ℕ
+ivcWordFlag x = q_ivc_verify 2 (word8 0) (word20 0) (word20 0) 0 (wordCons (natAdd x 1) noWord)
+ivcStartFlag : ℕ → ℕ
+ivcStartFlag x = q_ivc_start 0 (word8 0) (word4 0) (word20 x)
+ivcExtendFlag : ℕ → ℕ
+ivcExtendFlag x = q_ivc_extend 17 (word4 0) (w12 (natAdd x 1) 0 0 0 0 0 0 0 0 0 0 0)
+ivcWordKFlag : ℕ → ℕ
+ivcWordKFlag x = q_ivc_word 17 (natAdd x 1)
 unusedKey : ℕ → ℕ
 unusedKey x = w4a (q_combine (partCons (partWord 0) (word8 x) noPart) 1 noKey 1 0 (word16 0) 8)

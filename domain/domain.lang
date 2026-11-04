@@ -71,6 +71,10 @@ data Twin : Type where
 -- e0, e1, z0, z1).
 data W16 : Type where
   w16 : (w16a : ℕ) → (w16b : ℕ) → (w16c : ℕ) → (w16d : ℕ) → (w16e : ℕ) → (w16f : ℕ) → (w16g : ℕ) → (w16h : ℕ) → (w16i : ℕ) → (w16j : ℕ) → (w16k : ℕ) → (w16l : ℕ) → (w16m : ℕ) → (w16n : ℕ) → (w16o : ℕ) → (w16p : ℕ) → W16
+-- The IVC state word of q_ivc_verify (S11 H5, Q-S11-23): the 160 bytes of
+-- z0 or zk.
+data W20 : Type where
+  w20 : (w20a : ℕ) → (w20b : ℕ) → (w20c : ℕ) → (w20d : ℕ) → (w20e : ℕ) → (w20f : ℕ) → (w20g : ℕ) → (w20h : ℕ) → (w20i : ℕ) → (w20j : ℕ) → (w20k : ℕ) → (w20l : ℕ) → (w20m : ℕ) → (w20n : ℕ) → (w20o : ℕ) → (w20p : ℕ) → (w20q : ℕ) → (w20r : ℕ) → (w20s : ℕ) → (w20t : ℕ) → W20
 data DecPart : Type where
   decPart : (dp00 : ℕ) → (dp01 : ℕ) → (dp02 : ℕ) → (dp03 : ℕ) → (dp04 : ℕ) → (dp05 : ℕ) → (dp06 : ℕ) → (dp07 : ℕ) → (dp08 : ℕ) → (dp09 : ℕ) → (dp10 : ℕ) → (dp11 : ℕ) → (dp12 : ℕ) → (dp13 : ℕ) → (dp14 : ℕ) → (dp15 : ℕ) → (dp16 : ℕ) → (dp17 : ℕ) → (dp18 : ℕ) → (dp19 : ℕ) → (dp20 : ℕ) → (dp21 : ℕ) → (dp22 : ℕ) → (dp23 : ℕ) → (dp24 : ℕ) → (dp25 : ℕ) → (dp26 : ℕ) → (dp27 : ℕ) → (dp28 : ℕ) → DecPart
 data BitProof : Type where
@@ -95,6 +99,16 @@ data Sharings : Type where
 data Prods : Type where
   noProd : Prods
   prodCons : (prPart : DecPart) → (prC1 : W8) → (prSubs : W16) → (prRest : Prods) → Prods
+-- The proof words of q_ivc_verify (S11 H5, Q-S11-23): noWord is first, so
+-- its tag is 0.
+data Words : Type where
+  noWord : Words
+  wordCons : (wHead : ℕ) → (wRest : Words) → Words
+-- The z0 and zk pairs of the ivc_verify export (S11 H5-c, Q-S11-28 (a)): a
+-- list, since an export takes no bare W20; noIvcZ is first, so its tag is 0.
+data IvcZ : Type where
+  noIvcZ : IvcZ
+  ivcZ : (zA : W20) → (zB : W20) → (zRest : IvcZ) → IvcZ
 -- The type stack of the amend check (H5b, R-E16): the depth, 1 when a step
 -- is ill-typed, then at most 4 code pairs (a, b), the top first.
 data Frag : Type where

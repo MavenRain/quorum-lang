@@ -250,3 +250,47 @@ amendForm : ℕ → ℕ → ℕ
 amendForm q last = flagIf (natEq last 2) (flagIf (natLe 2 q) (flagIf (natEq q 13) 5 (amendCore q)) 5) 5
 amend_accept : Stack → ℕ
 amend_accept s = (λ (c : ℕ) → flagIf (natEq c 0) (amendForm (amendState s) (amendLast s)) c) (amendTyped (amendFrag s))
+
+-- S11 H5-c: the IVC export (Q-S11-28 (a)). The 8 ℕ of the public key are
+-- entry parameters as in cert_verify; z0 and zk come in one IvcZ cell of
+-- domain/domain.lang, since an export takes at most 16 parameters and no bare
+-- W20. The head cell gives the result; an empty IvcZ gives 1 (IVC_BAD_READ).
+ivc_verify : ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → ℕ → IvcZ → Words → ℕ
+ivc_verify c x0 x1 x2 x3 y0 y1 y2 y3 k z p = fold 1 (λ (a : W20) (b : W20) (acc : ℕ) → q_ivc_verify c (w8 x0 x1 x2 x3 y0 y1 y2 y3) a b k p) z
+
+-- A copy of the IVC record of examples/denote.lang:130-137 (Q-S11-21 (b)).
+record IVC (State : Type) (genesis : State) (Move : State → State → Type) (Valid : State → Type) : Type₁ where
+  ProofI : State → Type
+  verifyI : (σ : State) → ProofI σ → Bool
+  start : ProofI genesis
+  extend : (σ : State) → (τ : State) → ProofI σ → Move σ τ → ProofI τ
+  start✓ : verifyI genesis start ≡ true
+  extend✓ : (σ : State) → (τ : State) → (π : ProofI σ) → (s : Move σ τ) → verifyI σ π ≡ true → verifyI τ (extend σ τ π s) ≡ true
+  ⟦_⟧ᴵ : (σ : State) → (π : ProofI σ) → verifyI σ π ≡ true → Valid σ
+
+-- The replica IVC instance (Q-S11-21 (b), Q-S11-29 (a)). A program cannot
+-- declare data (rule R2), thus the state, the move and the proof are Σ pairs:
+-- the state is (z, count), a move is (body, cert) of one step and ProofI σ =
+-- (handle, Words) (Q-S11-20 (b), Q-S11-26 (a)); start gives (h, noWord).
+-- noWord is the zero-step proof: verify checks count 0, z0 = zk and PK
+-- binding without a circuit setup. A positive count needs compressed words.
+-- start✓ and extend✓ are parameters, ⟦_⟧ᴵ is an assumption (Q-S11-5 (a)).
+-- The 1854 words of the held compressed bytes (F_t), word 0 first, as 18
+-- blocks of 103 words: one elim over 1854 nests deeper than 2000 levels
+-- (EVAL_DEPTH) in the check of ivcInst. ivcBlock h j r = the words j to
+-- j + 102, then r.
+ivcBlock : ℕ → ℕ → Words → Words
+ivcBlock h j r = elim (λ (k : ℕ) → Words → Words) (λ (a : Words) → a) (λ (k : ℕ) (ih : Words → Words) (a : Words) → ih (wordCons (q_ivc_word h (natAdd j k)) a)) 103 r
+ivcWords : ℕ → Words
+ivcWords h = elim (λ (k : ℕ) → Words → Words) (λ (a : Words) → a) (λ (k : ℕ) (ih : Words → Words) (a : Words) → ih (ivcBlock h (elim (λ (i : ℕ) → ℕ) 0 (λ (i : ℕ) (m : ℕ) → natAdd m 103) k) a)) 18 noWord
+ivcVerifyI : ℕ → W8 → W20 → Σ W20 (λ _ → ℕ) → Σ ℕ (λ _ → Words) → Bool
+ivcVerifyI c pk z0 σ π = elim (λ (k : ℕ) → Bool) true (λ (k : ℕ) (r : Bool) → false) (q_ivc_verify c pk z0 (fst σ) (snd σ) (snd π))
+ivcStart : ℕ → W8 → W4 → W20 → Σ ℕ (λ _ → Words)
+ivcStart c pk hd z0 = q_ivc_start c pk hd z0 , noWord
+-- The proof of a new handle: the handle and its words (one import 14 call).
+ivcPair : ℕ → Σ ℕ (λ _ → Words)
+ivcPair h = h , ivcWords h
+ivcExtend : Σ W20 (λ _ → ℕ) → Σ W20 (λ _ → ℕ) → Σ ℕ (λ _ → Words) → Σ W4 (λ _ → W12) → Σ ℕ (λ _ → Words)
+ivcExtend σ τ π s = ivcPair (q_ivc_extend (fst π) (fst s) (snd s))
+ivcInst : (c : ℕ) → (pk : W8) → (hd : W4) → (z0 : W20) → (Valid : Σ W20 (λ _ → ℕ) → Type) → ivcVerifyI c pk z0 (z0 , 0) (ivcStart c pk hd z0) ≡ true → ((σ : Σ W20 (λ _ → ℕ)) → (τ : Σ W20 (λ _ → ℕ)) → (π : Σ ℕ (λ _ → Words)) → (s : Σ W4 (λ _ → W12)) → ivcVerifyI c pk z0 σ π ≡ true → ivcVerifyI c pk z0 τ (ivcExtend σ τ π s) ≡ true) → ((σ : Σ W20 (λ _ → ℕ)) → (π : Σ ℕ (λ _ → Words)) → ivcVerifyI c pk z0 σ π ≡ true → Valid σ) → IVC (Σ W20 (λ _ → ℕ)) (z0 , 0) (λ (σ : Σ W20 (λ _ → ℕ)) (τ : Σ W20 (λ _ → ℕ)) → Σ W4 (λ _ → W12)) Valid
+ivcInst c pk hd z0 Valid st ex den = (λ (σ : Σ W20 (λ _ → ℕ)) → Σ ℕ (λ _ → Words)) , ivcVerifyI c pk z0 , ivcStart c pk hd z0 , ivcExtend , st , ex , den

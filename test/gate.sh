@@ -691,6 +691,41 @@ while read -r row want text; do
     "accept 0") accepted=$((accepted + 1)) ;;
   esac
 done < test/replica/amend.txt
+# The IVC verify route (H5, Q-S11-22 (a)). build/replicatool ivcrows
+# test/ivc/ft writes the 12 lines of test/replica/ivc.txt: ROW ENTRY WANT C
+# X0 .. Y3 COUNT Z P (Z and P are list texts). build/replicatool ivc gives
+# WANT for each line, with one F_t setup for the 12 lines, and then the
+# round trip. langc eval gives WANT for lines 1 to 5: the 4 good proofs and
+# the negative case (proof-3 with the zk of proof-10), and lines 8 to 12:
+# genesis for c = 0 and c = 1, different zk, different PK, and a nonempty
+# proof. One compressed-proof langc eval takes about 215 s. Lines 6 and 7
+# (a bad proof byte, c = 2) are replicatool only.
+build/replicatool ivcrows test/ivc/ft > "$tmp/ivc.txt" 2>&1 || true
+cmp -s "$tmp/ivc.txt" test/replica/ivc.txt ||
+  { echo "FAIL replica ivc: build/replicatool ivcrows is not test/replica/ivc.txt"; fail=$((fail + 1)); }
+build/replicatool ivc test/replica/ivc.txt test/ivc/ft > "$tmp/ivc.log" 2>&1 ||
+  { echo "FAIL replica ivc: build/replicatool ivc is not exit 0 (a row or the round trip)"; fail=$((fail + 1)); }
+ivcs=0
+ievals=0
+ivc_bad=0
+while read -r row entry want ic x0 x1 x2 x3 y0 y1 y2 y3 icount iz ip; do
+  ivcs=$((ivcs + 1))
+  a=$want
+  case "$ivcs" in
+    1 | 2 | 3 | 4 | 5 | 8 | 9 | 10 | 11 | 12)
+      a=$(build/langc eval replica/replica.lang "$entry" "$ic" "$x0" "$x1" "$x2" "$x3" "$y0" "$y1" "$y2" "$y3" "$icount" "$iz" "$ip" < /dev/null 2>&1) || true
+      ievals=$((ievals + 1))
+      ;;
+  esac
+  b=$(awk -v r="$ivcs:" '$1 == "row" && $2 == r { sub(/,$/, "", $4); print $4 }' "$tmp/ivc.log")
+  if [ "$a" != "$want" ] || [ "$b" != "$want" ]; then
+    echo "FAIL replica ivc $row $ivcs: want $want, langc eval $a, replicatool $b"
+    ivc_bad=$((ivc_bad + 1))
+    fail=$((fail + 1))
+  fi
+done < test/replica/ivc.txt
+[ "$ivcs" = 12 ] || { echo "FAIL replica ivc: $ivcs lines, want 12"; fail=$((fail + 1)); }
+[ "$ievals" = 10 ] || { echo "FAIL replica ivc: $ievals langc eval rows, want 10"; fail=$((fail + 1)); }
 [ "$replicas" = 25 ] || { echo "FAIL replica: $replicas lines, want 25"; fail=$((fail + 1)); }
 [ "$tip" = 4 ] || { echo "FAIL replica history: tip $tip, want 4"; fail=$((fail + 1)); }
 [ "$mrows $mtip" = "3 4" ] || { echo "FAIL replica merge: $mrows rows, tip $mtip, want 3 rows, tip 4"; fail=$((fail + 1)); }
@@ -713,6 +748,7 @@ echo "replica mpc: $mpcs cases ($mevals by langc eval), $mpc_bad mismatches"
 echo "replica decide: $decides cases, $decide_bad mismatches"
 echo "replica accept: $accepted of 1"
 echo "replica refusals: $refused of 11"
+echo "replica ivc: $ivcs cases ($ievals by langc eval), $ivc_bad mismatches"
 rm -rf "$tmp"
 
 # design/DESIGN.md is verbatim and can hold a dash (as bridge-lang, ruling 2026-10-09).

@@ -55,6 +55,22 @@ u64 w2c_q_q_mpc_open(struct w2c_q *q, u64 out, u64 d, u64 s, u64 n) {
   (void)q; (void)out; (void)d; (void)s; (void)n;
   return 0;
 }
+u64 w2c_q_q_ivc_verify(struct w2c_q *q, u64 c, u64 pk, u64 z0, u64 zk, u64 count, u64 proof) {
+  (void)q; (void)c; (void)pk; (void)z0; (void)zk; (void)count; (void)proof;
+  return 0;
+}
+u64 w2c_q_q_ivc_start(struct w2c_q *q, u64 c, u64 pk, u64 head, u64 z0) {
+  (void)q; (void)c; (void)pk; (void)head; (void)z0;
+  return 0;
+}
+u64 w2c_q_q_ivc_extend(struct w2c_q *q, u64 h, u64 body, u64 cert) {
+  (void)q; (void)h; (void)body; (void)cert;
+  return 0;
+}
+u64 w2c_q_q_ivc_word(struct w2c_q *q, u64 h, u64 k) {
+  (void)q; (void)h; (void)k;
+  return 0;
+}
 
 typedef u64 (*EntryFn)(w2c_hostflags *, u64);
 
@@ -71,7 +87,9 @@ int main(void) {
       w2c_hostflags_partsFlag, w2c_hostflags_keysFlag, w2c_hostflags_scalarFlag,
       w2c_hostflags_mpcCheckFlag, w2c_hostflags_mpcAddFlag, w2c_hostflags_mpcAffineFlag,
       w2c_hostflags_prodPartFlag, w2c_hostflags_prodC1Flag, w2c_hostflags_prodSubsFlag,
-      w2c_hostflags_mpcMulFlag, w2c_hostflags_mpcOpenFlag};
+      w2c_hostflags_mpcMulFlag, w2c_hostflags_mpcOpenFlag, w2c_hostflags_ivcFlag,
+      w2c_hostflags_ivcWordFlag, w2c_hostflags_ivcStartFlag, w2c_hostflags_ivcExtendFlag,
+      w2c_hostflags_ivcWordKFlag};
   w2c_hostflags inst;
   struct w2c_q q = {0};
   unsigned i;

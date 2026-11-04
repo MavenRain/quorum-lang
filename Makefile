@@ -7,7 +7,7 @@ FRONT = src/front/base.c src/front/lexer.c src/front/parser.c src/front/front.c 
 TARGET = src/wasm.c
 SRC = src/main.c src/front/basenames.c $(FRONT) $(TARGET)
 FRONT_TOOL = test/fronttool.c $(filter-out src/front/front.c src/front/lower.c,$(FRONT)) $(CRYPTO)
-CRYPTO = src/crypto/keccak.c src/crypto/u256.c src/crypto/bn254.c src/crypto/elgamal.c src/crypto/threshold.c src/crypto/sigma.c src/crypto/dkg.c src/crypto/sha256.c src/crypto/xmd.c src/crypto/secp256k1.c src/crypto/frost.c src/crypto/bgw.c src/crypto/secq256k1.c src/crypto/poseidon.c src/crypto/gens.c src/crypto/msm.c src/crypto/r1cs.c src/crypto/poseidongadget.c src/crypto/sha256gadget.c src/crypto/ec7gadget.c src/crypto/stepgadget.c src/crypto/nova.c src/crypto/novagadget.c src/crypto/novaivc.c src/crypto/ipa.c src/crypto/spartan.c src/crypto/novacomp.c
+CRYPTO = src/crypto/keccak.c src/crypto/u256.c src/crypto/bn254.c src/crypto/elgamal.c src/crypto/threshold.c src/crypto/sigma.c src/crypto/dkg.c src/crypto/sha256.c src/crypto/xmd.c src/crypto/secp256k1.c src/crypto/frost.c src/crypto/bgw.c src/crypto/secq256k1.c src/crypto/poseidon.c src/crypto/gens.c src/crypto/msm.c src/crypto/r1cs.c src/crypto/poseidongadget.c src/crypto/sha256gadget.c src/crypto/ec7gadget.c src/crypto/stepgadget.c src/crypto/nova.c src/crypto/novagadget.c src/crypto/novaivc.c src/crypto/ipa.c src/crypto/spartan.c src/crypto/novacomp.c src/crypto/ivchost.c
 TALLY_TOOL = test/tallytool.c $(CRYPTO)
 FROST_TOOL = test/frosttool.c $(CRYPTO)
 MPC_TOOL = test/mpctool.c $(CRYPTO)
@@ -91,7 +91,7 @@ build/ivccrypto: $(IVC_TOOL) $(HEADERS) test/ivcvectors.h
 	mkdir -p build
 	$(TCC) $(CFLAGS) -o build/ivccrypto $(IVC_TOOL)
 
-build/ivcr1cs: $(R1CS_TOOL) $(HEADERS) test/stepcase.h
+build/ivcr1cs: $(R1CS_TOOL) $(HEADERS) src/crypto/stepcase.h
 	mkdir -p build
 	$(TCC) $(CFLAGS) -o build/ivcr1cs $(R1CS_TOOL)
 
@@ -99,7 +99,7 @@ build/ivcr1cs: $(R1CS_TOOL) $(HEADERS) test/stepcase.h
 # The run takes about 72 minutes with TCC. This time is from a run with
 # the mutant runs of build/ivcr1cs in parallel. Thus build/ivch4 is not
 # in build or in check: `make ivc-h4` builds and runs it.
-build/ivch4: $(H4_TOOL) $(HEADERS) test/stepcase.h
+build/ivch4: $(H4_TOOL) $(HEADERS) src/crypto/stepcase.h
 	mkdir -p build
 	$(TCC) $(CFLAGS) -o build/ivch4 $(H4_TOOL)
 
@@ -113,7 +113,7 @@ ivc-h4: build/ivch4
 # ivc-check (below, called by check) calls ivc-tool-check.
 # The target passes only on rc 0 and the last line
 # `ivc tool: 12 rows, 0 mismatches`.
-build/ivctool: $(IVC_FIXTURE_TOOL) $(HEADERS) test/stepcase.h
+build/ivctool: $(IVC_FIXTURE_TOOL) $(HEADERS) src/crypto/stepcase.h
 	mkdir -p build
 	$(TCC) $(CFLAGS) -o build/ivctool $(IVC_FIXTURE_TOOL)
 

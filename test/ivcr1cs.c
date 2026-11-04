@@ -24,7 +24,7 @@
 #include "crypto/spartan.h"
 #include "crypto/stepgadget.h"
 
-#include "stepcase.h"
+#include "crypto/stepcase.h"
 
 /* The SHA-256 rows need the most storage: 27001 variables, 27184 rows
    and 156584 terms (the row `sha256 sizes`). */

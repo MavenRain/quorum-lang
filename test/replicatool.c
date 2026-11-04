@@ -1,8 +1,9 @@
 /* The replica host of S8 (O104, O105). It runs build/replica.wasm through
-   the wasm2c translation build/replica.c, and it gives the 12 imports of
+   the wasm2c translation build/replica.c, and it gives the 16 imports of
    module "q". q_hash2 (H2b) and q_frost_verify (H3) have a body, H5a
-   gives 4 more imports a body (R-E12), and S10 H3c gives the 6 imports
-   q_mpc_check to q_mpc_open a body (bgw.h).
+   gives 4 more imports a body (R-E12), S10 H3c gives the 6 imports
+   q_mpc_check to q_mpc_open a body (bgw.h), and S11 H5 gives the 4
+   imports q_ivc_verify to q_ivc_word a body (ivchost.h).
 
    Usage: replicatool hash X. It prints the 4 words of
    q_hash2 (w4 X X X X) (w4 X X X X) (the entries hash0 to hash3 of
@@ -10,7 +11,8 @@
    replicatool stack X1 ... XN: see run_stack. replicatool chain ENTRY X0 ..
    Y3 PRE (H3), or S PRE, or PREA PREB (H4): see run_chain. replicatool
    tally ENTRY X0 .. Y3 B P K (H5a): see run_tally. replicatool amend
-   TEXT (H5b): see run_amend. */
+   TEXT (H5b): see run_amend. replicatool ivcrows DIR and ivc FILE DIR
+   (S11 H5-d): see run_ivc_rows and run_ivc. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +20,7 @@
 #include "crypto/bgw.h"
 #include "crypto/elgamal.h"
 #include "crypto/frost.h"
+#include "crypto/ivchost.h"
 #include "crypto/sha256.h"
 #include "crypto/sigma.h"
 #include "crypto/threshold.h"
@@ -123,6 +126,67 @@ static u64 rec_tag(const struct w2c_q *q, u64 a) {
   u64 w;
   memcpy(&w, q->mem->data + a, sizeof w);
   return w;
+}
+
+/* q_ivc_verify (S11 H5, Q-S11-23): the IvcVerdict code of the proof
+   PROOF (a Words list: tag 1, field 0 a ℕ word, field 1 the rest; tag 0
+   nil) for the circuit C, the key PK (a W8), the states Z0 and ZK (each a
+   W20) and COUNT. A record or a cell that does not fit, or a list of more
+   than 2079 cells, gives IVC_BAD_READ (as eval.c). */
+u64 w2c_q_q_ivc_verify(struct w2c_q *q, u64 c, u64 pk, u64 z0, u64 zk, u64 count, u64 proof) {
+  static unsigned char words[8u * 2079u];
+  unsigned char pk_xy[IVC_HOST_PK_BYTES];
+  unsigned char z0_bytes[IVC_HOST_Z_BYTES];
+  unsigned char zk_bytes[IVC_HOST_Z_BYTES];
+  size_t have = 0;
+  unsigned i;
+  u64 w;
+  int more;
+  if (!rec_fits(q, pk, 8u) || !rec_fits(q, z0, 20u) || !rec_fits(q, zk, 20u))
+    return (u64)IVC_BAD_READ;
+  rec_bytes(q, pk, 8u, pk_xy);
+  rec_bytes(q, z0, 20u, z0_bytes);
+  rec_bytes(q, zk, 20u, zk_bytes);
+  more = rec_fits(q, proof, 2u) && rec_tag(q, proof) == 1u;
+  for (; more && have < 2079u; have++) {
+    w = rec_word(q, proof, 0u);
+    for (i = 0; i < 8u; i++) words[8u * have + i] = (unsigned char)(w >> (56u - 8u * i));
+    proof = rec_word(q, proof, 1u);
+    more = rec_fits(q, proof, 2u) && rec_tag(q, proof) == 1u;
+  }
+  if (more || !rec_fits(q, proof, 0u) || rec_tag(q, proof) != 0u)
+    return (u64)IVC_BAD_READ;
+  return (u64)ivc_host_verify_bytes(c, words, have, z0_bytes, zk_bytes, count, pk_xy);
+}
+
+/* q_ivc_start (13), q_ivc_extend (14) and q_ivc_word (15) (S11 H5,
+   Q-S11-26 (a)): the F_t prover of ivchost.c. The records are read as the
+   W8 PK of q_ivc_verify. A record that does not fit gives IVC_HOST_BAD_READ. */
+u64 w2c_q_q_ivc_start(struct w2c_q *q, u64 c, u64 pk, u64 head, u64 z0) {
+  unsigned char pk_xy[IVC_HOST_PK_BYTES];
+  unsigned char head_bytes[32];
+  unsigned char z0_bytes[IVC_HOST_Z_BYTES];
+  if (!rec_fits(q, pk, 8u) || !rec_fits(q, head, 4u) || !rec_fits(q, z0, 20u))
+    return (u64)IVC_HOST_BAD_READ;
+  rec_bytes(q, pk, 8u, pk_xy);
+  rec_bytes(q, head, 4u, head_bytes);
+  rec_bytes(q, z0, 20u, z0_bytes);
+  return (u64)ivc_host_start(c, pk_xy, head_bytes, z0_bytes);
+}
+
+u64 w2c_q_q_ivc_extend(struct w2c_q *q, u64 h, u64 body, u64 cert) {
+  unsigned char body_bytes[32];
+  unsigned char cert_bytes[96];
+  if (!rec_fits(q, body, 4u) || !rec_fits(q, cert, 12u))
+    return (u64)IVC_HOST_BAD_READ;
+  rec_bytes(q, body, 4u, body_bytes);
+  rec_bytes(q, cert, 12u, cert_bytes);
+  return (u64)ivc_host_extend(h, body_bytes, cert_bytes);
+}
+
+u64 w2c_q_q_ivc_word(struct w2c_q *q, u64 h, u64 k) {
+  (void)q;
+  return (u64)ivc_host_word(h, k);
 }
 
 /* q_ballot_verify: the SigResult code of the bit proof PROOF (a BitProof)
@@ -798,6 +862,383 @@ static int run_amend(int argc, char **argv) {
   return 0;
 }
 
+/* S11 H5-d (Q-S11-30 to Q-S11-33): the 7 ivc_verify rows of
+   test/replica/ivc.txt and the live round trip. A row is `ROW ivc_verify
+   WANT C X0 X1 X2 X3 Y0 Y1 Y2 Y3 K Z P` (single spaces, decimal words): X0
+   to Y3 are the 64 PK bytes as 8 words, Z is the eval text of an IvcZ cell
+   (1,0,A0,...,A19,0,B0,...,B19,0: z0, then zk) and P is the eval text of the
+   Words of the proof bytes (1,W0,...,1,WN,0). Word K is the bytes 8K to
+   8K + 7, big endian, pad 0. */
+#define IVC_ROW_COUNT 12u
+#define IVC_ROW_GROUPS 4u
+#define IVC_ROW_WORDS 1854u
+#define IVC_ROW_CELLS 2079u
+#define IVC_ROW_PROOF 14825u
+#define IVC_ROW_LINE 65536u
+#define IVC_ROW_ROOM 65536u
+#define IVC_ROW_PATH 4096u
+
+/* The data of DIR/chain.txt for the rows and the round trip: the chain PK,
+   the body and the cert of step 1, and for the proofs 1, 3, 10 and 100 the
+   z0, the zk, the count and the PK. */
+typedef struct {
+  unsigned char pk[IVC_HOST_PK_BYTES];
+  unsigned char body[32];
+  unsigned char cert[96];
+  unsigned char z0[IVC_ROW_GROUPS][IVC_HOST_Z_BYTES];
+  unsigned char zk[IVC_ROW_GROUPS][IVC_HOST_Z_BYTES];
+  unsigned char gpk[IVC_ROW_GROUPS][IVC_HOST_PK_BYTES];
+  u64 count[IVC_ROW_GROUPS];
+} IvcChain;
+
+/* One row: WANT, the 10 entry words C, X0 .. Y3 and K, the 40 words of Z
+   (z0, then zk) and the N words of P. */
+typedef struct {
+  u64 want;
+  u64 arg[10];
+  u64 z[40];
+  u64 p[IVC_ROW_CELLS];
+  unsigned n;
+} IvcRow;
+
+static const u64 IVC_ROW_N[IVC_ROW_GROUPS] = {1u, 3u, 10u, 100u};
+
+/* Read one line of F into BUF without its newline: 1, or 0 at the end of F,
+   or -1 for a line without a newline (a line longer than CAP - 2 bytes, a
+   NUL byte or no newline at the end of F). */
+static int ivcrow_line(FILE *f, char *buf, size_t cap) {
+  size_t n;
+  if (fgets(buf, (int)cap, f) == NULL) return 0;
+  n = strlen(buf);
+  if (n == 0u || buf[n - 1u] != '\n') return -1;
+  buf[n - 1u] = '\0';
+  return 1;
+}
+
+static int ivcrow_get(FILE *f, char *buf, size_t cap) {
+  return ivcrow_line(f, buf, cap) == 1;
+}
+
+static int ivcrow_nib(char c) {
+  return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+}
+
+/* The N bytes of the 2N lower-case hex digits at P. */
+static int ivcrow_hex(const char *p, unsigned char *out, size_t n) {
+  size_t i;
+  int hi;
+  int lo;
+  for (i = 0; i < n; i++) {
+    hi = ivcrow_nib(p[2u * i]);
+    lo = hi < 0 ? -1 : ivcrow_nib(p[2u * i + 1u]);
+    if (lo < 0) return 0;
+    out[i] = (unsigned char)(hi << 4 | lo);
+  }
+  return 1;
+}
+
+/* LINE is NAME, then exactly 2N hex digits. */
+static int ivcrow_field(const char *line, const char *name, unsigned char *out, size_t n) {
+  size_t k = strlen(name);
+  return strncmp(line, name, k) == 0 && ivcrow_hex(line + k, out, n) && line[k + 2u * n] == '\0';
+}
+
+/* The 5 lines of proof group G: `proof N PATH 14825`, z0, zk, count, pk. */
+static int ivcrow_group(FILE *f, char *line, size_t cap, IvcChain *ch, unsigned g) {
+  const char *p = line + 6;
+  size_t len;
+  u64 n;
+  if (!ivcrow_get(f, line, cap) || strncmp(line, "proof ", 6) != 0 || !decimal_word(&p, &n) || n != IVC_ROW_N[g])
+    return 0;
+  len = strlen(line);
+  return *p == ' ' && len >= 6u && strcmp(line + len - 6u, " 14825") == 0 && ivcrow_get(f, line, cap)
+         && ivcrow_field(line, "z0 ", ch->z0[g], IVC_HOST_Z_BYTES) && ivcrow_get(f, line, cap)
+         && ivcrow_field(line, "zk ", ch->zk[g], IVC_HOST_Z_BYTES) && ivcrow_get(f, line, cap)
+         && strncmp(line, "count ", 6) == 0 && number(line + 6, &ch->count[g]) && ivcrow_get(f, line, cap)
+         && ivcrow_field(line, "pk ", ch->gpk[g], IVC_HOST_PK_BYTES);
+}
+
+/* DIR/chain.txt (Q-S11-31 (a)): circuit ft, seed 0, steps 100, the PK, the
+   100 steps, then the 4 proof groups (1, 3, 10, 100) and nothing after. */
+static int ivcrow_chain(const char *dir, IvcChain *ch) {
+  static char line[1024];
+  char path[IVC_ROW_PATH];
+  FILE *f;
+  unsigned i;
+  int n = snprintf(path, sizeof path, "%s/chain.txt", dir);
+  int ok;
+  f = n < 0 || (size_t)n >= sizeof path ? NULL : fopen(path, "rb");
+  if (f == NULL) return 0;
+  ok = ivcrow_get(f, line, sizeof line) && strcmp(line, "circuit ft") == 0 && ivcrow_get(f, line, sizeof line)
+       && strcmp(line, "seed 0") == 0 && ivcrow_get(f, line, sizeof line) && strcmp(line, "steps 100") == 0
+       && ivcrow_get(f, line, sizeof line) && ivcrow_field(line, "pk ", ch->pk, IVC_HOST_PK_BYTES)
+       && ivcrow_get(f, line, sizeof line) && strncmp(line, "step 1 body ", 12) == 0
+       && ivcrow_hex(line + 12, ch->body, 32u) && ivcrow_field(line + 76, " cert ", ch->cert, 96u);
+  for (i = 2; ok && i <= 100u; i++) ok = ivcrow_get(f, line, sizeof line);
+  for (i = 0; ok && i < IVC_ROW_GROUPS; i++) ok = ivcrow_group(f, line, sizeof line, ch, i);
+  ok = ok && fgetc(f) == EOF;
+  fclose(f);
+  return ok;
+}
+
+/* The IVC_ROW_PROOF bytes of DIR/NAME. A shorter or a longer file gives 0. */
+static int ivcrow_bin(const char *dir, const char *name, unsigned char out[IVC_ROW_PROOF]) {
+  char path[IVC_ROW_PATH];
+  FILE *f;
+  int n = snprintf(path, sizeof path, "%s/%s", dir, name);
+  int ok;
+  f = n < 0 || (size_t)n >= sizeof path ? NULL : fopen(path, "rb");
+  if (f == NULL) return 0;
+  ok = fread(out, 1u, IVC_ROW_PROOF, f) == IVC_ROW_PROOF && fgetc(f) == EOF;
+  fclose(f);
+  return ok;
+}
+
+/* Word K of the LEN bytes B: the bytes 8K to 8K + 7, big endian, pad 0. */
+static u64 ivcrow_be(const unsigned char *b, size_t k, size_t len) {
+  u64 w = 0;
+  size_t i;
+  for (i = 0; i < 8u; i++) w = w << 8 | (8u * k + i < len ? (u64)b[8u * k + i] : 0u);
+  return w;
+}
+
+/* Print one row: WANT, C, the 8 words of PK, COUNT, Z and P. */
+static void ivcrow_print(u64 want, u64 c, const unsigned char *pk, u64 count, const unsigned char *z0,
+                         const unsigned char *zk, const unsigned char *proof, unsigned proof_words) {
+  unsigned k;
+  printf("ROW ivc_verify %llu %llu", (unsigned long long)want, (unsigned long long)c);
+  for (k = 0; k < 8u; k++) printf(" %llu", (unsigned long long)ivcrow_be(pk, k, IVC_HOST_PK_BYTES));
+  printf(" %llu 1,0", (unsigned long long)count);
+  for (k = 0; k < 20u; k++) printf(",%llu", (unsigned long long)ivcrow_be(z0, k, IVC_HOST_Z_BYTES));
+  printf(",0");
+  for (k = 0; k < 20u; k++) printf(",%llu", (unsigned long long)ivcrow_be(zk, k, IVC_HOST_Z_BYTES));
+  printf(",0 ");
+  for (k = 0; k < proof_words; k++) printf("1,%llu,", (unsigned long long)ivcrow_be(proof, k, IVC_ROW_PROOF));
+  printf("0\n");
+}
+
+/* `ivcrows DIR` (Q-S11-31 (a), no crypto): the 12 rows from DIR/chain.txt and
+   the .bin files of DIR. ivc1, ivc3, ivc10 and ivc100 (WANT 0); ivcneg (the
+   proof-3 bytes and the zk of proof-10, WANT 3); ivcbad (refusal-5.bin and
+   the proof-10 public input, WANT 4, Q-S11-30 (a)); ivcc2 (circuit 2 and the
+   proof-1 data, WANT 5); genesis for circuits 0 and 1 (WANT 0); genesis
+   with a different zk or PK (WANT 3); genesis with one proof word (WANT 1). */
+static int run_ivc_rows(int argc, char **argv) {
+  static IvcChain ch;
+  static unsigned char bin[IVC_ROW_GROUPS + 1u][IVC_ROW_PROOF];
+  static const unsigned char zero_word[8] = {0};
+  unsigned char bad_pk[IVC_HOST_PK_BYTES];
+  static const char *const names[IVC_ROW_GROUPS + 1u] = {"proof-1.bin", "proof-3.bin", "proof-10.bin",
+                                                          "proof-100.bin", "refusal-5.bin"};
+  unsigned g;
+  int ok;
+  if (argc != 3) {
+    fputs("usage: replicatool ivcrows DIR\n", stderr);
+    return 2;
+  }
+  ok = ivcrow_chain(argv[2], &ch);
+  for (g = 0; ok && g <= IVC_ROW_GROUPS; g++) ok = ivcrow_bin(argv[2], names[g], bin[g]);
+  if (!ok) {
+    fprintf(stderr, "replicatool: %s is not an ivc fixture directory\n", argv[2]);
+    return 1;
+  }
+  for (g = 0; g < IVC_ROW_GROUPS; g++)
+    ivcrow_print(0u, 0u, ch.gpk[g], ch.count[g], ch.z0[g], ch.zk[g], bin[g], IVC_ROW_WORDS);
+  ivcrow_print((u64)IVC_BAD_PUBLIC, 0u, ch.gpk[1], ch.count[1], ch.z0[1], ch.zk[2], bin[1], IVC_ROW_WORDS);
+  ivcrow_print((u64)IVC_BAD_PROOF, 0u, ch.gpk[2], ch.count[2], ch.z0[2], ch.zk[2], bin[4], IVC_ROW_WORDS);
+  ivcrow_print((u64)IVC_BAD_CIRCUIT, 2u, ch.gpk[0], ch.count[0], ch.z0[0], ch.zk[0], bin[0], IVC_ROW_WORDS);
+  ivcrow_print((u64)IVC_OK, 0u, ch.pk, 0u, ch.z0[0], ch.z0[0], NULL, 0u);
+  ivcrow_print((u64)IVC_OK, 1u, ch.pk, 0u, ch.z0[0], ch.z0[0], NULL, 0u);
+  ivcrow_print((u64)IVC_BAD_PUBLIC, 0u, ch.pk, 0u, ch.z0[0], ch.zk[0], NULL, 0u);
+  memcpy(bad_pk, ch.pk, sizeof bad_pk);
+  bad_pk[IVC_HOST_PK_BYTES - 1u] ^= 1u;
+  ivcrow_print((u64)IVC_BAD_PUBLIC, 0u, bad_pk, 0u, ch.z0[0], ch.z0[0], NULL, 0u);
+  ivcrow_print((u64)IVC_BAD_READ, 0u, ch.pk, 0u, ch.z0[0], ch.z0[0], zero_word, 1u);
+  return 0;
+}
+
+/* SEP, then a decimal word, at *S. */
+static int ivcrow_word(const char **s, char sep, u64 *out) {
+  if (**s != sep) return 0;
+  ++*s;
+  return decimal_word(s, out);
+}
+
+static int ivcrow_tag(const char **s, char sep, u64 tag) {
+  u64 w;
+  return ivcrow_word(s, sep, &w) && w == tag;
+}
+
+/* One row in the format above. P has at most IVC_ROW_CELLS words (as
+   q_ivc_verify). */
+static int ivcrow_parse(const char *s, IvcRow *r) {
+  unsigned k;
+  u64 tag = 0;
+  int ok = strncmp(s, "ROW ivc_verify", 14) == 0;
+  s += ok ? 14 : 0;
+  ok = ok && ivcrow_word(&s, ' ', &r->want);
+  for (k = 0; ok && k < 10u; k++) ok = ivcrow_word(&s, ' ', &r->arg[k]);
+  ok = ok && ivcrow_tag(&s, ' ', 1u) && ivcrow_tag(&s, ',', 0u);
+  for (k = 0; ok && k < 20u; k++) ok = ivcrow_word(&s, ',', &r->z[k]);
+  ok = ok && ivcrow_tag(&s, ',', 0u);
+  for (k = 20; ok && k < 40u; k++) ok = ivcrow_word(&s, ',', &r->z[k]);
+  ok = ok && ivcrow_tag(&s, ',', 0u) && ivcrow_word(&s, ' ', &tag);
+  for (r->n = 0; ok && tag == 1u && r->n < IVC_ROW_CELLS; r->n++)
+    ok = ivcrow_word(&s, ',', &r->p[r->n]) && ivcrow_word(&s, ',', &tag);
+  return ok && tag == 0u && *s == '\0';
+}
+
+/* ROW on a fresh instance: the 2 W20 blocks and the ivcZ cell of Z, then a
+   wordCons cell for each word of P (noIvcZ and noWord are the nil at 0),
+   below heap_base, with IVC_ROW_ROOM bytes above it. It gives the result of
+   the export ivc_verify, or UINT64_MAX when the memory does not grow. */
+static u64 ivcrow_run(const IvcRow *r) {
+  w2c_replica inst;
+  struct w2c_q q;
+  wasm_rt_memory_t *mem;
+  u64 need = 8u + 2u * (8u + 16u * 20u) + (8u + 16u * 3u) + (8u + 16u * 2u) * (u64)r->n + IVC_ROW_ROOM;
+  u64 a = 8;
+  u64 cell[3] = {0, 0, 0};
+  u64 z = 0;
+  u64 head = 0;
+  u64 got = UINT64_MAX;
+  unsigned k;
+  memset(&q, 0, sizeof q);
+  wasm2c_replica_instantiate(&inst, &q);
+  q.mem = w2c_replica_memory(&inst);
+  mem = q.mem;
+  if (mem->size < need) (void)wasm_rt_grow_memory(mem, (need - mem->size + 65535u) / 65536u);
+  if (mem->size >= need) {
+    put_word(mem, 0, 0);
+    cell[0] = a;
+    a = put_block(mem, a, 0, r->z, 20u);
+    cell[1] = a;
+    a = put_block(mem, a, 0, r->z + 20, 20u);
+    z = a;
+    a = put_block(mem, a, 1, cell, 3u);
+    for (k = r->n; k > 0u; k--) {
+      cell[0] = r->p[k - 1u];
+      cell[1] = head;
+      head = a;
+      a = put_block(mem, a, 1, cell, 2u);
+    }
+    *w2c_replica_heap_base(&inst) = a;
+    got = w2c_replica_ivc_verify(&inst, r->arg[0], r->arg[1], r->arg[2], r->arg[3], r->arg[4], r->arg[5], r->arg[6],
+                                 r->arg[7], r->arg[8], r->arg[9], z, head);
+  }
+  wasm2c_replica_free(&inst);
+  return got;
+}
+
+/* The live round trip (Q-S11-32 (a)): ivc_host_start (circuit 0, the chain
+   PK, the genesis head, the z0 of proof-1), ivc_host_extend with step 1 of
+   chain.txt, the 1854 held words, then the export ivc_verify with them, the
+   count and the zk of proof-1 (WANT 0). It prints one line and gives the
+   verdict. The held bytes against proof-1.bin are not a check. */
+static u64 ivcrow_trip(const IvcChain *ch, const unsigned char *proof, IvcRow *r) {
+  unsigned char head[32];
+  unsigned char bad_cert[96];
+  unsigned char bad_z0[IVC_HOST_Z_BYTES];
+  u64 h;
+  u64 h2;
+  u64 v;
+  unsigned k;
+  int same = 1;
+  ivc_host_genesis(head);
+  /* The host certificate key and head must be those in the public state. */
+  memcpy(bad_z0, ch->z0[0], sizeof bad_z0);
+  bad_z0[IVC_HOST_Z_BYTES - 1u] ^= 1u;
+  if (ivc_host_start(0u, ch->pk, head, bad_z0) != IVC_HOST_BAD_PUBLIC) {
+    fprintf(stderr, "FAIL ivc start accepts a different public key\n");
+    return IVC_BAD_PUBLIC;
+  }
+  memcpy(bad_z0, ch->z0[0], sizeof bad_z0);
+  bad_z0[31] ^= 1u;
+  if (ivc_host_start(0u, ch->pk, head, bad_z0) != IVC_HOST_BAD_PUBLIC) {
+    fprintf(stderr, "FAIL ivc start accepts a different public head\n");
+    return IVC_BAD_PUBLIC;
+  }
+  /* A refused certificate invalidates the run, including a guessed next
+     generation. It must not leave an extra step available to resume. */
+  h = ivc_host_start(0u, ch->pk, head, ch->z0[0]);
+  if (h < IVC_HOST_HANDLE) return h;
+  memcpy(bad_cert, ch->cert, sizeof bad_cert);
+  bad_cert[0] ^= 1u;
+  if (ivc_host_extend(h, ch->body, bad_cert) != IVC_HOST_CERT_REFUSED ||
+      ivc_host_extend(h + 1u, ch->body, ch->cert) != IVC_HOST_STALE ||
+      ivc_host_word(h + 1u, 0u) != 0u) {
+    fprintf(stderr, "FAIL ivc refused certificate leaves a live run\n");
+    return IVC_BAD_PROOF;
+  }
+  h = ivc_host_start(0u, ch->pk, head, ch->z0[0]);
+  h2 = h >= IVC_HOST_HANDLE ? ivc_host_extend(h, ch->body, ch->cert) : h;
+  r->want = 0u;
+  r->arg[0] = 0u;
+  for (k = 0; k < 8u; k++) r->arg[1u + k] = ivcrow_be(ch->pk, k, IVC_HOST_PK_BYTES);
+  r->arg[9] = ch->count[0];
+  for (k = 0; k < 20u; k++) r->z[k] = ivcrow_be(ch->z0[0], k, IVC_HOST_Z_BYTES);
+  for (k = 0; k < 20u; k++) r->z[20u + k] = ivcrow_be(ch->zk[0], k, IVC_HOST_Z_BYTES);
+  r->n = 0u;
+  if (ivcrow_run(r) != IVC_BAD_READ) {
+    fprintf(stderr, "FAIL ivc nonzero count accepts an empty proof\n");
+    return IVC_BAD_READ;
+  }
+  for (k = 0; k < IVC_ROW_WORDS; k++) r->p[k] = ivc_host_word(h2, k);
+  for (k = 0; k < IVC_ROW_WORDS; k++) same = same && r->p[k] == ivcrow_be(proof, k, IVC_ROW_PROOF);
+  r->n = IVC_ROW_WORDS;
+  v = ivcrow_run(r);
+  printf("ivc round trip: start %llu, extend %llu, %u words, verify %llu (want 0), bytes = proof-1.bin: %s\n",
+         (unsigned long long)h, (unsigned long long)h2, IVC_ROW_WORDS, (unsigned long long)v,
+         same ? "same" : "differ");
+  return v;
+}
+
+/* `ivc FILE DIR` (Q-S11-32 (a)): each row of FILE (the stdout of `ivcrows
+   DIR`) on a fresh instance, one line a row and a summary, then the round
+   trip. The ivc host keeps the F_t setup across them. Exit 0 only if the 12
+   rows match and the round trip gives 0. */
+static int run_ivc(int argc, char **argv) {
+  static char line[IVC_ROW_LINE];
+  static IvcRow row;
+  static IvcChain ch;
+  static unsigned char proof[IVC_ROW_PROOF];
+  FILE *f;
+  unsigned rows = 0;
+  unsigned bad = 0;
+  int st;
+  u64 got;
+  u64 v;
+  if (argc != 4) {
+    fputs("usage: replicatool ivc FILE DIR\n", stderr);
+    return 2;
+  }
+  f = ivcrow_chain(argv[3], &ch) && ivcrow_bin(argv[3], "proof-1.bin", proof) ? fopen(argv[2], "rb") : NULL;
+  if (f == NULL) {
+    fprintf(stderr, "replicatool: cannot read %s or the ivc fixture directory %s\n", argv[2], argv[3]);
+    return 1;
+  }
+  wasm_rt_init();
+  for (st = ivcrow_line(f, line, sizeof line); st == 1 && rows < IVC_ROW_COUNT && ivcrow_parse(line, &row);
+       st = ivcrow_line(f, line, sizeof line)) {
+    got = ivcrow_run(&row);
+    bad += (unsigned)(got != row.want);
+    rows++;
+    printf("row %u: got %llu, want %llu\n", rows, (unsigned long long)got, (unsigned long long)row.want);
+    fflush(stdout);
+  }
+  fclose(f);
+  if (st != 0 || rows != IVC_ROW_COUNT) {
+    fprintf(stderr, "replicatool: line %u of %s is not an ivc row\n", rows + 1u, argv[2]);
+    wasm_rt_free();
+    return 1;
+  }
+  printf("ivc rows: %u cases, %u mismatches\n", rows, bad);
+  fflush(stdout);
+  v = ivcrow_trip(&ch, proof, &row);
+  wasm_rt_free();
+  return bad == 0u && v == 0u ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
   w2c_replica inst;
   struct w2c_q q;
@@ -816,9 +1257,14 @@ int main(int argc, char **argv) {
     return run_mpc(argc, argv);
   if (argc >= 2 && strcmp(argv[1], "decide") == 0)
     return run_decide(argc, argv);
+  if (argc >= 2 && strcmp(argv[1], "ivcrows") == 0)
+    return run_ivc_rows(argc, argv);
+  if (argc >= 2 && strcmp(argv[1], "ivc") == 0)
+    return run_ivc(argc, argv);
   if (argc != 3 || strcmp(argv[1], "hash") != 0) {
     fputs("usage: replicatool hash X | stack X1 ... XN | chain ENTRY X0 .. Y3 [S] PRE [PREB] |\n"
-          "       tally ENTRY X0 .. Y3 B P K | amend TEXT | mpc ENTRY K B P1 P2 P3 OS | decide K C\n",
+          "       tally ENTRY X0 .. Y3 B P K | amend TEXT | mpc ENTRY K B P1 P2 P3 OS | decide K C |\n"
+          "       ivcrows DIR | ivc FILE DIR\n",
           stderr);
     return 2;
   }

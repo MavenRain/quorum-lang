@@ -163,7 +163,11 @@ static const Builtin BUILTINS[] = {
   {"q_mpc_affine", 3, RULE_HOST, OP_HOST, OP_NAT, 8},
   {"q_mpc_mul", 6, RULE_HOST, OP_HOST, OP_NAT, 9},
   {"q_mpc_mulc", 4, RULE_HOST, OP_HOST, OP_NAT, 10},
-  {"q_mpc_open", 3, RULE_HOST, OP_HOST, OP_NAT, 11}
+  {"q_mpc_open", 3, RULE_HOST, OP_HOST, OP_NAT, 11},
+  {"q_ivc_verify", 6, RULE_HOST, OP_HOST, OP_NAT, 12},
+  {"q_ivc_start", 4, RULE_HOST, OP_HOST, OP_NAT, 13},
+  {"q_ivc_extend", 3, RULE_HOST, OP_HOST, OP_NAT, 14},
+  {"q_ivc_word", 2, RULE_HOST, OP_HOST, OP_NAT, 15}
 };
 
 #define BUILTIN_COUNT ((uint32_t)(sizeof BUILTINS / sizeof BUILTINS[0]))
@@ -1911,6 +1915,41 @@ static int host_types(Checker *c, uint32_t part, const Value **t, uint32_t *n) {
     *n = part == 9u ? 6u : 4u;
     return t[0] != NULL;
   }
+  if (part == 12u) {
+    t[0] = nat;
+    t[1] = word_record(c, "W8", 8u);
+    t[2] = t[1] == NULL ? NULL : word_record(c, "W20", 20u);
+    t[3] = t[2];
+    t[4] = nat;
+    t[5] = t[2] == NULL ? NULL : list_family(c, "Words", 2u);
+    t[6] = nat;
+    *n = 6u;
+    return t[5] != NULL;
+  }
+  if (part == 13u) {
+    t[0] = nat;
+    t[1] = word_record(c, "W8", 8u);
+    t[2] = w4;
+    t[3] = t[1] == NULL ? NULL : word_record(c, "W20", 20u);
+    t[4] = nat;
+    *n = 4u;
+    return t[3] != NULL;
+  }
+  if (part == 14u) {
+    t[0] = nat;
+    t[1] = w4;
+    t[2] = word_record(c, "W12", 12u);
+    t[3] = nat;
+    *n = 3u;
+    return t[2] != NULL;
+  }
+  if (part == 15u) {
+    t[0] = nat;
+    t[1] = nat;
+    t[2] = nat;
+    *n = 2u;
+    return 1;
+  }
   t[0] = part == 2u ? word_record(c, "BitProof", 48u) : word_record(c, "DecPart", 29u);
   t[1] = t[0] == NULL ? NULL : word_record(c, "W8", 8u);
   t[2] = w16;
@@ -1932,7 +1971,11 @@ static int host_types(Checker *c, uint32_t part, const Value **t, uint32_t *n) {
    : W16 → W16 → W16; q_mpc_affine (8) : W16 → W4 → W4 → W16; q_mpc_mul
    (9) : Prods → Prods → Prods → ℕ → W16 → W16 → W16 (the new shares, the
    code in word 12); q_mpc_mulc (10) : Prods → Prods → Prods → ℕ → W16;
-   q_mpc_open (11) : W16 → W16 → ℕ → W8 (the value, then the code). The
+   q_mpc_open (11) : W16 → W16 → ℕ → W8 (the value, then the code). S11
+   H5 (ivchost.h, Q-S11-23): q_ivc_verify (12) : ℕ → W8 → W20 → W20 → ℕ
+   → Words → ℕ, the IvcVerdict code. S11 H5 (Q-S11-26 (a)): q_ivc_start
+   (13) : ℕ → W8 → W4 → W20 → ℕ, q_ivc_extend (14) : ℕ → W4 → W12 → ℕ and
+   q_ivc_word (15) : ℕ → ℕ → ℕ (a handle or a refusal code; word k). The
    node has one child for each argument (core_op, R-E23). The checker
    treats the call as opaque. langc eval and the Wasm host call the same C
    function. */

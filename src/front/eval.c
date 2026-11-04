@@ -3,6 +3,7 @@
 #include "crypto/bgw.h"
 #include "crypto/elgamal.h"
 #include "crypto/frost.h"
+#include "crypto/ivchost.h"
 #include "crypto/sha256.h"
 #include "crypto/sigma.h"
 #include "crypto/threshold.h"
@@ -1474,7 +1475,7 @@ static const Value *reduce_hcomp(Machine *m, const Value *const *a, uint32_t n) 
 
 static uint32_t varied_arity(const Machine *m, Op op, uint32_t inst) {
   /* The guest arguments of each host import (check.c BUILTINS). */
-  static const uint32_t HOST_ARITY[12] = {2u, 3u, 5u, 3u, 3u, 7u, 3u, 2u, 3u, 6u, 4u, 3u};
+  static const uint32_t HOST_ARITY[16] = {2u, 3u, 5u, 3u, 3u, 7u, 3u, 2u, 3u, 6u, 4u, 3u, 6u, 4u, 3u, 2u};
   const CtorInfo *c = inst < m->ctor_count ? &m->ctors[inst] : NULL;
   const FamilyInfo *f = inst < m->family_count ? &m->families[inst] : NULL;
   if (op == OP_CTOR && c != NULL && c->family < m->family_count)
@@ -1486,7 +1487,7 @@ static uint32_t varied_arity(const Machine *m, Op op, uint32_t inst) {
   if (op == OP_FOLD_FAMILY && f != NULL)
     return f->ctor_count + 1u;
   if (op == OP_HOST)
-    return inst < 12u ? HOST_ARITY[inst] : 2u;
+    return inst < 16u ? HOST_ARITY[inst] : 2u;
   return UINT32_MAX;
 }
 
@@ -1556,6 +1557,45 @@ static int host_list(Machine *m, const Value *l, uint32_t argc, const uint32_t *
   }
 }
 
+/* The proof words of q_ivc_verify (S11 H5): real F has 16625 bytes, 2079
+   words. */
+#define IVC_PROOF_WORDS 2079u
+
+/* The Words list L (S11 H5, Q-S11-23): nil has no field, a cell a ℕ and
+   the rest. Each ℕ goes to BYTES, 8 bytes big endian. *HAVE is the cell
+   count; a list of more than MAX cells gives MAX + 1 (q_ivc_verify gives
+   IVC_BAD_READ). 1 when done; else 0, and *OUT is the stuck call or the
+   error. */
+static int host_nat_list(Machine *m, const Value *l, unsigned char *bytes, uint32_t max, uint32_t *have, uint32_t inst, const Value *const *a, uint32_t n, const Value **out) {
+  uint64_t w;
+  uint32_t j;
+  *have = 0;
+  for (;;) {
+    if (blocked(m, l, OP_HOST, inst, 0, a, n, out))
+      return 0;
+    if (l->kind != VAL_OP || l->op != OP_CTOR || (l->argc != 0u && l->argc != 2u)) {
+      *out = internal(m, "a host call on a value that is not its list");
+      return 0;
+    }
+    if (l->argc == 0u)
+      return 1;
+    if (*have == max) {
+      *have = max + 1u;
+      return 1;
+    }
+    if (blocked(m, l->args[0], OP_HOST, inst, 0, a, n, out))
+      return 0;
+    if (l->args[0]->kind != VAL_NAT) {
+      *out = internal(m, "a list word that is not a ℕ");
+      return 0;
+    }
+    w = l->args[0]->nat;
+    for (j = 0; j < 8u; j++) bytes[8u * *have + j] = (unsigned char)(w >> (56u - 8u * j));
+    *have += 1u;
+    l = l->args[1];
+  }
+}
+
 /* The constructor of the word record NAME (the result of q_combine, R-E30,
    and of q_mpc_mul, q_mpc_mulc and q_mpc_open, S10 H3). */
 static uint32_t record_ctor(const Machine *m, const char *name) {
@@ -1580,10 +1620,14 @@ static uint32_t record_ctor(const Machine *m, const char *name) {
    q_mpc_affine (8) and q_mpc_mulc (10) give a dealing as a W16; q_mpc_mul
    (9) gives the new shares and the code (word 12) as a W16; q_mpc_open
    (11) gives the value and the code (word 4) as a W8. q_mpc_mul and
-   q_mpc_mulc walk their three Prods lists. A neutral record, word or list
+   q_mpc_mulc walk their three Prods lists. S11 H5: q_ivc_verify (12)
+   walks its Words list and gives the IvcVerdict code as a ℕ (more than
+   2079 cells: IVC_BAD_READ). q_ivc_start (13), q_ivc_extend (14) and
+   q_ivc_word (15) run the prover in the wasm host only: a call of them is
+   a stuck call (Q-S11-27 (a)). A neutral record, word or list
    gives a stuck call, and the lowering gives IR_STMT_HOST for it. */
 static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a, uint32_t n) {
-  static const uint32_t WORDS[12][7] = {{4u, 4u},
+  static const uint32_t WORDS[16][7] = {{4u, 4u},
                                         {8u, 12u, 4u},
                                         {48u, 8u, 16u, 4u, 0u},
                                         {16u, 16u, 0u},
@@ -1594,13 +1638,19 @@ static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a
                                         {16u, 4u, 4u},
                                         {UINT32_MAX, UINT32_MAX, UINT32_MAX, 0u, 16u, 16u},
                                         {UINT32_MAX, UINT32_MAX, UINT32_MAX, 0u},
-                                        {16u, 16u, 0u}};
+                                        {16u, 16u, 0u},
+                                        {0u, 8u, 20u, 20u, 0u, UINT32_MAX},
+                                        {0u, 8u, 4u, 20u},
+                                        {0u, 4u, 12u},
+                                        {0u, 0u}};
   /* The records of a cell: Parts (the part only), KeyList, Prods. */
   static const uint32_t CELL_WORDS[3][3] = {{29u}, {8u}, {29u, 8u, 16u}};
   const Value *words[16];
   const Value *out;
   /* The records from 0, the result at 256, the Prods lists from 512. */
   unsigned char bytes[512u + 3u * BGW_LIST_BYTES];
+  /* The proof words of q_ivc_verify. */
+  static unsigned char proof[8u * IVC_PROOF_WORDS];
   uint64_t num[7];
   uint64_t open = 0;
   uint64_t w;
@@ -1609,7 +1659,7 @@ static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a
   uint32_t ctor;
   uint32_t i;
   uint32_t k;
-  if (inst > 11u || n != varied_arity(m, OP_HOST, inst))
+  if (inst > 15u || n != varied_arity(m, OP_HOST, inst))
     return internal(m, "a host import with no guest form");
   for (i = 0; i < n; i++) {
     if (blocked(m, a[i], OP_HOST, inst, 0, a, n, &out))
@@ -1619,6 +1669,10 @@ static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a
                                    (a[i]->kind != VAL_OP || a[i]->op != OP_CTOR || a[i]->argc != WORDS[inst][i]))
       return internal(m, "a host call on a value that is not its word record");
   }
+  /* The prover imports 13 to 15 run in the wasm host only (Q-S11-3 (a)): a
+     call of them is a stuck call (Q-S11-27 (a)). */
+  if (inst >= 13u)
+    return val_op(m, VAL_STUCK, OP_HOST, inst, 0, a, n);
   for (i = 0; i < n; i++) {
     num[i] = WORDS[inst][i] == 0u ? a[i]->nat : 0u;
     if (WORDS[inst][i] == 0u || WORDS[inst][i] == UINT32_MAX)
@@ -1626,6 +1680,14 @@ static const Value *reduce_host(Machine *m, uint32_t inst, const Value *const *a
     if (!host_words(m, a[i], WORDS[inst][i], bytes + at, inst, a, n, &out))
       return out;
     at += 8u * WORDS[inst][i];
+  }
+  /* q_ivc_verify: PK at 0 (64 bytes), Z0 at 64 and ZK at 224 (160 bytes
+     each), C = num[0], COUNT = num[4]. */
+  if (inst == 12u) {
+    if (!host_nat_list(m, a[5], proof, IVC_PROOF_WORDS, &have[0], inst, a, n, &out))
+      return out;
+    return val_nat(m, have[0] > IVC_PROOF_WORDS ? (uint64_t)IVC_BAD_READ
+                                                : (uint64_t)ivc_host_verify_bytes(num[0], proof, have[0], bytes + 64, bytes + 224, num[4], bytes));
   }
   if (inst == 1u)
     return val_nat(m, (uint64_t)frost_verify_xy(bytes, bytes + 64, bytes + 160));
@@ -2075,7 +2137,10 @@ const Core *quote_value(Machine *m, uint32_t level, const Value *v) {
 }
 
 /* The host imports of module "q" (O105), by import number. */
-static const char *const HOST_NAMES[] = {"q_hash2", "q_frost_verify", "q_ballot_verify", "q_tally_add", "q_partial_verify", "q_combine"};
+static const char *const HOST_NAMES[] = {"q_hash2",     "q_frost_verify", "q_ballot_verify", "q_tally_add", "q_partial_verify",
+                                         "q_combine",   "q_mpc_check",    "q_mpc_add",       "q_mpc_affine", "q_mpc_mul",
+                                         "q_mpc_mulc",  "q_mpc_open",     "q_ivc_verify", "q_ivc_start",
+                                         "q_ivc_extend", "q_ivc_word"};
 #define HOST_NAME_COUNT ((uint32_t)(sizeof HOST_NAMES / sizeof HOST_NAMES[0]))
 
 const char *op_name(const Machine *m, Op op, uint32_t inst, uint32_t field) {

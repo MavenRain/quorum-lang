@@ -1,6 +1,6 @@
 /* NEW (quorum-lang S11 H4b C2a): the IVC fixture tool. The selector <c>
    picks the step circuit: `ft` (F_t, a copy of the F_t callback of
-   test/ivcr1cs.c:1237) or `real-f` (step_f of test/stepcase.h). There is
+   test/ivcr1cs.c:1237) or `real-f` (step_f of src/crypto/stepcase.h). There is
    no default circuit, and the tool does not get the circuit from a file
    name. The selector also picks the key caps.
 
@@ -9,7 +9,7 @@
    the members {1, 2} (steps 1 and 2) or {2, 3} (the other steps), and one
    FROST certificate per step. The nonce bytes are the nonce bytes of
    sign_msg of test/frosttool.c with the 8 seed bytes (big endian) XOR at
-   bytes 16 to 23. Thus seed 0 gives the h4 steps of test/stepcase.h. The
+   bytes 16 to 23. Thus seed 0 gives the h4 steps of src/crypto/stepcase.h. The
    storage is static. The tool does not use the heap.
 
      ivctool size <c>
@@ -42,6 +42,7 @@
 #include "crypto/bn254.h"
 #include "crypto/dkg.h"
 #include "crypto/frost.h"
+#include "crypto/ivchost.h"
 #include "crypto/msm.h"
 #include "crypto/nova.h"
 #include "crypto/novacomp.h"
@@ -54,7 +55,7 @@
 #include "crypto/stepgadget.h"
 #include "crypto/u256.h"
 
-#include "stepcase.h"
+#include "crypto/stepcase.h"
 
 #define IVC_FILE_CAP 32768u
 #define IVC_STATE_BYTES (32u * STEP_GADGET_Z)
@@ -72,77 +73,16 @@
 #define IVC_AT_W (8u + 2u * STEP_GADGET_Z * 32u)
 #define IVC_AT_X (IVC_AT_W + 1u)
 
-/* The static storage has the caps of real F (test/ivch4.c). The F_t caps
-   are the caps of the IVC and comp rows of test/ivcr1cs.c, or larger. */
-#define IVC_PG 524288u
-#define IVC_PVARS 524288u
-#define IVC_PROWS 524288u
-#define IVC_PTERMS 3145728u
-#define IVC_PBUCKETS 262144u
-#define IVC_SG 65536u
-#define IVC_SVARS 65536u
-#define IVC_SROWS 65536u
-#define IVC_STERMS 524288u
-#define IVC_SBUCKETS 65536u
-#define IVC_CP 524288u
-#define IVC_CPB 262144u
-#define IVC_CS 65536u
-#define IVC_CSB 16384u
-#define IVC_FT_PG 65536u
-#define IVC_FT_PVARS 65536u
-#define IVC_FT_PROWS 65536u
-#define IVC_FT_PTERMS 524288u
-#define IVC_FT_PBUCKETS 65536u
-#define IVC_FT_CP 65536u
-#define IVC_FT_CPB 16384u
-
-typedef enum { IVC_FT, IVC_REAL_F } IvcCircuit;
 typedef enum {
   IVC_GENERATE, IVC_PROVE, IVC_VERIFY, IVC_SIZE, IVC_REFUSALS
 } IvcMode;
 typedef enum {
   IVC_READ_OK, IVC_READ_MISSING, IVC_READ_LENGTH, IVC_READ_IO
 } IvcRead;
-typedef enum {
-  IVC_OK, IVC_BAD_READ, IVC_BAD_DECODE, IVC_BAD_PUBLIC, IVC_BAD_PROOF
-} IvcVerdict;
-
 typedef struct {
   uint32_t rows;
   uint32_t mismatches;
 } IvcTally;
-
-/* The CTX of the step callback: the PoseidonParams of F_t, the case of
-   the step (the witness of real F), HEAD (the head before the step) and
-   PKB (the group PK, x then y) for the host input check of F_t, and BAD
-   (1 for the bad certificate). */
-typedef struct {
-  const PoseidonParams *params;
-  const StepCase *s;
-  const unsigned char *head;
-  const unsigned char *pkb;
-  int bad;
-} IvcCtx;
-
-/* The callback and the caps of one circuit. */
-typedef struct {
-  NovaStepFn fn;
-  size_t p_g;
-  size_t p_vars;
-  size_t p_rows;
-  size_t p_terms;
-  size_t p_buckets;
-  size_t c_p;
-  size_t c_pb;
-} IvcCaps;
-
-/* The public input of verify. PK is x, then y. */
-typedef struct {
-  Fe z0[STEP_GADGET_Z];
-  Fe zk[STEP_GADGET_Z];
-  uint64_t count;
-  Fe pk[2];
-} IvcPublic;
 
 /* The chain: C[k] is the case of step k + 1 (the state before the step,
    the body and the certificate), HEAD[k] is the head after k steps, and
@@ -154,40 +94,12 @@ typedef struct {
   unsigned char pkb[IVC_PK_BYTES];
 } IvcChain;
 
-static G1 ivc_g_p[IVC_PG];
-static U256 ivc_k_p[IVC_PG];
-static EcJac ivc_b_p[IVC_PBUCKETS];
-static Fe ivc_z_p[IVC_PVARS];
-static size_t ivc_row_p[IVC_PROWS];
-static R1csTerm ivc_term_p[IVC_PTERMS];
-static Fe ivc_t_p[IVC_PROWS];
-static G1 ivc_g_s[IVC_SG];
-static U256 ivc_k_s[IVC_SG];
-static EcJac ivc_b_s[IVC_SBUCKETS];
-static Fe ivc_z_s[IVC_SVARS];
-static size_t ivc_row_s[IVC_SROWS];
-static R1csTerm ivc_term_s[IVC_STERMS];
-static Fe ivc_t_s[IVC_SROWS];
 static Fe ivc_rwp[IVC_PVARS];
 static Fe ivc_rep[IVC_PROWS];
 static Fe ivc_rws[IVC_SVARS];
 static Fe ivc_res[IVC_SROWS];
 static Fe ivc_lws[IVC_SVARS];
-static NovaIvcKey ivc_key;
 static NovaIvcProof ivc_pf;
-static G1 ivc_cg_p[IVC_CP];
-static U256 ivc_ck_p[IVC_CP];
-static EcJac ivc_cb_p[IVC_CPB];
-static Fe ivc_cfe_p[IVC_CP * 5u];
-static G1 ivc_cgw_p[IVC_CP / 2u];
-static G1 ivc_cg_s[IVC_CS];
-static U256 ivc_ck_s[IVC_CS];
-static EcJac ivc_cb_s[IVC_CSB];
-static Fe ivc_cfe_s[IVC_CS * 5u];
-static G1 ivc_cgw_s[IVC_CS / 2u];
-static Fe ivc_cz[IVC_SVARS];
-static Fe ivc_ce[IVC_SROWS];
-static NovaCompKey ivc_ck;
 static NovaCompProof ivc_cpf;
 static NovaCompProof ivc_cpf2;
 static unsigned char ivc_buf[IVC_FILE_CAP];
@@ -199,10 +111,6 @@ static IvcChain ivc_chain_b;
 static IvcChain ivc_chain_c;
 static ThrShare ivc_share[DKG_N];
 static G1 ivc_pk;
-static size_t ivc_bad_seen;
-/* The F_t callback calls with a refused certificate (the host input
-   check), and the step of the refusal (0 = none). */
-static size_t ivc_cert_refused;
 static size_t ivc_cert_step;
 
 static const uint32_t IVC_IDS_12[2] = {1u, 2u};
@@ -309,106 +217,6 @@ static IvcRead ivc_file(const char *path, unsigned char *out, size_t cap, size_t
   return result;
 }
 
-/* F_t: a copy of nova_step_t of test/ivcr1cs.c:1237 (Q-S11-9 (a), the z
-   layout of stepgadget.h): OUT[2] = IN[2] + 1 (the count), and OUT[0] and
-   OUT[1] = state[1] and state[2] of one Poseidon permutation of (0, IN[0],
-   IN[1]) (the head limbs). OUT[3] = IN[3] and OUT[4] = IN[4]. CTX is the
-   PoseidonParams of the field of the system. */
-static void ivc_step_t(R1cs *cs, uint32_t out[STEP_GADGET_Z], const uint32_t in[STEP_GADGET_Z],
-                       const void *ctx) {
-  const PoseidonParams *params = (const PoseidonParams *)ctx;
-  uint32_t state[POSEIDON_WIDTH];
-  uint32_t next[POSEIDON_WIDTH];
-  Fe v;
-  Fe one;
-  fe_from_u64(&v, 0);
-  state[0] = r1cs_var(cs, &v);
-  r1cs_row(cs);
-  r1cs_term_int(cs, R1CS_A, 0, 1);
-  r1cs_term_int(cs, R1CS_B, state[0], 1);
-  r1cs_term_int(cs, R1CS_B, 0, 1);
-  r1cs_term_int(cs, R1CS_C, 0, 1);
-  state[1] = in[0];
-  state[2] = in[1];
-  poseidon_gadget(cs, next, state, params);
-  r1cs_value(&v, cs, in[2]);
-  one = small(1);
-  fe_add(&v, &v, &one, cs->f);
-  out[2] = r1cs_var(cs, &v);
-  r1cs_row(cs);
-  r1cs_term_int(cs, R1CS_A, 0, 1);
-  r1cs_term_int(cs, R1CS_B, in[2], 1);
-  r1cs_term_int(cs, R1CS_B, 0, 1);
-  r1cs_term_int(cs, R1CS_C, out[2], 1);
-  out[0] = next[1];
-  out[1] = next[2];
-  out[3] = in[3];
-  out[4] = in[4];
-}
-
-/* The head after the step from HEAD (the head before the step) and BODY,
-   as ivc_chain: q_hash2 (q_hash2 tagAppend HEAD) (q_hash2 BODY 0). */
-static void ivc_next_head(unsigned char out[32], const unsigned char *head, const unsigned char *body) {
-  unsigned char tag[32];
-  unsigned char zero4[32];
-  unsigned char a[32];
-  unsigned char d[32];
-  memset(tag, 0, sizeof tag);
-  memset(zero4, 0, sizeof zero4);
-  step_words(tag, step_append, 2u);
-  step_hash2(a, tag, head);
-  step_hash2(d, body, zero4);
-  step_hash2(out, a, d);
-}
-
-/* The F_t callback. It counts the calls with the bad certificate. The F_t
-   circuit does not read the certificate, thus the callback first verifies
-   it natively (frost_verify_xy) against the head of the body and the
-   chain PK. This is a host input check, not a circuit constraint. A
-   refusal counts in ivc_cert_refused, and ivc_prove_to then fails. */
-static void ivc_ft(R1cs *cs, uint32_t out[STEP_GADGET_Z], const uint32_t in[STEP_GADGET_Z],
-                   const void *ctx) {
-  const IvcCtx *c = (const IvcCtx *)ctx;
-  unsigned char msg[32];
-  if (c->bad) ivc_bad_seen++;
-  ivc_next_head(msg, c->head, c->s->body);
-  if (frost_verify_xy(c->pkb, c->s->sig, msg) != FROST_OK) ivc_cert_refused++;
-  ivc_step_t(cs, out, in, c->params);
-}
-
-/* The real F callback: step_f on the case of the step. */
-static void ivc_real(R1cs *cs, uint32_t out[STEP_GADGET_Z], const uint32_t in[STEP_GADGET_Z],
-                     const void *ctx) {
-  const IvcCtx *c = (const IvcCtx *)ctx;
-  if (c->bad) ivc_bad_seen++;
-  step_f(cs, out, in, c->s);
-}
-
-static void ivc_caps(IvcCircuit c, IvcCaps *cp) {
-  switch (c) {
-  case IVC_FT:
-    cp->fn = ivc_ft;
-    cp->p_g = IVC_FT_PG;
-    cp->p_vars = IVC_FT_PVARS;
-    cp->p_rows = IVC_FT_PROWS;
-    cp->p_terms = IVC_FT_PTERMS;
-    cp->p_buckets = IVC_FT_PBUCKETS;
-    cp->c_p = IVC_FT_CP;
-    cp->c_pb = IVC_FT_CPB;
-    return;
-  case IVC_REAL_F:
-    cp->fn = ivc_real;
-    cp->p_g = IVC_PG;
-    cp->p_vars = IVC_PVARS;
-    cp->p_rows = IVC_PROWS;
-    cp->p_terms = IVC_PTERMS;
-    cp->p_buckets = IVC_PBUCKETS;
-    cp->c_p = IVC_CP;
-    cp->c_pb = IVC_CPB;
-    return;
-  }
-}
-
 static const char *ivc_circuit_name(IvcCircuit c) {
   switch (c) {
   case IVC_FT:
@@ -442,6 +250,8 @@ static const char *ivc_verdict_name(IvcVerdict v) {
     return "refused public input";
   case IVC_BAD_PROOF:
     return "refused proof";
+  case IVC_BAD_CIRCUIT:
+    return "refused circuit";
   }
   return "?";
 }
@@ -570,82 +380,27 @@ static int ivc_chain_same(const IvcChain *a, const IvcChain *b) {
   return same;
 }
 
-/* The caller part of one side of the key (h4_side of test/ivch4.c). */
-static void ivc_side(NovaIvcSide *sd, G1 *g, size_t g_cap, U256 *k, EcJac *bucket, size_t buckets,
-                     Fe *z, size_t var_cap, size_t *rows, size_t row_cap, R1csTerm *term,
-                     size_t term_cap, Fe *t, const Modulus *m) {
-  sd->g = g;
-  sd->g_cap = g_cap;
-  sd->k = k;
-  sd->bucket = bucket;
-  sd->buckets = buckets;
-  step_modulus(&sd->m, m);
-  sd->z = z;
-  sd->var_cap = var_cap;
-  sd->row = rows;
-  sd->row_cap = row_cap;
-  sd->term = term;
-  sd->term_cap = term_cap;
-  sd->t = t;
-}
-
-/* One side of the comp key (h4_comp_side of test/ivch4.c). */
-static void ivc_comp_side(NovaCompSide *sd, G1 *g, U256 *k, size_t n, EcJac *bucket, size_t buckets,
-                          Fe *fe, G1 *gw) {
-  sd->g = g;
-  sd->g_cap = n;
-  sd->k = k;
-  sd->k_cap = n;
-  sd->bucket = bucket;
-  sd->buckets = buckets;
-  sd->fe = fe;
-  sd->fe_len = n * 5u;
-  sd->gw = gw;
-  sd->gw_len = n / 2u;
-}
-
 /* nova_ivc_setup with the callback and the caps of CP (the sizing runs use
    the case of step 1 of CH), then nova_comp_setup. */
-static int ivc_setup(const IvcCaps *cp, IvcCtx *ctx, const IvcChain *ch) {
-  NovaIvcKey *key = &ivc_key;
-  if (msm_buckets(cp->p_g) > cp->p_buckets || msm_buckets(IVC_SG) > IVC_SBUCKETS ||
-      msm_buckets(cp->c_p) > cp->c_pb || msm_buckets(IVC_CS) > IVC_CSB)
-    return 0;
-  ivc_side(&key->p, ivc_g_p, cp->p_g, ivc_k_p, ivc_b_p, cp->p_buckets, ivc_z_p, cp->p_vars, ivc_row_p,
-           cp->p_rows, ivc_term_p, cp->p_terms, ivc_t_p, &SECP_FN);
-  ivc_side(&key->s, ivc_g_s, IVC_SG, ivc_k_s, ivc_b_s, IVC_SBUCKETS, ivc_z_s, IVC_SVARS, ivc_row_s,
-           IVC_SROWS, ivc_term_s, IVC_STERMS, ivc_t_s, &SECP_FP);
-  ivc_pf.r_w_p = ivc_rwp;
-  ivc_pf.r_e_p = ivc_rep;
-  ivc_pf.r_w_s = ivc_rws;
-  ivc_pf.r_e_s = ivc_res;
-  ivc_pf.l_w_s = ivc_lws;
-  ctx->params = &key->p.params;
-  ctx->s = &ch->c[0];
-  ctx->head = ch->head[0];
-  ctx->pkb = ch->pkb;
-  ctx->bad = 0;
-  if (!nova_ivc_setup(key, cp->fn, ctx)) return 0;
-  ivc_comp_side(&ivc_ck.p, ivc_cg_p, ivc_ck_p, cp->c_p, ivc_cb_p, cp->c_pb, ivc_cfe_p, ivc_cgw_p);
-  ivc_comp_side(&ivc_ck.s, ivc_cg_s, ivc_ck_s, IVC_CS, ivc_cb_s, IVC_CSB, ivc_cfe_s, ivc_cgw_s);
-  ivc_ck.z = ivc_cz;
-  ivc_ck.var_cap = IVC_SVARS;
-  ivc_ck.e = ivc_ce;
-  ivc_ck.row_cap = IVC_SROWS;
-  return nova_comp_setup(&ivc_ck, key);
-}
-
 /* The caps, the DKG, the chain and the setup. */
 static int ivc_prepare(IvcCircuit c, IvcCaps *cp, IvcCtx *ctx, IvcChain *ch, uint64_t seed, size_t steps,
                        size_t bad) {
   time_t t0 = time(NULL);
   int ok;
-  ivc_caps(c, cp);
-  ok = ivc_dkg() && ivc_chain(ch, seed, steps, bad) && ivc_setup(cp, ctx, ch);
+  ivc_host_caps(c, cp);
+  ivc_pf.r_w_p = ivc_rwp;
+  ivc_pf.r_e_p = ivc_rep;
+  ivc_pf.r_w_s = ivc_rws;
+  ivc_pf.r_e_s = ivc_res;
+  ivc_pf.l_w_s = ivc_lws;
+  /* stepcase.h:4-6: each includer uses every static function. ivchost.c calls step_f and step_modulus. */
+  (void)step_f;
+  (void)step_modulus;
+  ok = ivc_dkg() && ivc_chain(ch, seed, steps, bad) && ivc_host_setup(c, ctx, &ch->c[0], ch->head[0], ch->pkb);
   printf("ivc tool %s setup: %ld s, n_p %lu n_s %lu, pad P %u %u %u, pad S %u %u %u, %s\n",
-         ivc_circuit_name(c), (long)(time(NULL) - t0), (unsigned long)ivc_key.p.key.n,
-         (unsigned long)ivc_key.s.key.n, ivc_ck.p.d.a, ivc_ck.p.d.b, ivc_ck.p.d.c, ivc_ck.s.d.a,
-         ivc_ck.s.d.b, ivc_ck.s.d.c, ok ? "ok" : "failed");
+         ivc_circuit_name(c), (long)(time(NULL) - t0), (unsigned long)ivc_host_key()->p.key.n,
+         (unsigned long)ivc_host_key()->s.key.n, ivc_host_ck()->p.d.a, ivc_host_ck()->p.d.b, ivc_host_ck()->p.d.c, ivc_host_ck()->s.d.a,
+         ivc_host_ck()->s.d.b, ivc_host_ck()->s.d.c, ok ? "ok" : "failed");
   return ok;
 }
 
@@ -658,15 +413,15 @@ static void ivc_restart(const IvcChain *ch) {
 static int ivc_prove_to(const IvcCaps *cp, IvcCtx *ctx, const IvcChain *ch, size_t to, size_t bad) {
   size_t k;
   int ok = to <= ch->steps;
-  ivc_cert_refused = 0;
+  ivc_host_cert_refused = 0;
   ivc_cert_step = 0;
   for (k = ivc_pf.k; ok && k < to; k++) {
     ctx->s = &ch->c[k];
     ctx->head = ch->head[k];
     ctx->pkb = ch->pkb;
     ctx->bad = k + 1u == bad;
-    ok = nova_ivc_prove_step(&ivc_pf, &ivc_key, cp->fn, ctx) && ivc_cert_refused == 0u;
-    ivc_cert_step = ivc_cert_refused != 0u ? k + 1u : 0u;
+    ok = nova_ivc_prove_step(&ivc_pf, ivc_host_key(), cp->fn, ctx) && ivc_host_cert_refused == 0u;
+    ivc_cert_step = ivc_host_cert_refused != 0u ? k + 1u : 0u;
   }
   ctx->bad = 0;
   return ok;
@@ -674,9 +429,9 @@ static int ivc_prove_to(const IvcCaps *cp, IvcCtx *ctx, const IvcChain *ch, size
 
 /* OUT (LEN = nova_comp_size bytes) = the compressed proof of ivc_pf. */
 static int ivc_compress(unsigned char *out, size_t *len) {
-  *len = nova_comp_size(&ivc_ck);
-  return *len <= IVC_FILE_CAP && nova_comp_prove(&ivc_cpf, &ivc_ck, &ivc_key, &ivc_pf) &&
-         nova_comp_encode(out, *len, &ivc_ck, &ivc_cpf);
+  *len = nova_comp_size(ivc_host_ck());
+  return *len <= IVC_FILE_CAP && nova_comp_prove(&ivc_cpf, ivc_host_ck(), ivc_host_key(), &ivc_pf) &&
+         nova_comp_encode(out, *len, ivc_host_ck(), &ivc_cpf);
 }
 
 /* The values of N 32-byte big endian fields at B, each below p. */
@@ -745,28 +500,12 @@ static void ivc_print_public(FILE *f, const IvcPublic *pub, const unsigned char 
   fprintf(f, "pk %s\n", h);
 }
 
-/* Decode (the canonical checks), the public binding, then
-   nova_comp_verify. */
-static IvcVerdict ivc_check(const unsigned char *b, size_t len, const IvcPublic *pub) {
-  NovaCompProof *pf = &ivc_cpf2;
-  size_t k;
-  int same;
-  if (!nova_comp_decode(pf, &ivc_ck, &ivc_key, b, len)) return IVC_BAD_DECODE;
-  same = (uint64_t)pf->k == pub->count;
-  for (k = 0; k < STEP_GADGET_Z; k++)
-    same = same && fe_eq(&pf->z0[k], &pub->z0[k]) && fe_eq(&pf->zk[k], &pub->zk[k]);
-  same = same && fe_eq(&pub->z0[3], &pub->pk[0]) && fe_eq(&pub->z0[4], &pub->pk[1]) &&
-         fe_eq(&pub->zk[3], &pub->pk[0]) && fe_eq(&pub->zk[4], &pub->pk[1]);
-  if (!same) return IVC_BAD_PUBLIC;
-  return nova_comp_verify(&ivc_ck, &ivc_key, pf) == 0 ? IVC_OK : IVC_BAD_PROOF;
-}
-
-/* Read the exact nova_comp_size bytes of PATH, then ivc_check. A failed
+/* Read the exact nova_comp_size bytes of PATH, then ivc_host_check. A failed
    read stops before nova_comp_decode. */
 static IvcVerdict ivc_verify_file(const char *path, const IvcPublic *pub) {
-  size_t len = nova_comp_size(&ivc_ck);
+  size_t len = nova_comp_size(ivc_host_ck());
   if (ivc_file(path, ivc_rd, sizeof ivc_rd, len) != IVC_READ_OK) return IVC_BAD_READ;
-  return ivc_check(ivc_rd, len, pub);
+  return ivc_host_check(ivc_rd, len, pub);
 }
 
 static int ivc_write(const char *path, const unsigned char *b, size_t n) {
@@ -793,7 +532,7 @@ static int ivc_size_mode(IvcCircuit c) {
   IvcCaps cp;
   IvcCtx ctx;
   int ok = ivc_prepare(c, &cp, &ctx, &ivc_chain_a, 0u, 1u, 0u);
-  if (ok) printf("ivc tool size %s: %lu bytes\n", ivc_circuit_name(c), (unsigned long)nova_comp_size(&ivc_ck));
+  if (ok) printf("ivc tool size %s: %lu bytes\n", ivc_circuit_name(c), (unsigned long)nova_comp_size(ivc_host_ck()));
   return ok ? 0 : 1;
 }
 
@@ -869,7 +608,7 @@ static int ivc_prove_mode(IvcCircuit c, const char *seed_s, const char *steps_s,
     return ivc_usage();
   if (bad_s != NULL && (!ivc_number(bad_s, steps, &bad) || bad == 0u)) return ivc_usage();
   ok = ivc_prepare(c, &cp, &ctx, ch, seed, (size_t)steps, (size_t)bad);
-  ivc_bad_seen = 0;
+  ivc_host_bad_seen = 0;
   t0 = time(NULL);
   if (ok) ivc_restart(ch);
   ok = ok && ivc_prove_to(&cp, &ctx, ch, (size_t)steps, (size_t)bad) && ivc_compress(ivc_buf, &len) &&
@@ -882,12 +621,12 @@ static int ivc_prove_mode(IvcCircuit c, const char *seed_s, const char *steps_s,
   }
   if (bad != 0u)
     printf("ivc tool: the bad certificate of step %llu reached the %s callback %lu times%s\n",
-           (unsigned long long)bad, ivc_circuit_name(c), (unsigned long)ivc_bad_seen,
+           (unsigned long long)bad, ivc_circuit_name(c), (unsigned long)ivc_host_bad_seen,
            ivc_host_only(c) ? " (host input check: the ft callback verifies it natively)" : "");
   if (ivc_cert_step != 0u)
     printf("ivc tool: host input check: the %s callback refused the certificate of step %lu "
            "(frost_verify_xy, %lu calls), not a circuit constraint\n",
-           ivc_circuit_name(c), (unsigned long)ivc_cert_step, (unsigned long)ivc_cert_refused);
+           ivc_circuit_name(c), (unsigned long)ivc_cert_step, (unsigned long)ivc_host_cert_refused);
   return ok ? 0 : 1;
 }
 
@@ -895,7 +634,7 @@ static int ivc_prove_mode(IvcCircuit c, const char *seed_s, const char *steps_s,
    size mode. */
 static int ivc_verify_ready(IvcCircuit c, IvcCaps *cp, IvcCtx *ctx, int *ready) {
   int ok = *ready || ivc_prepare(c, cp, ctx, &ivc_chain_a, 0u, 1u, 0u);
-  if (ok && !*ready) printf("ivc tool size %s: %lu bytes\n", ivc_circuit_name(c), (unsigned long)nova_comp_size(&ivc_ck));
+  if (ok && !*ready) printf("ivc tool size %s: %lu bytes\n", ivc_circuit_name(c), (unsigned long)nova_comp_size(ivc_host_ck()));
   *ready = ok;
   return ok;
 }
@@ -979,7 +718,7 @@ static int ivc_refusals(IvcCircuit c) {
   ivc_hex_string(pkh, ivc_chain_a.pkb, IVC_PK_BYTES);
 
   /* The same seed gives the same chain (and seed 0 gives the h4 steps of
-     test/stepcase.h, with PK = step_pk) and the same proof bytes. */
+     src/crypto/stepcase.h, with PK = step_pk) and the same proof bytes. */
   good = ok && ivc_chain(&ivc_chain_b, 0u, IVC_ROW_STEPS, 0u) && ivc_chain_same(&ivc_chain_a, &ivc_chain_b);
   memcpy(head, ivc_chain_a.head[0], 32u);
   for (k = 0; k < IVC_ROW_STEPS; k++) {
@@ -1013,24 +752,24 @@ static int ivc_refusals(IvcCircuit c) {
   good = ivc_circuit("ft", &sel) && sel == IVC_FT && ivc_circuit("real-f", &sel) && sel == IVC_REAL_F &&
          !ivc_circuit(NULL, &sel);
   for (k = 0; k < 5u; k++) good = good && !ivc_circuit(bad_circuits[k], &sel);
-  ivc_caps(IVC_FT, &other);
-  good = good && other.fn == ivc_ft && other.p_g == IVC_FT_PG && other.c_p == IVC_FT_CP;
-  ivc_caps(IVC_REAL_F, &other);
-  good = good && other.fn == ivc_real && other.p_g == IVC_PG && other.c_p == IVC_CP;
-  ivc_caps(c, &other);
-  good = good && ok && other.fn == cp.fn && ivc_check(ivc_buf, len, &pub) == IVC_OK;
+  ivc_host_caps(IVC_FT, &other);
+  good = good && other.fn == ivc_host_ft && other.p_g == IVC_FT_PG && other.c_p == IVC_FT_CP;
+  ivc_host_caps(IVC_REAL_F, &other);
+  good = good && other.fn == ivc_host_real && other.p_g == IVC_PG && other.c_p == IVC_CP;
+  ivc_host_caps(c, &other);
+  good = good && ok && other.fn == cp.fn && ivc_host_check(ivc_buf, len, &pub) == IVC_OK;
   ivc_row(&t, "circuit selection", good);
 
   /* The file of the proof has nova_comp_size bytes and reads back. */
-  good = ok && len == nova_comp_size(&ivc_ck) && len <= IVC_FILE_CAP && ivc_write(path, ivc_buf, len) &&
+  good = ok && len == nova_comp_size(ivc_host_ck()) && len <= IVC_FILE_CAP && ivc_write(path, ivc_buf, len) &&
          ivc_file(path, ivc_rd, sizeof ivc_rd, len) == IVC_READ_OK && memcmp(ivc_rd, ivc_buf, len) == 0 &&
          ivc_verify_file(path, &pub) == IVC_OK;
   ivc_row(&t, "size round trip", good);
 
   /* Decode, then encode, gives the same bytes. */
-  good = ok && nova_comp_decode(&ivc_cpf2, &ivc_ck, &ivc_key, ivc_buf, len) &&
-         nova_comp_encode(ivc_buf2, len, &ivc_ck, &ivc_cpf2) && memcmp(ivc_buf, ivc_buf2, len) == 0 &&
-         ivc_check(ivc_buf, len, &pub) == IVC_OK;
+  good = ok && nova_comp_decode(&ivc_cpf2, ivc_host_ck(), ivc_host_key(), ivc_buf, len) &&
+         nova_comp_encode(ivc_buf2, len, ivc_host_ck(), &ivc_cpf2) && memcmp(ivc_buf, ivc_buf2, len) == 0 &&
+         ivc_host_check(ivc_buf, len, &pub) == IVC_OK;
   ivc_row(&t, "decode encode bytes", good);
 
   good = ok && len > 1u && ivc_write(path, ivc_buf, len - 1u) &&
@@ -1069,38 +808,38 @@ static int ivc_refusals(IvcCircuit c) {
 
   /* The printed public input verifies. A changed z0, zk, count or PK is a
      public binding refusal. */
-  good = ok && ivc_public_parse(&bad, z0h, zkh, "1", pkh) && ivc_check(ivc_buf, len, &bad) == IVC_OK;
+  good = ok && ivc_public_parse(&bad, z0h, zkh, "1", pkh) && ivc_host_check(ivc_buf, len, &bad) == IVC_OK;
   bad = pub;
   fe_add(&bad.z0[2], &bad.z0[2], &one, &SECP_FP);
-  good = good && ivc_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
+  good = good && ivc_host_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
   bad = pub;
   fe_add(&bad.zk[0], &bad.zk[0], &one, &SECP_FP);
-  good = good && ivc_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
+  good = good && ivc_host_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
   bad = pub;
   bad.count = pub.count + 1u;
-  good = good && ivc_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
+  good = good && ivc_host_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
   bad = pub;
   bad.count = 0u;
-  good = good && ivc_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
+  good = good && ivc_host_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
   bad = pub;
   fe_add(&bad.pk[0], &bad.pk[0], &one, &SECP_FP);
-  good = good && ivc_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
+  good = good && ivc_host_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
   bad = pub;
   fe_add(&bad.pk[1], &bad.pk[1], &one, &SECP_FP);
-  good = good && ivc_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
+  good = good && ivc_host_check(ivc_buf, len, &bad) == IVC_BAD_PUBLIC;
   ivc_row(&t, "bad public input", good);
 
   /* A value or a coordinate not below its modulus, or a bad point byte,
      is a decode refusal. A public value not below p is a parse refusal. */
   memcpy(ivc_mut, ivc_buf, len);
   memset(ivc_mut + IVC_AT_Z0, 0xff, 32u);
-  good = ok && len > IVC_AT_X + 32u && ivc_check(ivc_mut, len, &pub) == IVC_BAD_DECODE;
+  good = ok && len > IVC_AT_X + 32u && ivc_host_check(ivc_mut, len, &pub) == IVC_BAD_DECODE;
   memcpy(ivc_mut, ivc_buf, len);
   ivc_mut[IVC_AT_W] = 0x05u;
-  good = good && ivc_check(ivc_mut, len, &pub) == IVC_BAD_DECODE;
+  good = good && ivc_host_check(ivc_mut, len, &pub) == IVC_BAD_DECODE;
   memcpy(ivc_mut, ivc_buf, len);
   memset(ivc_mut + IVC_AT_X, 0xff, 32u);
-  good = good && ivc_check(ivc_mut, len, &pub) == IVC_BAD_DECODE;
+  good = good && ivc_host_check(ivc_mut, len, &pub) == IVC_BAD_DECODE;
   memcpy(badh, z0h, sizeof badh);
   memset(badh, 'f', 64u);
   good = good && !ivc_public_parse(&bad, badh, zkh, "1", pkh);
