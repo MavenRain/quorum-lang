@@ -48,10 +48,11 @@ USER ruling on Q7, 2026-10-26 (S5 close, AskUserQuestion), verbatim:
 | Q8 | (b) | A Pedersen DKG makes the FROST key and the ElGamal key (secs 4.2 to 4.4, S6, S7). |
 | Q9 | (a) | Cryptography in Wasm uses a fixed host-import ABI (sec 5, S8). |
 | Q10 | (a) | The module carries the fragment checker (sec 6, S8). |
-| Q11 | (b) | v1 keeps the certificate chain. The slice S11 adds a constant-size proof (sec 5, Q15, O13). |
+| Q11 | (b) | v1 keeps the certificate chain. The slice S11 adds a constant-size proof (sec 5, Q15 (a), O13). |
 | Q12 | (a) | One fixed offline proxy gives the token counts (A13, S9). |
 | Q13 | (b) | The surface is Agda-like Unicode with the design names (sec 3, A1, docs/GRAMMAR.md, S1). |
 | Q14 | (a) | Honest-majority BGW over the committee's Shamir shares. Ruled 2026-10-28 at S10 (sec 5, O135 to O143, S10). |
+| Q15 | (a) | Nova folding on the secp256k1/secq256k1 cycle (the cycle fix of Nguyen, Boneh and Setty 2023), with a compressed proof (Spartan with an IPA commitment). Ruled 2026-10-30 at S11 (sec 5, O144 to O165, S11). |
 | Q16 | (b) | Ruled 2026-10-26 at S3 (AskUserQuestion), verbatim "(b) Guest proof". The kernel has a dependent eliminator `elim` for ℕ and Bool. Discreteness and Hedberg are guest laws in lib/prelude.lang. The kernel has no constant for `isSet` (sec 3.1, O37, O44). |
 
 ### 1.3 Readings (Claude, NOT ruled)
@@ -319,8 +320,8 @@ mark (O64), and `langc laws examples/threshold.lang` prints
 | `ZK`: `Proof`, `verify`, `prove` | rep interface | S5, S6 |
 | `ZK`: `complete` | obligation | S5 |
 | `ZK`: `⟦_⟧` | assumption for a real scheme (sec 4.1); obligation for the denotational instance | S5 |
-| `IVC`: `Proof`, `verify`, `start`, `extend` | rep interface | S5; S8 (certificate chain, Q11 (b)); S11 (constant-size proof, Q15) |
-| `start✓`, `extend✓`, `IVC.⟦_⟧` | obligation | S5 |
+| `IVC`: `Proof`, `verify`, `start`, `extend` | rep interface | S5; S8 (certificate chain, Q11 (b)); S11 (constant-size proof, Q15 (a): Nova, `ivcInst`) |
+| `start✓`, `extend✓`, `IVC.⟦_⟧` | obligation | S5; S11 (parameters of `ivcInst`, O150, Q-S11-5 OPEN) |
 | `IVC.prove` | law | S5 |
 | `Sharing`: `Secret`, `Shares`, `⟦_⟧`, `reshare` | rep interface | S5, S7 |
 | `⟦reshare⟧` | obligation | S5, S7 |
@@ -520,6 +521,7 @@ n' 4), and the new {2, 3, 4} open an S6 cast under the old PK.
 | FROST | correctness | unforgeability, `honest-meet`, `faithful`, `single` |
 | DKG (Q8 (b)) | each dealing verifies against its Feldman commitments; PK = sum of the constant-term commitments | DL; Schnorr proof of knowledge soundness (random oracle model) |
 | Reshare | `⟦reshare⟧` | honest dealing |
+| IVC proof (S11, O150; Q-S11-5 OPEN) | `start✓`, `extend✓` (kit test: the gate verifies each good proof in C and by `langc eval`) | `IVC.⟦_⟧` (knowledge soundness: discrete log, random oracle model, heuristic Fiat-Shamir in the recursion) |
 
 ## 5. Wasm replica (ruling 1)
 
@@ -575,9 +577,31 @@ program and the kit runtime.
   gives the field and group operations. (b) Bigint code emitted into the
   module.
 - IVC: the v1 instance is the certificate chain (linear size, Q11 (b)).
-  `start` = the empty chain. `extend` = append one certificate. A later
-  slice (S11) adds a constant-size proof under the scheme that Q15 rules
-  (O13). Its verifier laws stay guest terms (ruling 2).
+  `start` = the empty chain. `extend` = append one certificate. S11
+  adds a constant-size proof under Q15 (a) (O13, O144 to O165): Nova
+  folding on the secp256k1/secq256k1 cycle with the cycle fix of
+  Nguyen, Boneh and Setty (2023), compressed by Spartan with an IPA
+  commitment. The ft fixture proofs have 14825 bytes for histories of
+  1, 3, 10 or 100 steps. The C host proves (`q_ivc_start`,
+  `q_ivc_extend`). The wasm host and `langc eval` verify
+  (`q_ivc_verify`, the replica entry `ivc_verify`). `ivcInst` in
+  replica/replica.lang is the Nova instance
+  of `IVC`, with `start✓`, `extend✓` and `IVC.⟦_⟧` as parameters (O150;
+  Q-S11-5 is OPEN). Its verifier laws stay guest terms (ruling 2).
+- IVC security scope (S11, O151). With the full step function F
+  (O146), a proof attests n FROST-certified steps from `q_hash2
+  tagGenesis zero4` to the head under PK. Knowledge soundness rests on
+  the discrete log assumption in the random oracle model, for the
+  folding and the IPA. The recursion puts Poseidon in the circuit in
+  place of the random oracle: this is a heuristic Fiat-Shamir step,
+  with no proof. The parameters are test parameters from our own code,
+  with no audit. The proof has no zero knowledge and is not private:
+  the chain is public. The gate fixtures use the test step function
+  ft, and there the host input check of the C prover refuses a bad
+  certificate (refusal fixture 6), not a circuit constraint. F runs
+  outside the gate (`make ivc-h4`, Q-S11-15 (a)). FROST
+  unforgeability, `honest-meet`, `faithful` and `single` stay
+  assumptions (sec 4.5, the FROST row). S11 is not for production use.
 
 S8 status (Claude reading, NOT ruled; O104 to O108, O110, O112 to O114,
 O116). replica/replica.lang is the replica program. `langc build` writes
@@ -760,7 +784,7 @@ commit message file and the next prompt file. The USER commits.
 | S8 | Wasm replica: sec 5 exports, certificate chain check, merge and tip, FHE tally route, `amend_accept` | GREEN: a scripted history of 4 certified steps by the S7 secp256k1 DKG committee (`replica history: 4 steps, tip 4`); two replicas merge to one tip (`replica merge: 3 rows, tip 4`); the refuse fixtures give their codes (bad signature REP_BAD_SIG, fork REP_FORK, ill-typed constitution AMEND_ILL_TYPED, `Core` break AMEND_CORE; also REP_BAD_LINK, AMEND_NOT_FHE, BALLOT_BAD and PARTIAL_BAD: `replica refusals: 8 of 8`); the accept fixture is accepted (`replica accept: 1 of 1`); `langc eval` against build/replicatool: `replica: 25 cases, 0 mismatches`, `replica route: 19 cases, 0 mismatches`, `replica tally: 14 cases, 0 mismatches` (the S6 counts); `replica apply: 3 rows, state 4`; `host: 2 rows`; `input: 4 rows`; make check EXIT 0, gate: 0 failures (serial log); fmt: 104 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: fork check skipped (`mergeCode` without the digest compare: the fork row gives 0, not REP_FORK), `Core` check skipped (`amendCore` gives 0: the corebrk row gives 0, not AMEND_CORE), fragment check skipped (the fragment fold replaced by 0: the ill row gives AMEND_CORE, not AMEND_ILL_TYPED); 3 of 3 KILLED | sec 5 and sec 6 status; sec 10 O104 to O116; docs/STATUS.md, README.md |
 | S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | GREEN (A3, A4, A5, A8, A13, A16, A17, A19): `agents: 10 verbs, 0 missing`; `explain: 13 fixtures`; `base: 152 names, 0 missing`; `mcp: 15 requests, 0 mismatches`; `skill: 6 copies, 0 drift`; `agent examples: 5 files, 13 of 13 laws`; `tokens: 3 tasks, 12 cells`; `corpus: 135 files, 0 mismatches`; `readme: 5 yes rows, 0 without a slice`; speed (O132): the mcp block 0.05 s, the explain block 0.27 s, the 9 S9 blocks 2.76 s; make check EXIT 0, gate: 0 failures (serial log); fmt: 110 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; the 10 S8 replica, host and input lines as at S8; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: MCP tool drops a field (the explain printer of src/main.c without `"type"`: `mcp: 15 requests, 1 mismatches`), a SKILL.md copy drifts (one line of the copy of examples/agent/03-threshold-reveal.lang changes: `skill: 6 copies, 1 drift`), `list-base` misses a name (the row `Set` of src/front/basenames.c goes: `base: 152 names, 1 missing`); 3 of 3 KILLED | sec 7 status; sec 10 O117 to O134; docs/STATUS.md, README.md, AGENTS.md |
 | S10 | BGW arithmetic transcript validation model for the MPC tally route (Q6 (b)) (Q14 (a), ruled 2026-10-28): src/crypto/bgw.c and bgw.h, the host imports `q_mpc_check`, `q_mpc_add`, `q_mpc_mul`, `q_mpc_mulc`, `q_mpc_affine` and `q_mpc_open`, the replica entries `mpc_tally`, `mpc_route` and `tally_decide`, the generator test/mpctool.c and the fixture test/replica/mpc.txt; the replica runs `tallyᴹ` | GREEN: `replica mpc: 38 cases (15 by langc eval), 0 mismatches` (`tallyᴹ`); `replica decide: 34 cases, 0 mismatches` (`tallyᶠ` on the same ballots, N = 34): `tallyᴹ` = `tallyᶠ` on each fixture, so `tallyᴹ-correct` checks; `replica refusals: 11 of 11`; `bgw regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); all other count lines as at S9 | 3: one share dropped from the sum (the bgw_sum loop stops at count - 1: `FAIL replica mpc: build/mpctool lang is not test/replica/mpc.txt`, `FAIL bgw mutant 1: each sum share checks`; the mismatches stay 0, because replicatool reads the fixture), a reconstruction coefficient wrong (bgw_open gives a wrong x to the Lagrange call: `replica mpc: 38 cases (15 by langc eval), 19 mismatches`, `FAIL bgw mutant 2: open at each pair of members`), MPC output not checked (bgw_open does not check the output shares: `FAIL replica mpc badout mpc_route: want 12, ...`, `FAIL replica refusals: 10 of 11`, `FAIL bgw mutant 3: open with a bad output share rejects`); 3 of 3 KILLED | sec 1.2 Q14 row; sec 5 MPC route; sec 10 O135 to O143; sec 11 Q14 RULED; docs/STATUS.md, README.md |
-| S11 | constant-size IVC proof (Q11 (b)) under the scheme that Q15 rules; verifier laws as guest terms (ruling 2) | proof size is the same for histories of 1, 10 and 100 steps; `start✓`, `extend✓` and `IVC.⟦_⟧` check for the new instance; each bad-proof fixture refused | 3: one step not folded, verifier check skipped, state hash not bound | sec 3.4, sec 5 |
+| S11 | constant-size IVC proof (Q11 (b)) under Q15 (a) (ruled 2026-10-30): Nova folding on the secp256k1/secq256k1 cycle, compressed by Spartan with an IPA commitment (src/crypto/nova.c, novacomp.c, spartan.c, ipa.c), the replica entry `ivc_verify` and the fixture tool test/ivctool.c; verifier laws as guest terms (ruling 2) | proof size is the same for histories of 1, 10 and 100 steps; `start✓`, `extend✓` and `IVC.⟦_⟧` check for the new instance; each bad-proof fixture refused | 3: one step not folded, verifier check skipped, state hash not bound | sec 3.4, sec 5 |
 | S12 | close: docs final, mutant sweep of S1 to S11, README status | full gate GREEN; each earlier mutant killed again | sweep | STATUS, README |
 
 ## 10. O items
@@ -817,9 +841,9 @@ commit message file and the next prompt file. The USER commits.
   canonical Unicode text as `fix`, so `langc fmt` keeps one form per
   operation. The USER can rule that ASCII input is an error.
 - O13. Constant-size IVC (Q11 (b)). A constant-size proof needs a proof
-  system outside the ruling 3 set (ElGamal and FROST). So the USER rules
-  the scheme (Q15) before S11. Its verifier laws stay guest terms
-  (ruling 2).
+  system outside the ruling 3 set (ElGamal and FROST). So the USER ruled
+  the scheme before S11: Q15 (a), 2026-10-30 (O144 to O165). Its
+  verifier laws stay guest terms (ruling 2).
 - O14. `REFUSE_DATA` and `REFUSE_CELL` (Claude reading, NOT ruled; S2).
   The checker sorts a program `data` declaration in the sec 2.4 order:
   a type parameter (the CM check), a type index (`REFUSE_CELL`), value
@@ -1945,6 +1969,179 @@ commit message file and the next prompt file. The USER commits.
   wrong x at the Lagrange call of the open): mismatches > 0. M3 (the
   output check off): `FAIL replica mpc badout mpc_route` and `FAIL
   replica refusals: 10 of 11`.
+- O144. (Claude reading, NOT ruled; under Q15 (a)) The cycle. The
+  primary circuit is over F_p (the secp256k1 base field), so the
+  FROST(secp256k1, SHA-256) check of a certificate is native curve
+  arithmetic. The primary commitments are in secq256k1 (y^2 = x^3 + 7
+  over F_n, order p; src/crypto/secq256k1.c on the secp256k1 field
+  code). The secondary circuit is over F_n and verifies the primary
+  fold. Its commitments are in secp256k1 (order n).
+- O145. (Claude reading, NOT ruled; under Q15 (a)) Nova with the cycle
+  fix of Nguyen, Boneh and Setty (2023) (src/crypto/nova.c). The IVC
+  proof holds the running instance of each circuit and the last
+  secondary instance (O162). The verifier checks the
+  last secondary instance (the fix). The instance hash binds the
+  parameter digest, i, z_0 and z_i (S11 mutant 3 removes z_i).
+- O146. (Claude reading, NOT ruled) The step function F. z = (head as
+  2 limbs of 128 bits, count, PK as (x, y)): 5 elements of F_p. F
+  checks one certificate as `stepCode` does (count, FROST signature on
+  the new head, `q_hash2` link) and gives the new z. The proof attests
+  n FROST-certified steps from `q_hash2 tagGenesis zero4` to the head
+  under PK. The gate fixtures use the test step function ft (17425
+  primary and 14163 secondary constraints). F runs outside the gate
+  (`make ivc-h4`; the USER ruled Q-S11-15 (a)).
+- O147. (Claude reading; the USER ruled Q-S11-2 (a)) Poseidon in the
+  circuit (src/crypto/poseidon.c, poseidongadget.c) for the instance
+  hash and the fold transcript. `q_hash2` and FROST stay SHA-256. The
+  round constants and the MDS matrix come from the Grain LFSR (O155).
+  These fields have no published vectors: an offline script made the
+  vectors once, and test/ivccrypto.c checks them (the `crypto ivc`
+  gate line).
+- O148. (Claude reading; the USER ruled Q-S11-1 (a) and Q-S11-10 to
+  Q-S11-14 (a)) Compression (src/crypto/novacomp.c, spartan.c, ipa.c).
+  One last NIFS fold of the last secondary instance l_u_s into r_U_s
+  (Q-S11-10 (a)), then Spartan (sum-check) with an IPA commitment on
+  the primary and the secondary relaxed R1CS, one IPA for each side
+  (Q-S11-12 (a)). The transcript is Poseidon with 128-bit IPA
+  challenges (Q-S11-13 (a)), and a point has 65 bytes (Q-S11-14 (a)).
+  No zero knowledge (O151). For a fixed circuit, the proof size is
+  constant in the history length: the ft fixture proofs have 14825
+  bytes for 1, 3, 10 and 100 steps (the `ivc size` gate line). The
+  commitment keys come from a deterministic hash-to-curve
+  (src/crypto/gens.c: try and increment, SHA-256, a domain tag), and
+  the parameter digest binds them.
+- O149. (Claude reading; the USER ruled Q-S11-3 (a)) The guest
+  instance. replica/replica.lang has `ivcInst`, the Nova instance of
+  `IVC`, with the proof words as `ProofI σ` and three host imports:
+  `q_ivc_start` and `q_ivc_extend` run the C prover, and `q_ivc_verify`
+  verifies. The wasm host (test/replicatool.c) and `langc eval` both
+  call `q_ivc_verify`; `langc eval` does not run the prover. The new
+  replica entry is `ivc_verify`.
+- O150. (Claude reading; Q-S11-5 is OPEN) The laws, as sec 4.5 (the
+  IVC proof row). `start✓` and `extend✓` are completeness: exact laws
+  that a kit test checks (the gate verifies each good proof in C and by
+  `langc eval`), stated as parameters of `ivcInst`. `IVC.⟦_⟧`
+  (knowledge soundness) is an assumption: a trust-model parameter with
+  no guest proof. The denotational instance (examples/denote.lang)
+  keeps all three as guest proofs.
+- O151. (Claude reading, NOT ruled) The security scope text of sec 5
+  (IVC security scope), docs/STATUS.md and README.md, in the form of
+  the USER S10 text.
+- O152. (Claude reading; the USER ruled Q-S11-4 (a)) Fixtures.
+  build/ivctool (test/ivctool.c, the mpctool model) made the proofs
+  for histories of 1, 3, 10 and 100 steps from a fixed seed, once,
+  offline, into test/ivc/ft. The gate verifies each one (the `ivc
+  verify` gate line) and runs the prover on the 3-step history, then
+  compares the bytes with the checked-in proof (`ivc prove: 3 steps, 0
+  byte mismatches`): the prover is deterministic. test/replica/ivc.txt
+  holds the replica rows (the `replica ivc` gate line).
+- O153. (Claude reading, NOT ruled) Bad-proof fixtures, each refused
+  (`ivc refusals: 6 of 6`): (1) head z_n changed; (2) count n changed;
+  (3) PK changed; (4) the last secondary instance changed (the
+  cycle-fix check); (5) one byte changed in the Spartan or IPA part;
+  (6) a 10-step history with a bad certificate at step 5. Fixtures 4
+  and 5 give `refused proof`. The host input check of the ft prover
+  callback (frost_verify_xy) refuses fixture 6, not a circuit
+  constraint.
+- O154. (Claude reading, NOT ruled) The 3 S11 mutants, each KILLED by
+  a named gate line (docs/STATUS.md, mutants at S11): (1) one step not
+  folded: `ivc prove` (byte mismatch) and `ivc verify`; (2) the Spartan
+  check of the secondary instance skipped: `ivc refusals: 5 of 6`
+  (fixture 5 accepted; an earlier check refuses fixture 4); (3) z_i
+  out of the instance hash: `ivc verify` and `ivc prove`.
+- O155. (Claude reading, NOT ruled) Poseidon width 3 (rate 2, capacity
+  1), alpha 5, R_F 8, R_P 57 for F_p and F_n; the partial S-box on
+  element 0; the Grain seed has field size 256. 57 is the published
+  value and is more than the port result 56.
+- O156. (Claude reading, NOT ruled) The secq256k1 generator is the
+  least-x rule (x = 1, even y). No published secq256k1 generator is
+  used.
+- O157. (Claude reading, NOT ruled) The field speed. fe_mul has a
+  bit-serial remainder; an affine scalar multiplication costs about 384
+  fe_inv.
+- O158. (Claude reading; the USER ruled Q-S11-20 (b), 2026-11-02) A
+  compressed Nova proof cannot be extended. `extend` needs the prover
+  state: the running instances and their witnesses (NovaIvcProof,
+  src/crypto/novaivc.h). The compressed proof (NovaCompProof,
+  novacomp.h) has no witness, and no encoding of NovaIvcProof exists
+  (for F_t at most 77339 field elements, 2474848 bytes). Rule: ProofI σ
+  is the compressed bytes and a ℕ handle to the one prover state that
+  the wasm host keeps (static, no heap; src/crypto/ivchost.c).
+  `q_ivc_start` and `q_ivc_extend` give a new handle. `extend` on a
+  stale handle is a refusal, thus `extend✓` holds for linear use only.
+  The guest data is 1854 words of 8 bytes (F_t).
+- O159. (Claude reading, NOT ruled) The edge cases of the ec7 gadgets
+  (src/crypto/ec7gadget.h). The identity has no form: each input point
+  is a point of the curve that is not the identity, and no gadget makes
+  it. The add is not complete: it proves that x2 - x1 is not 0 (1 row),
+  so A = B and A = -B have no witness (this closes the free lambda of
+  A = B). The double needs a point of the curve; then y is not 0,
+  because the group orders are odd primes. The scalar multiplication
+  starts its accumulator at an offset point Q. K P = the identity (K =
+  0, K = n) has no witness, and an accumulator collision is a
+  completeness gap, not a soundness gap. Each scalar limb is below
+  2^128; the gadget does not use one 256-bit pack (it can alias K and
+  K + p). One multiplication: 2824 rows, 2821 new variables, 12315
+  terms.
+- O160. (Claude reading, NOT ruled) The point operations of the fold
+  verifier. Each augmented circuit folds the running instance of the
+  other circuit: W' = W + r w and E' = E + r T, thus 2 scalar
+  multiplications and 2 adds for each fold. The primary circuit (F_p)
+  folds secp256k1 points and the secondary circuit (F_n) folds
+  secq256k1 points. r is the low 128 bits of a Poseidon output, so r is
+  the same integer in F_p and F_n. The scalar is 128 boolean variables
+  (ec7_mul_bits_gadget: 10 N + 6 rows, 1286 rows for 128 bits). The
+  running E is the identity after the base step, thus
+  ec7_add_id_gadget has a flag A_ID (A is the identity): 11 rows, 10
+  new variables, 48 terms. This is the one exception to the O159 rule.
+  The fold of u and the non-native fold of X are in O162.
+- O161. (Claude reading, NOT ruled) The step circuit F over F_p
+  (src/crypto/stepgadget.{c,h}): the native step of replica.lang
+  (`stepCode` 0) and frost_verify_xy. z has 5 elements; the witness is
+  the bits of the body and of the FROST z, and R = (x, y). The 7 parts:
+  (1) the constants zero and G; (2) the boolean bits, and z < n (as the
+  native verifier); (3) the canonical bits of the old head, PK and R;
+  (4) the new count = the old count + 1; (5) the head link, 3 q_hash2
+  (6 SHA-256 compressions); (6) the challenge c by xmd (7
+  compressions); (7) z G = R + c PK, with c PK from the 384 xmd bits (no
+  reduction mod n). F (step 1 of h4): 353175 rows, 350774 variables,
+  2046207 terms. O146 said 9 compressions; F has 13. The gaps are
+  completeness gaps only (as O159).
+- O162. (Claude reading, NOT ruled; under Q15 (a)) Nova on the cycle
+  (src/crypto/nova.{c,h}, novaivc.{c,h}, novagadget.{c,h}). (1) The
+  commitments have no blinding. N_C = the least power of 2 at or above
+  the witness and row counts. The digest D is the 250 low bits of a
+  SHA-256 of the shapes (D < n < p). (2) Relaxed R1CS; the 2 X
+  variables are variables 1 and 2. (3) The NIFS challenge r is a
+  Poseidon sponge (10 inputs, 5 permutations, r = the low 128 bits).
+  (4) P (F_p: F and the NIFS verifier of S) and S (F_n: a trivial
+  step); the instance hash is cut to 250 bits; the X fold is
+  non-native. (5) The proof keeps no last primary instance: it is in
+  r_U_p. (6) Real F: P 370238 rows, N_P = 2^19; S
+  14163 rows, N_S = 2^14. The gate uses F_t (P 17425 rows, N_P = 2^15;
+  the USER ruled Q-S11-9 (a)).
+- O163. (Claude reading; the USER ruled Q-S11-21 (b), 2026-11-02)
+  (PROGRESS H5 C2: O159.) replica/replica.lang had no records. `langc
+  build` accepts a record instance with Type-valued fields
+  (examples/denote.lang `denIVC` and examples/threshold.lang build with
+  rc 0). Rule: replica.lang gets a copy of the `IVC` record and the
+  instance `ivcInst` next to the `ivc_verify` export. No new example
+  file: the examples count stays 19.
+- O164. (Claude reading; the USER ruled Q-S11-22 (a), 2026-11-02)
+  (PROGRESS H5 C2: O160.) With only the good proofs in `langc eval`, a
+  mutant that makes the eval `q_ivc_verify` accept all proofs survives.
+  Rule: `langc eval` also checks the negative case (proof-3 with the zk
+  of proof-10): k = 5 of the M = 7 rows of test/replica/ivc.txt (about
+  215 s more). A later USER change made ivc.txt 12 rows. The gate line
+  is now `replica ivc: 12 cases (10 by langc eval), 0 mismatches`.
+- O165. (Claude reading; the USER approved H5-a, 2026-11-02) (PROGRESS
+  H5 C2: O161.) `langc eval` cannot call test/ivctool.c. Thus the
+  circuit setup moves to src/crypto: test/stepcase.h is now
+  src/crypto/stepcase.h, and the new src/crypto/ivchost.{c,h} (in
+  CRYPTO) hold the F_t and real-F step callbacks, the caps (the statics
+  have the real-F caps) and the one static key. test/ivctool.c calls
+  ivchost. Byte rule: the 13 F_t fixtures stay the same (the `ivc
+  prove` and `ivc verify` gate lines).
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 
@@ -1982,7 +2179,9 @@ commit message file and the next prompt file. The USER commits.
 - Q14. MPC protocol (S10, Q6 (b)). RULED (a) 2026-10-28. (a) Honest-majority BGW over the
   committee's Shamir shares. (b) SPDZ-style with preprocessing (dishonest
   majority). Needed before S10.
-- Q15. Constant-size IVC proof scheme (S11, Q11 (b), O13). (a) A folding
+- Q15. Constant-size IVC proof scheme (S11, Q11 (b), O13). RULED (a) 2026-10-30
+  (Nova folding on the secp256k1/secq256k1 cycle, the cycle fix of Nguyen,
+  Boneh and Setty 2023, with a compressed proof). (a) A folding
   scheme (Nova-style) with a final compressed proof. (b) A recursive
   SNARK. Needed before S11.
 - Q16. `isSet ℕ` and `isSet Bool` (S3). RULED (b) 2026-10-26. (b) A

@@ -22,7 +22,7 @@ run target is a Wasm replica. Each design law is a guest theorem that
 
 ## Status
 
-S1 to S10 are done. The checker has the Agda-like Unicode surface
+S1 to S11 are done. The checker has the Agda-like Unicode surface
 (docs/GRAMMAR.md), `langc fmt`, `langc check --json` and stable
 diagnostic codes (docs/DIAGNOSTICS.md). The base names of the design
 (Ballot, Quorum, Authorized and the others) are in the checker, and the
@@ -31,9 +31,13 @@ design laws are guest theorems. S6 and S7 add the cryptography
 agent kit: `langc explain`, `langc mcp`, skills/quorum-lang/SKILL.md, the
 5 programs of examples/agent/, docs/TOKEN-BASELINE.md and
 corpus/INDEX.md. S10 adds the MPC tally route to the replica:
-a BGW arithmetic model (src/crypto/bgw.c). docs/PLAN.md sec 9 lists the
-slices, and docs/PLAN.md sec 7 maps agent adoption to deliverables.
-S11 and S12 are not started. The next slice is S11.
+a BGW arithmetic model (src/crypto/bgw.c). S11 adds a constant-size
+IVC proof of the certificate chain: Nova folding on the
+secp256k1/secq256k1 cycle, compressed by Spartan with an IPA commitment
+(src/crypto/nova.c, test/ivctool.c). The ft fixture proofs have 14825
+bytes for 1, 3, 10 and 100 steps. docs/PLAN.md sec 9 lists the slices,
+and docs/PLAN.md sec 7 maps agent adoption to deliverables. S12 is not
+started. The next slice is S12.
 
 ## MPC security scope
 
@@ -46,6 +50,22 @@ Use the S6 threshold ElGamal route for encrypted ballots. A private MPC
 deployment needs hiding commitments and proofs plus separate member
 execution with private authenticated channels; S10 does not implement
 those requirements.
+
+## IVC security scope
+
+S11 is a test implementation of Nova IVC, not a production proof
+system. With the full step function (docs/PLAN.md O146), a proof
+attests n FROST-certified steps from the genesis digest to the head
+under the committee key. Knowledge soundness rests on the discrete log
+assumption in the random oracle model, for the folding and the IPA. The
+recursion puts Poseidon in the circuit in place of the random oracle: a
+heuristic Fiat-Shamir step, with no proof. The parameters come from our
+own code and have no audit. The proof has no zero knowledge and is not
+private: the chain is public. In the gate fixtures (the test step
+function ft), the host input check of the C prover refuses a bad
+certificate, not a circuit constraint. FROST unforgeability and the
+committee assumptions of the S7 certificates stay assumptions. Do not
+use S11 in production.
 
 ## Tool loop
 

@@ -1,6 +1,6 @@
 # quorum-lang status
 
-The build implements slices S1 to S10 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S11 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
@@ -25,8 +25,19 @@ src/crypto/bgw.c and bgw.h, the host imports `q_mpc_check`,
 `q_mpc_add`, `q_mpc_mul`, `q_mpc_mulc`, `q_mpc_affine` and `q_mpc_open`
 (in `langc eval` and in test/replicatool.c), the entries `mpc_tally`,
 `mpc_route` and `tally_decide` of replica/replica.lang, and the
-generator test/mpctool.c with the fixture test/replica/mpc.txt. Slices
-S11 and S12 are not started. The next slice is S11.
+generator test/mpctool.c with the fixture test/replica/mpc.txt. S11
+is the constant-size IVC proof of sec 5 under Q15 (a): Nova folding on
+the secp256k1/secq256k1 cycle with the cycle fix of Nguyen, Boneh and
+Setty (2023), compressed by Spartan with an IPA commitment. src/crypto
+holds secq256k1, Poseidon, the MSM, R1CS and the gadgets, Nova,
+Spartan and the IPA. The host imports are `q_ivc_start` and
+`q_ivc_extend` (they run the C prover; `langc eval` does not) and
+`q_ivc_verify` (in `langc eval` and in test/replicatool.c).
+replica/replica.lang has the entry `ivc_verify` and `ivcInst`, the Nova
+instance of `IVC`. The fixture tool is test/ivctool.c: test/ivc/ft
+holds the proofs and the refusal fixtures, and test/replica/ivc.txt
+holds the replica rows. The ft fixture proofs have 14825 bytes for
+1, 3, 10 and 100 steps. Slice S12 is not started. The next slice is S12.
 
 ## MPC security limitation
 
@@ -37,6 +48,22 @@ the host receives all members' shares. The fixtures and outcome equality
 checks establish functional agreement, not simulation-based MPC
 security. Hiding commitments, compatible proofs and distributed member
 execution with private authenticated channels remain unimplemented.
+
+## IVC security limitation
+
+S11 is a test implementation of Nova IVC. With the full step function
+F (`docs/PLAN.md` O146), a proof attests n FROST-certified steps from
+`q_hash2 tagGenesis zero4` to the head under PK. Knowledge soundness
+rests on the discrete log assumption in the random oracle model, for
+the folding and the IPA. The recursion puts Poseidon in the circuit in
+place of the random oracle: a heuristic Fiat-Shamir step, with no
+proof. The parameters are test parameters from our own code, with no
+audit. The proof has no zero knowledge and is not private: the chain
+is public. The gate fixtures use the test step function ft; there the
+host input check of the C prover refuses a bad certificate (refusal
+fixture 6), not a circuit constraint. FROST unforgeability,
+`honest-meet`, `faithful` and `single` stay assumptions. S11 is not for
+production use.
 
 ## Implemented
 
@@ -103,7 +130,9 @@ execution with private authenticated channels remain unimplemented.
   the 5 new laws `app-cons`, `ivc-prove`, `tallyᴹ-correct`,
   `tallyᶠ-correct` and `mpc≼fhe` (O73). At S10 the replica runs
   `tallyᴹ`, and the mpc block of test/gate.sh checks `tallyᴹ-correct`
-  on the fixtures (O135, O136). examples/denote.lang holds the
+  on the fixtures (O135, O136). At S11 `ivcInst` in
+  replica/replica.lang is the Nova instance of `IVC` (O149, O150).
+  examples/denote.lang holds the
   denotational instances and `law den-private` (O75).
 - Cryptography (S6): src/crypto holds BN254 G1, exponential ElGamal, the
   ballot proofs (`sig_or_*`, `sig_onehot_*`), threshold decryption with
@@ -261,6 +290,13 @@ execution with private authenticated channels remain unimplemented.
   differential cases with 0 mismatches, 19 IR lowerings, 22 Wasm modules
   valid, 12 of 12 laws discharged (examples/threshold.lang) and 1 of 1
   (examples/denote.lang).
+- Gate counts at S11: the S10 counts (all unchanged), 12 replica ivc
+  cases (10 by langc eval) with 0 mismatches, 48 crypto ivc vectors with
+  0 mismatches, 201 crypto r1cs rows with 0 mismatches, 3 ivc size
+  histories (1, 10 and 100 steps) of 14825 bytes each with 0 size
+  mismatches, 4 of 4 ivc verify proofs (C), 3 ivc prove steps with 0
+  byte mismatches, 6 of 6 ivc refusals and 12 ivc tool rows with 0
+  mismatches. The full serial `make check` gives EXIT 0.
 - Mutants at S9 (3 of 3 killed). Each restore gives cmp rc 0 and the
   same sha.
   - M1: the explain printer drops `"type"` (src/main.c). The mcp block
@@ -285,6 +321,20 @@ execution with private authenticated channels remain unimplemented.
     `FAIL replica mpc badout mpc_route: want 12, ...` and `FAIL replica
     refusals: 10 of 11`, and build/mpctool gives `FAIL bgw mutant 3:
     open with a bad output share rejects`.
+- Mutants at S11 (3 of 3 killed, src/crypto/nova.c and
+  src/crypto/novacomp.c). Each restore gives the saved sha. After the
+  restores, build/replicatool gives the 12 replica ivc rows with 0
+  differ.
+  - M1: nova_fold_instance keeps the running instance (`*out = *u1`).
+    `make ivc-prove` gives `ivc prove: 3 steps, 1 byte mismatches`, and
+    `make ivc-verify` gives `ivc verify: 0 of 4 (C)`.
+  - M2: the secondary Spartan check is skipped (novacomp.c:206, `rc =
+    0`). `make ivc-refusals` gives `ivc refusals: 5 of 6`: refusal
+    fixture 5 (one Spartan or IPA byte) gives `ok`. Fixture 4 stays
+    `refused proof`, because an earlier verifier check refuses it.
+  - M3: nova_hash does not absorb z_i. `make ivc-verify` gives `ivc
+    verify: 0 of 4 (C)`, and `make ivc-prove` gives `ivc prove: 3
+    steps, 1 byte mismatches`.
 - Speed at S9 (O132): in the CLEAN run of the S9 mutant script
   (W/mut-s9.py), the mcp block took 0.05 s (target less than 1 s), the
   explain block 0.27 s (target less than 1 s) and the 9 S9 blocks
@@ -293,9 +343,10 @@ execution with private authenticated channels remain unimplemented.
 
 ## Remaining work
 
-1. S11 and S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26)
-   and Q14 is ruled (a) (2026-10-28). Q15 must be ruled before S11.
-2. The O items O14 to O143 (`docs/PLAN.md` sec 10) are Claude readings,
+1. S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26), Q14
+   is ruled (a) (2026-10-28) and Q15 is ruled (a) (2026-10-30). The
+   placement of the IVC laws (O150) is open.
+2. The O items O14 to O165 (`docs/PLAN.md` sec 10) are Claude readings,
    but the USER ruled O109 (i). The USER can rule each one.
    `docs/PLAN.md` sec 5 (S8 readings) and sec 7 (S9 readings) name the
    session readings that are NOT ruled.
