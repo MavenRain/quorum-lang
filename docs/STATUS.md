@@ -1,6 +1,6 @@
 # quorum-lang status
 
-The build implements slices S1 to S11 of `docs/PLAN.md` sec 9. S1 is the
+The build implements slices S1 to S12 of `docs/PLAN.md` sec 9. S1 is the
 Agda-like Unicode surface, `langc fmt`, `langc check --json` with the
 progress counts, and the kit formers under rules R1 and R2. S2 is the
 cubical kernel and `REFUSE_CELL` for cell monads (CMs) only (Q1 (b)).
@@ -37,7 +37,9 @@ replica/replica.lang has the entry `ivc_verify` and `ivcInst`, the Nova
 instance of `IVC`. The fixture tool is test/ivctool.c: test/ivc/ft
 holds the proofs and the refusal fixtures, and test/replica/ivc.txt
 holds the replica rows. The ft fixture proofs have 14825 bytes for
-1, 3, 10 and 100 steps. Slice S12 is not started. The next slice is S12.
+1, 3, 10 and 100 steps. S12 is the close: the docs are final, and the
+mutant sweep kills the 33 mutants of S1 to S11 again (`Mutants at S12`
+below). The plan is complete.
 
 ## MPC security limitation
 
@@ -297,6 +299,8 @@ production use.
   mismatches, 4 of 4 ivc verify proofs (C), 3 ivc prove steps with 0
   byte mismatches, 6 of 6 ivc refusals and 12 ivc tool rows with 0
   mismatches. The full serial `make check` gives EXIT 0.
+- Gate counts at S12: the S11 counts (all unchanged). No S12 base gate
+  runs (O166). The full serial `make check` gives EXIT 0.
 - Mutants at S9 (3 of 3 killed). Each restore gives cmp rc 0 and the
   same sha.
   - M1: the explain printer drops `"type"` (src/main.c). The mcp block
@@ -335,6 +339,19 @@ production use.
   - M3: nova_hash does not absorb z_i. `make ivc-verify` gives `ivc
     verify: 0 of 4 (C)`, and `make ivc-prove` gives `ivc prove: 3
     steps, 1 byte mismatches`.
+- Mutants at S12 (the sweep, O167 and O169): at a2fa893, the sweep
+  kills the 33 mutants of S1 to S11 again (`sweep: 33 of 33 killed
+  again`). After the sweep, `git status --porcelain` gives 0 lines and
+  `git diff` gives 0 bytes. Each of the 20 restored files has an mtime
+  at least 1 s after the slice end. The runners are one new runner for
+  S1 and S2, the S3 to S9 runners, a copy of the S10 runner (its 7
+  single test/gate.sh lines move by +35 lines) and the S11 runner. The
+  sweep took 8609 s (S1 5064 s, S11 3103 s).
+  - S4: TYPE_MISMATCH step, TYPE_MISMATCH Authorized and NAME_UNKNOWN
+    fork-meet kill the 3 mutants. The law counts are now 1, 4 and 6 of
+    12 (at S4: 0, 2 and 4 of 7), because S5 added 5 laws to
+    examples/threshold.lang. The clean tree gives `laws: 12 of 12
+    discharged`.
 - Speed at S9 (O132): in the CLEAN run of the S9 mutant script
   (W/mut-s9.py), the mcp block took 0.05 s (target less than 1 s), the
   explain block 0.27 s (target less than 1 s) and the 9 S9 blocks
@@ -343,10 +360,10 @@ production use.
 
 ## Remaining work
 
-1. S12: see `docs/PLAN.md` sec 9. Q7 is ruled (a) (2026-10-26), Q14
-   is ruled (a) (2026-10-28) and Q15 is ruled (a) (2026-10-30). The
-   placement of the IVC laws (O150) is open.
-2. The O items O14 to O165 (`docs/PLAN.md` sec 10) are Claude readings,
+1. S12 is done, and the plan is complete (`docs/PLAN.md` sec 9). Q7
+   is ruled (a) (2026-10-26), Q14 is ruled (a) (2026-10-28) and Q15 is
+   ruled (a) (2026-10-30). The placement of the IVC laws (O150) is open.
+2. The O items O14 to O169 (`docs/PLAN.md` sec 10) are Claude readings,
    but the USER ruled O109 (i). The USER can rule each one.
    `docs/PLAN.md` sec 5 (S8 readings) and sec 7 (S9 readings) name the
    session readings that are NOT ruled.

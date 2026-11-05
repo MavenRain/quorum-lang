@@ -22,7 +22,7 @@ run target is a Wasm replica. Each design law is a guest theorem that
 
 ## Status
 
-S1 to S11 are done. The checker has the Agda-like Unicode surface
+S1 to S12 are done. The checker has the Agda-like Unicode surface
 (docs/GRAMMAR.md), `langc fmt`, `langc check --json` and stable
 diagnostic codes (docs/DIAGNOSTICS.md). The base names of the design
 (Ballot, Quorum, Authorized and the others) are in the checker, and the
@@ -36,8 +36,9 @@ IVC proof of the certificate chain: Nova folding on the
 secp256k1/secq256k1 cycle, compressed by Spartan with an IPA commitment
 (src/crypto/nova.c, test/ivctool.c). The ft fixture proofs have 14825
 bytes for 1, 3, 10 and 100 steps. docs/PLAN.md sec 9 lists the slices,
-and docs/PLAN.md sec 7 maps agent adoption to deliverables. S12 is not
-started. The next slice is S12.
+and docs/PLAN.md sec 7 maps agent adoption to deliverables. S12 is the
+close: the docs are final, and the mutant sweep kills the 33 mutants of
+S1 to S11 again (docs/STATUS.md). The plan is complete.
 
 ## MPC security scope
 

@@ -785,7 +785,7 @@ commit message file and the next prompt file. The USER commits.
 | S9 | agent kit: SKILL.md, docs/GRAMMAR.md, examples/agent/ (5), `langc mcp`, `langc explain --json`, AGENTS.md refresh, docs/TOKEN-BASELINE.md, corpus/INDEX.md | GREEN (A3, A4, A5, A8, A13, A16, A17, A19): `agents: 10 verbs, 0 missing`; `explain: 13 fixtures`; `base: 152 names, 0 missing`; `mcp: 15 requests, 0 mismatches`; `skill: 6 copies, 0 drift`; `agent examples: 5 files, 13 of 13 laws`; `tokens: 3 tasks, 12 cells`; `corpus: 135 files, 0 mismatches`; `readme: 5 yes rows, 0 without a slice`; speed (O132): the mcp block 0.05 s, the explain block 0.27 s, the 9 S9 blocks 2.76 s; make check EXIT 0, gate: 0 failures (serial log); fmt: 110 files canonical; json: 29 fixtures; diagnostics: 36 codes, 0 without a fixture or a row; refusals: 54 check, 9 parse; evals: 77; tally: 14 cases, 28 counts, 0 mismatches; auth: 24 cases, 0 mismatches; the 10 S8 replica, host and input lines as at S8; laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); ir: 19 lowered; differential: 5318 cases, 0 mismatches; wasm: 22 modules valid | 3: MCP tool drops a field (the explain printer of src/main.c without `"type"`: `mcp: 15 requests, 1 mismatches`), a SKILL.md copy drifts (one line of the copy of examples/agent/03-threshold-reveal.lang changes: `skill: 6 copies, 1 drift`), `list-base` misses a name (the row `Set` of src/front/basenames.c goes: `base: 152 names, 1 missing`); 3 of 3 KILLED | sec 7 status; sec 10 O117 to O134; docs/STATUS.md, README.md, AGENTS.md |
 | S10 | BGW arithmetic transcript validation model for the MPC tally route (Q6 (b)) (Q14 (a), ruled 2026-10-28): src/crypto/bgw.c and bgw.h, the host imports `q_mpc_check`, `q_mpc_add`, `q_mpc_mul`, `q_mpc_mulc`, `q_mpc_affine` and `q_mpc_open`, the replica entries `mpc_tally`, `mpc_route` and `tally_decide`, the generator test/mpctool.c and the fixture test/replica/mpc.txt; the replica runs `tallyᴹ` | GREEN: `replica mpc: 38 cases (15 by langc eval), 0 mismatches` (`tallyᴹ`); `replica decide: 34 cases, 0 mismatches` (`tallyᶠ` on the same ballots, N = 34): `tallyᴹ` = `tallyᶠ` on each fixture, so `tallyᴹ-correct` checks; `replica refusals: 11 of 11`; `bgw regressions: passed`; make check EXIT 0, gate: 0 failures (serial log); laws: 12 of 12 (examples/threshold.lang) and 1 of 1 (examples/denote.lang); all other count lines as at S9 | 3: one share dropped from the sum (the bgw_sum loop stops at count - 1: `FAIL replica mpc: build/mpctool lang is not test/replica/mpc.txt`, `FAIL bgw mutant 1: each sum share checks`; the mismatches stay 0, because replicatool reads the fixture), a reconstruction coefficient wrong (bgw_open gives a wrong x to the Lagrange call: `replica mpc: 38 cases (15 by langc eval), 19 mismatches`, `FAIL bgw mutant 2: open at each pair of members`), MPC output not checked (bgw_open does not check the output shares: `FAIL replica mpc badout mpc_route: want 12, ...`, `FAIL replica refusals: 10 of 11`, `FAIL bgw mutant 3: open with a bad output share rejects`); 3 of 3 KILLED | sec 1.2 Q14 row; sec 5 MPC route; sec 10 O135 to O143; sec 11 Q14 RULED; docs/STATUS.md, README.md |
 | S11 | constant-size IVC proof (Q11 (b)) under Q15 (a) (ruled 2026-10-30): Nova folding on the secp256k1/secq256k1 cycle, compressed by Spartan with an IPA commitment (src/crypto/nova.c, novacomp.c, spartan.c, ipa.c), the replica entry `ivc_verify` and the fixture tool test/ivctool.c; verifier laws as guest terms (ruling 2) | proof size is the same for histories of 1, 10 and 100 steps; `start✓`, `extend✓` and `IVC.⟦_⟧` check for the new instance; each bad-proof fixture refused | 3: one step not folded, verifier check skipped, state hash not bound | sec 3.4, sec 5 |
-| S12 | close: docs final, mutant sweep of S1 to S11, README status | full gate GREEN; each earlier mutant killed again | sweep | STATUS, README |
+| S12 | close: docs final, mutant sweep of S1 to S11, README status | GREEN: make check EXIT 0, gate: 0 failures (serial log); all count lines as at S11; no S12 base gate (Q-S12-3 (a)) | sweep at a2fa893 (Q-S12-1 (a)): the 33 mutants of S1 to S11 with their recorded edits and killers; `sweep: 33 of 33 killed again`; after the sweep, `git status --porcelain` 0 lines and `git diff` 0 bytes | sec 10 O166 to O169; docs/STATUS.md, README.md (5 Yes rows, Q-S12-2 (a)) |
 
 ## 10. O items
 
@@ -2142,6 +2142,37 @@ commit message file and the next prompt file. The USER commits.
   have the real-F caps) and the one static key. test/ivctool.c calls
   ivchost. Byte rule: the 13 F_t fixtures stay the same (the `ivc
   prove` and `ivc verify` gate lines).
+- O166. (Claude reading; the USER ruled Q-S12-3 (a), 2026-11-04) No S12
+  base gate. From the S11 close gate tree, a2fa893 changes only docs,
+  and test/gate.sh on a2fa893 gives the count lines of the S11 close
+  log. The close runs one full serial gate.
+- O167. (Claude reading; the USER ruled Q-S12-1 (a), 2026-11-04) The
+  sweep runs the 33 mutants of S1 to S11 again at a2fa893, with their
+  recorded edits and killers. It uses the slice runners of S3 to S11
+  and one new runner for S1 and S2.
+- O168. (Claude reading; the USER ruled Q-S12-2 (a), 2026-11-04) The
+  README table keeps 5 Yes rows: S11 has test parameters and no Yes
+  row, as S10. The gate line stays `readme: 5 yes rows, 0 without a
+  slice`.
+- O169. (Claude reading, NOT ruled) The sweep result at a2fa893. The
+  sweep kills the 33 mutants again (`sweep: 33 of 33 killed again`).
+  After the run, `git status --porcelain` gives 0 lines and `git diff`
+  gives 0 bytes. Each of the 20 restored files has an mtime at least
+  1 s after the slice end (make 3.81 compares mtimes to the second).
+  Runners: one new runner for S1 and S2 (the recorded edits, `make -B`,
+  test/gate.sh for S1, `langc check` of the 3 cell fixtures for S2),
+  the S3 to S9 runners as they are, a copy of the S10 runner (its 7
+  single test/gate.sh lines move by +35 lines; the block is the S10
+  block byte for byte) and the S11 runner as it is. Times: S1 5064 s
+  (4 test/gate.sh runs), S2 to S9 74 s in all, S10 353 s, S11 3103 s;
+  the run took 8609 s. S4: the named diagnostics (TYPE_MISMATCH step,
+  TYPE_MISMATCH Authorized, NAME_UNKNOWN fork-meet) kill the 3 S4
+  mutants. The law counts are now 1, 4 and 6 of 12 (at S4: 0, 2 and 4
+  of 7), because S5 (ab96de5) added 5 laws to examples/threshold.lang.
+  The S4 runner prints BAD on its clean line only because its green
+  constant is `laws: 7 of 7 discharged`. The clean tree gives check rc
+  0 and `laws: 12 of 12 discharged`, with no open law. The sweep driver
+  gives EXIT 1 for this note only.
 
 ## 11. Q items (for USER ruling; (a) is RECOMMENDED)
 
